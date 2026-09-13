@@ -2313,4 +2313,20 @@ Es el criterio de éxito del diseño.
 - **Peana reciclada.** Una sola peana 3D para todas las piezas blancas, a petición del
   usuario para ahorrar créditos.
 - **Escudo y peana.** Las imágenes aisladas salieron de Gemini (`raw/ref/escudo.jpeg` y
-  `raw/ref/peana.jpeg`). Sus modelos 3D se hacen en Tripo cuando los peones ya se muevan.
+  `raw/ref/peana.jpeg`). Sus modelos 3D se generan en Tripo como «Modelo HD»
+  (55 créditos cada uno, geometría y textura en un paso, sin esqueleto).
+- **Orientación.** Los GLB de Tripo miran a +Z (`yaw: 0`). En reposo las piezas miran
+  siempre al oponente: `REST_FACING = Math.PI` en `walk.js` (antes `FACING_BLACK`).
+- **Lanza y escudo.** El hueso de la mano de Tripo apunta hacia los dedos, así que
+  `attachToBone` dejaba la lanza boca abajo. La sustituye `attachInWorld`, que:
+  1. pone el peón en reposo (`mixer.update(0)`);
+  2. coloca el objeto en el espacio de la figura (`offset`, `rotation` y `scale` del
+     manifiesto);
+  3. lo engancha con `bone.attach`.
+
+  La lanza lleva `grip: 0.45` (menos asta bajo la mano). Comprobado por código: queda
+  vertical (0,99), la punta nunca baja de 2,53 y el regatón nunca baja de 0,32, por
+  encima de la peana (0,26).
+- **`tools/optimize-model.sh <entrada> <nombre> [ratio]`** hace dedup, prune y resample,
+  redimensiona las texturas (2048/1024), las pasa a WebP y aplica meshopt. El ratio
+  opcional simplifica la malla, solo en objetos sin esqueleto.
