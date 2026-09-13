@@ -6,7 +6,7 @@
     "yaw": 0,
     "clips": {},
     "hands": {},
-    "spear": { "hand": "right", "position": [0, 0, 0], "rotation": [0, 0, 0] },
-    "shield": { "hand": "left", "position": [0, 0, 0.06], "rotation": [0, 0, 0], "scale": 1 }
+    "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.45, "length": 1.9 },
+    "shield": { "hand": "left", "offset": [0.08, 0.05, 0.02], "rotation": [0, 1.5707963267948966, 0], "scale": 1 }
   }
 }

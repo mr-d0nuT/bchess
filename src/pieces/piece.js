@@ -30,17 +30,17 @@ function fitToHeight(object, height) {
   object.position.set(-((box.min.x + box.max.x) / 2) * k, -box.min.y * k, -((box.min.z + box.max.z) / 2) * k);
 }
 
-// Engancha un objeto a un hueso. El soporte anula la escala del hueso, así que la
-// posición, el giro y la escala del objeto quedan en unidades del tablero.
-function attachToBone(prop, bone, { position = [0, 0, 0], rotation = [0, 0, 0], scale = 1 } = {}) {
-  const holder = new THREE.Group();
-  bone.add(holder);
-  const s = bone.getWorldScale(new THREE.Vector3());
-  holder.scale.set(1 / s.x, 1 / s.y, 1 / s.z);
-  prop.position.fromArray(position);
+// Engancha un objeto a un hueso colocándolo primero en el espacio de la figura: en la
+// posición del hueso más `offset`, con el giro `rotation` y la escala `scale`, todo en
+// unidades del tablero. `attach` conserva esa colocación y desde entonces sigue al hueso,
+// sin depender de cómo orienta cada programa los ejes de sus huesos.
+function attachInWorld(prop, bone, { offset = [0, 0, 0], rotation = [0, 0, 0], scale = 1 } = {}) {
+  const at = bone.getWorldPosition(new THREE.Vector3());
+  prop.position.set(at.x + offset[0], at.y + offset[1], at.z + offset[2]);
   prop.rotation.set(rotation[0], rotation[1], rotation[2]);
   prop.scale.setScalar(scale);
-  holder.add(prop);
+  prop.updateMatrixWorld(true);
+  bone.attach(prop);
   return prop;
 }
 
@@ -170,13 +170,6 @@ export function spawnPawn(kit) {
     if (clip) actions[action] = mixer.clipAction(clip);
   }
 
-  const boneFor = (side) => (kit.hands[side] ? model.getObjectByName(kit.hands[side]) : null);
-  const props = {};
-  const spearBone = boneFor(spec.spear?.hand ?? 'right');
-  const shieldBone = boneFor(spec.shield?.hand ?? 'left');
-  if (spearBone) props.spear = attachToBone(createSpear(), spearBone, spec.spear);
-  if (shieldBone && kit.shield) props.shield = attachToBone(new THREE.Group().add(kit.shield.clone()), shieldBone, spec.shield);
-
   let current = null;
 
   function play(action, { loop = true, fade = 0.25 } = {}) {
@@ -208,8 +201,24 @@ export function spawnPawn(kit) {
     });
   }
 
-  // Cada peón respira a su ritmo: si todos empezaran a la vez parecerían soldaditos de cuerda.
+  // Lanza y escudo: se enganchan con el peón ya en la postura de reposo (aún en el origen
+  // y sin girar), colocados antes en el espacio de la figura; la lanza, vertical.
   play('idle', { fade: 0 });
+  mixer.update(0);
+  object.updateMatrixWorld(true);
+  const boneFor = (side) => (kit.hands[side] ? model.getObjectByName(kit.hands[side]) : null);
+  const props = {};
+  const spearBone = boneFor(spec.spear?.hand ?? 'right');
+  const shieldBone = boneFor(spec.shield?.hand ?? 'left');
+  if (spearBone) {
+    const spear = createSpear({ length: spec.spear?.length, grip: spec.spear?.grip });
+    props.spear = attachInWorld(spear, spearBone, spec.spear);
+  }
+  if (shieldBone && kit.shield) {
+    props.shield = attachInWorld(new THREE.Group().add(kit.shield.clone()), shieldBone, spec.shield);
+  }
+
+  // Cada peón respira a su ritmo: si todos empezaran a la vez parecerían soldaditos de cuerda.
   if (actions.idle) actions.idle.time = Math.random() * actions.idle.getClip().duration;
 
   return {
