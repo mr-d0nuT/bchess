@@ -25,7 +25,8 @@ Se aloja como repo público en GitHub Pages.
 | Caballero | Va a caballo sobre el tablero. En las batallas desmonta, o el caballo lo tira y huye, y lucha a pie. |
 | Nombre | «BChess», con la línea «Homenaje a Battle Chess (1988)». *Battle Chess* es marca registrada de Interplay Entertainment y no se usa como título. |
 | Presupuesto | 0 € hasta ver una pieza en movimiento. Después se decide si se paga un servicio. |
-| Herramienta 3D de la prueba | Tripo Studio, plan gratuito (propuesta del usuario). |
+| Herramienta 3D de la prueba | Tripo Studio (propuesta del usuario). Empezó en el plan gratuito; el mismo día el usuario contrató Pro porque el gratuito no exporta esqueleto ni animaciones. |
+| Reciclaje de modelos | Una sola peana 3D para todas las piezas blancas, estirada en código donde la base sea más ancha (caballo, torre). Se reutiliza todo lo posible para ahorrar créditos. |
 | Repo | `mr-d0nuT/bchess`, público, clon local en `~/bchess`, GitHub Pages desde `main`, sin compilación. |
 
 ## 3. Partes del proyecto
@@ -60,9 +61,16 @@ Dirección: `https://mr-d0nut.github.io/bchess/`
   de un HDRI libre (Poly Haven, CC0) y sombras suaves.
 - **Cámara:** gira, acerca y aleja con ratón y con el dedo. Tiene límites para no
   meterse bajo el tablero ni alejarse de más.
-- **Peón:** peón blanco sobre su peana en e2, con la animación de reposo, mirando hacia
-  el lado de las negras.
-- **Tocar una casilla vacía** lanza esta secuencia:
+- **Peones:** ocho peones blancos, de a2 a h2, cada uno sobre su peana, con la animación
+  de reposo y mirando hacia el lado de las negras. Lo pidió el usuario el 2026-09-13.
+- **Elegir un peón:** al tocarlo se marca con un aro dorado bajo su peana y se iluminan
+  las casillas a las que puede ir según las reglas del ajedrez, sin capturas:
+  - una casilla hacia delante si está libre;
+  - dos casillas si está en la fila 2 y las dos están libres;
+  - en la fila 8 no puede avanzar (la coronación llega con la Parte 2).
+
+  Tocar otro peón cambia la elección; tocar cualquier otra casilla la quita.
+- **Tocar una casilla iluminada** lanza esta secuencia con el peón elegido:
   1. El peón salta de la peana. Si Tripo no tiene animación de salto, baja con un paso
      y el código le da un pequeño arco.
   2. La peana desaparece en una nube de polvo de dibujos animados (~0,4 s).
@@ -71,12 +79,13 @@ Dirección: `https://mr-d0nut.github.io/bchess/`
   4. La peana reaparece bajo sus pies con otra nube y lo sube a su altura.
   5. El peón vuelve a reposo mirando hacia el lado de las negras.
 
-  Mientras dura la secuencia se ignoran los toques en el tablero y los botones. En esta
-  prueba no hay reglas de ajedrez: vale cualquier casilla vacía.
+  Mientras dura la secuencia se ignoran los toques en el tablero y los botones. Al
+  terminar, el peón sigue elegido.
 - **Botón «Atacar»:** reproduce el ataque con la lanza y vuelve a reposo.
 - **Botón «Golpe»:** reproduce la reacción a un golpe y vuelve a reposo.
 - **Botón «Caer»:** reproduce la caída. A los 1,5 s el peón reaparece de pie con una
   nube de polvo.
+- Los tres botones actúan sobre el peón elegido y están desactivados si no hay ninguno.
 - **Contador de fluidez:** fotogramas por segundo, en una esquina.
 - **Pie de página:** «Modelos: Tripo AI (CC BY 4.0) · Homenaje a Battle Chess (Interplay,
   1988)» y el dónut de autoría del usuario.
@@ -130,6 +139,8 @@ HDRLoader, el decodificador meshopt y SkeletonUtils.
 | `src/input.js` | Traduce toques y clics a casillas mediante raycast. |
 | `src/ui/hud.js` | Botones, contador de fluidez y créditos. |
 | `assets/models/`, `assets/env/` | Modelos optimizados y HDRI. |
+| `src/rules/pawn.js` | Puro. Casillas a las que puede avanzar un peón blanco. |
+| `src/scene/highlights.js` | Aro de selección y marcas de las casillas posibles. |
 | `tests/` | Pruebas unitarias con `node --test`. |
 
 Niveles de calidad:
@@ -150,7 +161,7 @@ Niveles de calidad:
 ### 4.6 Pruebas
 
 - **Unitarias** (`node --test`, sin dependencias): conversión de casilla a posición y al
-  revés; ruta, orientación y duración de `walk.js`.
+  revés; ruta, orientación y duración de `walk.js`; avance del peón en `rules/pawn.js`.
 - **En el panel de vista previa:**
   - la página carga sin errores en la consola;
   - tocar una casilla lleva el peón a esa casilla;
@@ -161,8 +172,8 @@ Niveles de calidad:
 
 ### 4.7 Fuera de alcance de la Parte 1
 
-Reglas de ajedrez, otras piezas, pieza negra, batallas, sonido, arrodillarse como en la
-imagen y caballo.
+Reglas de ajedrez salvo el avance del peón blanco, capturas, coronación, otras piezas,
+piezas negras, batallas, sonido, arrodillarse como en la imagen y caballo.
 
 ## Anexo A — Las 35 batallas del original
 
