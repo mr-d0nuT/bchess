@@ -15,6 +15,10 @@ import { whitePawnMoves } from './rules/pawn.js';
 
 const START_SQUARES = ['a2', 'b2', 'c2', 'd2', 'e2', 'f2', 'g2', 'h2'];
 const BUTTON_ACTIONS = ['attack', 'hit', 'fall'];
+// Cada peón hace de vez en cuando un gesto suelto (rascarse, mirar alrededor…).
+const FIDGET_MIN_MS = 9000;
+const FIDGET_RANGE_MS = 14000;
+const nextFidgetDelay = () => FIDGET_MIN_MS + Math.random() * FIDGET_RANGE_MS;
 const hud = createHud();
 
 function webglAvailable() {
@@ -52,7 +56,13 @@ async function start() {
   stage.renderer.setAnimationLoop((now) => {
     const dt = Math.min((now - previous) / 1000, 0.1);
     previous = now;
-    for (const pawn of pawns) pawn.piece.update(dt);
+    for (const pawn of pawns) {
+      pawn.piece.update(dt);
+      if (now >= pawn.nextFidgetAt) {
+        if (!state.busy && pawn !== state.selected) pawn.mover.fidget();
+        pawn.nextFidgetAt = now + nextFidgetDelay();
+      }
+    }
     dust.update(dt);
     stage.controls.update();
     stage.renderer.render(stage.scene, stage.camera);
@@ -108,7 +118,7 @@ async function start() {
       for (const square of START_SQUARES) {
         const piece = spawnPawn(kit);
         stage.scene.add(piece.object);
-        const pawn = { piece, mover: createMover({ piece, board, dust, onBusy }) };
+        const pawn = { piece, mover: createMover({ piece, board, dust, onBusy }), nextFidgetAt: performance.now() + nextFidgetDelay() / 2 };
         pawn.mover.placeOn(square);
         piece.hitbox.userData.owner = pawn;
         pawns.push(pawn);

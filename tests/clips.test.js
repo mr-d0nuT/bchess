@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ACTIONS, mapClips, pickRootPositionTrack, pickUpAxis, removeLinearDrift, scaleHorizontalMotion } from '../src/pieces/clips.js';
+import {
+  ACTIONS, findClipName, mapClips, pickRootPositionTrack, pickUpAxis, pickVariant, removeLinearDrift, resolveMoves, scaleHorizontalMotion,
+} from '../src/pieces/clips.js';
 
 test('las acciones del juego', () => {
   assert.deepEqual(ACTIONS, ['idle', 'walk', 'attack', 'hit', 'fall', 'jump']);
@@ -51,6 +53,40 @@ test('removeLinearDrift con el eje vertical en Z (esqueletos de Tripo)', () => {
   const result = removeLinearDrift(times, values, 2);
   assert.ok(Math.abs(result.distance - 1.5) < 1e-9);
   assert.deepEqual([...result.values], [0, 0, 0.5, 0, 0, 0.5]);
+});
+
+test('findClipName prefiere la clave exacta de Tripo', () => {
+  const names = ['preset:biped:hit_to_body_01.001', 'preset:biped:hit_to_body_012.001', 'Walk'];
+  assert.equal(findClipName(names, 'hit_to_body_01'), 'preset:biped:hit_to_body_01.001');
+  assert.equal(findClipName(names, 'hit_to_body_012'), 'preset:biped:hit_to_body_012.001');
+  assert.equal(findClipName(names, 'Walk'), 'Walk');
+  assert.equal(findClipName(names, 'nada'), null);
+});
+
+test('resolveMoves usa el manifiesto y, para lo que no dice, la detección automática', () => {
+  const names = ['preset:biped:idle.001', 'preset:biped:walk.001', 'preset:biped:boxing_01.001', 'preset:biped:hit_to_head.001', 'preset:biped:fall.001'];
+  const { moves, missing } = resolveMoves(names, {
+    attack: [{ clip: 'boxing_01', spear: 'forward' }, { clip: 'front_kick_01' }],
+    hit: [{ clip: 'hit_to_head' }],
+    fidget: [{ clip: 'scratch' }],
+  });
+  assert.deepEqual(moves.attack, [{ clip: 'preset:biped:boxing_01.001', spear: 'forward' }]);
+  assert.deepEqual(moves.hit, [{ clip: 'preset:biped:hit_to_head.001' }]);
+  assert.deepEqual(moves.idle, [{ clip: 'preset:biped:idle.001' }]);
+  assert.deepEqual(moves.walk, [{ clip: 'preset:biped:walk.001' }]);
+  assert.deepEqual(moves.fall, [{ clip: 'preset:biped:fall.001' }]);
+  assert.deepEqual(moves.jump, []);
+  assert.deepEqual(moves.fidget, []);
+  assert.deepEqual(missing, ['front_kick_01', 'scratch']);
+});
+
+test('pickVariant elige al azar sin repetir la anterior', () => {
+  assert.equal(pickVariant(1, 0, () => 0.9), 0);
+  assert.equal(pickVariant(3, -1, () => 0), 0);
+  assert.equal(pickVariant(3, -1, () => 0.99), 2);
+  assert.equal(pickVariant(3, 0, () => 0), 1);
+  assert.equal(pickVariant(3, 1, () => 0), 0);
+  assert.equal(pickVariant(3, 1, () => 0.99), 2);
 });
 
 test('scaleHorizontalMotion acorta el desplazamiento sin tocar la altura', () => {

@@ -111,25 +111,52 @@ export function createMover({ piece, board, dust, onBusy = () => {} }) {
     });
   }
 
+  // Cae dentro de su casilla: la peana se esfuma, el peón cae al tablero y, pasado un rato,
+  // la peana reaparece bajo sus pies entre una nube de polvo y lo vuelve a subir.
+  async function fall() {
+    const h = piece.pedestalHeight;
+    const at = piece.figure.position.clone();
+    const falling = piece.playOnce('fall');
+    dust.puff(new THREE.Vector3(at.x, DUST_Y, at.z));
+    await tween(0.35, (t) => {
+      piece.pedestal.scale.setScalar(Math.max(0.001, 1 - t));
+      piece.figure.position.y = h * (1 - t * t);
+    });
+    piece.pedestal.visible = false;
+    await falling;
+    await wait(1500);
+    dust.puff(new THREE.Vector3(at.x, DUST_Y, at.z), { radius: 0.5 });
+    piece.play('idle', { fade: 0 });
+    piece.pedestal.visible = true;
+    await tween(0.4, (t) => {
+      const k = 1 - (1 - t) ** 3;
+      piece.pedestal.scale.setScalar(Math.max(0.001, k));
+      piece.figure.position.y = h * k;
+    });
+  }
+
   function perform(action) {
     if (!piece.has(action)) return Promise.resolve(false);
     return exclusive(async () => {
-      await piece.playOnce(action);
       if (action === 'fall') {
-        await wait(1500);
-        const at = piece.figure.position;
-        dust.puff(new THREE.Vector3(at.x, piece.pedestalHeight + DUST_Y, at.z), { radius: 0.35 });
-        piece.play('idle', { fade: 0 });
-      } else {
-        piece.play('idle', { fade: 0.25 });
+        await fall();
+        return;
       }
+      await piece.playOnce(action);
+      piece.play('idle', { fade: 0.25 });
     });
+  }
+
+  // Gesto suelto en reposo; nunca mientras la pieza está en plena coreografía.
+  function fidget() {
+    return busy ? false : piece.fidget();
   }
 
   return {
     placeOn,
     goTo,
     perform,
+    fidget,
     get square() {
       return square;
     },

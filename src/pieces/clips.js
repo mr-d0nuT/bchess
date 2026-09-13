@@ -35,6 +35,47 @@ export function mapClips(clipNames, overrides = {}) {
   return result;
 }
 
+// Nombre completo de un clip a partir de su clave de Tripo («hit_to_body_01» →
+// «preset:biped:hit_to_body_01.001»). Solo coincidencias exactas de clave, para no
+// confundir «hit_to_body_01» con «hit_to_body_012».
+export function findClipName(clipNames, key) {
+  return (
+    clipNames.find((n) => n === key) ??
+    clipNames.find((n) => n.includes(`:${key}.`) || n.endsWith(`:${key}`)) ??
+    null
+  );
+}
+
+// Versiones de cada acción: las del manifiesto (`moves`, con claves de Tripo y opciones
+// como `spear` o `travel`) y, para las acciones que no menciona, la detección automática.
+// `missing` lista las claves del manifiesto que no están en el GLB.
+export function resolveMoves(clipNames, moves = {}) {
+  const auto = mapClips(clipNames);
+  const result = {};
+  const missing = [];
+  for (const action of new Set([...ACTIONS, ...Object.keys(moves)])) {
+    if (!moves[action]) {
+      result[action] = auto[action] ? [{ clip: auto[action] }] : [];
+      continue;
+    }
+    result[action] = [];
+    for (const variant of moves[action]) {
+      const name = findClipName(clipNames, variant.clip);
+      if (name) result[action].push({ ...variant, clip: name });
+      else missing.push(variant.clip);
+    }
+  }
+  return { moves: result, missing };
+}
+
+// Índice de la versión a reproducir: al azar y sin repetir la anterior (`last`).
+export function pickVariant(count, last, random = Math.random) {
+  if (count <= 1) return 0;
+  if (!(last >= 0 && last < count)) return Math.floor(random() * count);
+  const i = Math.floor(random() * (count - 1));
+  return i >= last ? i + 1 : i;
+}
+
 // Pista de posición del hueso raíz (caderas) de un clip, o null.
 export function pickRootPositionTrack(trackNames) {
   const find = (pattern) => trackNames.find((n) => pattern.test(n)) ?? null;
