@@ -51,6 +51,18 @@ export function pickUpAxis(hipPosition) {
   return axis;
 }
 
+// Acorta el desplazamiento horizontal de un clip respecto a su primer fotograma,
+// multiplicándolo por `factor`, sin tocar la altura. Sirve para que una caída se quede
+// dentro de su casilla. `values` = [x, y, z, …]; `upAxis`, el eje vertical.
+export function scaleHorizontalMotion(values, upAxis, factor) {
+  const out = Float32Array.from(values);
+  const axes = [0, 1, 2].filter((k) => k !== upAxis);
+  for (let i = 0; i < values.length; i += 3) {
+    for (const k of axes) out[i + k] = values[k] + (values[i + k] - values[k]) * factor;
+  }
+  return out;
+}
+
 // Quita el avance horizontal (lo que se desplaza de principio a fin) conservando el
 // balanceo. `values` = [x, y, z, x, y, z, …] alineado con `times`; `upAxis` es el eje
 // vertical, que no se toca.

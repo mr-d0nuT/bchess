@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>BChess · galería de animaciones</title>
+  <style>
+    body { margin: 0; background: #16120e; color: #f4ead7; font: 13px/1.4 system-ui, sans-serif; }
+    #controles { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; }
+    .fila { margin: 6px 8px 14px; }
+    .fila b { display: block; margin-bottom: 4px; }
+    .fila img { display: block; max-width: 100%; }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "../vendor/three/build/three.module.js", "three/addons/": "../vendor/three/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <div id="controles">
+    <label>Modelo <input id="ruta" size="40" value="../raw/tripo/pawn.glb"></label>
+    <button id="cargar" type="button">Cargar</button>
+    <span id="estado"></span>
+  </div>
+  <div id="hojas"></div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+    // Herramienta de desarrollo: hoja de contactos de cada animación de un GLB (6 fotogramas
+    // de frente y 6 de perfil) para elegir movimientos sin depender del visor de Tripo.
+
+    const FRAMES = 6;
+    const W = 220;
+    const H = 300;
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(W, H);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x2a241d);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x443322, 2.2));
+    const sun = new THREE.DirectionalLight(0xffffff, 2);
+    sun.position.set(2, 4, 3);
+    scene.add(sun);
+    const camera = new THREE.PerspectiveCamera(35, W / H, 0.1, 50);
+    const estado = document.getElementById('estado');
+
+    async function load(path) {
+      estado.textContent = 'cargando…';
+      const loader = new GLTFLoader();
+      loader.setMeshoptDecoder(MeshoptDecoder);
+      const gltf = await loader.loadAsync(path);
+      const model = gltf.scene;
+      model.traverse((o) => { o.frustumCulled = false; });
+      const box = new THREE.Box3().setFromObject(model);
+      const k = 1.8 / (box.max.y - box.min.y);
+      model.scale.setScalar(k);
+      model.position.set(0, -box.min.y * k, 0);
+      scene.add(model);
+
+      const mixer = new THREE.AnimationMixer(model);
+      const hojas = document.getElementById('hojas');
+      hojas.replaceChildren();
+      for (const clip of gltf.animations) {
+        const action = mixer.clipAction(clip);
+        action.play();
+        for (const view of ['frente', 'perfil']) {
+          const sheet = document.createElement('canvas');
+          sheet.width = W * FRAMES;
+          sheet.height = H;
+          const g = sheet.getContext('2d');
+          camera.position.set(view === 'frente' ? 0 : 5.2, 1.2, view === 'frente' ? 5.2 : 0);
+          camera.lookAt(0, 0.9, 0);
+          for (let f = 0; f < FRAMES; f++) {
+            action.time = (clip.duration * (f + 0.5)) / FRAMES;
+            mixer.update(0);
+            renderer.render(scene, camera);
+            g.drawImage(renderer.domElement, f * W, 0);
+          }
+          const row = document.createElement('div');
+          row.className = 'fila';
+          const title = document.createElement('b');
+          title.textContent = `${clip.name} · ${clip.duration.toFixed(2)} s · ${view}`;
+          const img = new Image();
+          img.src = sheet.toDataURL('image/jpeg', 0.8);
+          row.append(title, img);
+          hojas.append(row);
+        }
+        action.stop();
+      }
+      scene.remove(model);
+      estado.textContent = `${gltf.animations.length} animaciones`;
+    }
+
+    document.getElementById('cargar').addEventListener('click', () => load(document.getElementById('ruta').value));
+    load(document.getElementById('ruta').value);
+  </script>
+</body>
+</html>

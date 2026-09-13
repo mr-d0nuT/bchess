@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ACTIONS, mapClips, pickRootPositionTrack, pickUpAxis, removeLinearDrift } from '../src/pieces/clips.js';
+import { ACTIONS, mapClips, pickRootPositionTrack, pickUpAxis, removeLinearDrift, scaleHorizontalMotion } from '../src/pieces/clips.js';
 
 test('las acciones del juego', () => {
   assert.deepEqual(ACTIONS, ['idle', 'walk', 'attack', 'hit', 'fall', 'jump']);
@@ -51,6 +51,12 @@ test('removeLinearDrift con el eje vertical en Z (esqueletos de Tripo)', () => {
   const result = removeLinearDrift(times, values, 2);
   assert.ok(Math.abs(result.distance - 1.5) < 1e-9);
   assert.deepEqual([...result.values], [0, 0, 0.5, 0, 0, 0.5]);
+});
+
+test('scaleHorizontalMotion acorta el desplazamiento sin tocar la altura', () => {
+  const values = [0, 0, 0.5, 0.4, -0.2, 0.3, 0.8, -0.4, 0.1];
+  const out = [...scaleHorizontalMotion(values, 2, 0.25)].map((v) => Math.round(v * 1000) / 1000);
+  assert.deepEqual(out, [0, 0, 0.5, 0.1, -0.05, 0.3, 0.2, -0.1, 0.1]);
 });
 
 test('pickUpAxis elige el eje más largo de la cadera', () => {
