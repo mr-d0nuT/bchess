@@ -328,7 +328,7 @@ export function qualityFromQuery(search) {
 - [ ] **Paso 5: Comprobar que pasan**
 
 Run: `cd /Users/mr_donut/bchess && npm test`
-Expected: PASS, con `# tests 18`, `# pass 18` y `# fail 0`.
+Expected: PASS, con `ℹ tests 18`, `ℹ pass 18` y `ℹ fail 0`.
 
 - [ ] **Paso 6: Servidor de desarrollo sin caché**
 
@@ -340,7 +340,7 @@ Expected: PASS, con `# tests 18`, `# pass 18` y `# fail 0`.
 
 El navegador de vista previa cachea los módulos ES con fuerza; sin esto se sirven
 versiones viejas y se depura código que no se está ejecutando.
-Uso: python3 tools/dev-server.py 8731
+Uso: python3 tools/dev-server.py 8741
 """
 import http.server
 import sys
@@ -363,7 +363,7 @@ class NoStoreHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def main():
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8731
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8741
     root = Path(__file__).resolve().parent.parent
     handler = partial(NoStoreHandler, directory=str(root))
     with http.server.ThreadingHTTPServer(('127.0.0.1', port), handler) as httpd:
@@ -382,13 +382,13 @@ las demás entradas:
 {
   "name": "bchess",
   "runtimeExecutable": "python3",
-  "runtimeArgs": ["/Users/mr_donut/bchess/tools/dev-server.py", "8731"],
-  "port": 8731
+  "runtimeArgs": ["/Users/mr_donut/bchess/tools/dev-server.py", "8741"],
+  "port": 8741
 }
 ```
 
 Run: `preview_start` con `{ "name": "bchess" }` y después
-`curl -sI http://127.0.0.1:8731/package.json | grep -i cache-control`
+`curl -sI http://127.0.0.1:8741/package.json | grep -i cache-control`
 Expected: `Cache-Control: no-store`
 
 - [ ] **Paso 7: Commit**
@@ -889,7 +889,7 @@ start();
 
 - [ ] **Paso 7: Comprobar en la vista previa**
 
-1. `preview_start` con `{ "name": "bchess" }`. Navegar a `http://127.0.0.1:8731/`.
+1. `preview_start` con `{ "name": "bchess" }`. Navegar a `http://127.0.0.1:8741/`.
 2. `read_console_messages` con `onlyErrors: true` → Expected: ningún error.
 3. `read_network_requests` → Expected: `three.module.js`, `three.core.js`, `OrbitControls.js`,
    `HDRLoader.js`, el `.hdr` y las 6 texturas con estado 200.
@@ -1322,7 +1322,7 @@ export function pickHandBone(boneNames, side) {
 - [ ] **Paso 4: Comprobar que pasan**
 
 Run: `cd /Users/mr_donut/bchess && npm test`
-Expected: PASS, con `# tests 27`, `# pass 27` y `# fail 0`.
+Expected: PASS, con `ℹ tests 27`, `ℹ pass 27` y `ℹ fail 0`.
 
 - [ ] **Paso 5: Lanza (`src/pieces/spear.js`)**
 
@@ -1619,7 +1619,7 @@ start();
 
 - [ ] **Paso 8: Comprobar en la vista previa y ajustar el manifiesto**
 
-1. Recargar `http://127.0.0.1:8731/`. `read_console_messages`:
+1. Recargar `http://127.0.0.1:8741/`. `read_console_messages`:
    - Expected: ni errores ni avisos «No encuentro las manos».
    - Si aparece «no tiene animación», poner en `manifest.json` → `pawn.clips` el nombre
      exacto de la lista que imprime el aviso y recargar.
@@ -2207,7 +2207,7 @@ para forzar el nivel de detalle).
 
 ## Desarrollo
 
-- Servidor local sin caché: `python3 tools/dev-server.py 8731` → http://127.0.0.1:8731/
+- Servidor local sin caché: `python3 tools/dev-server.py 8741` → http://127.0.0.1:8741/
 - Pruebas: `npm test`
 - Sin compilación: módulos ES con import map; Three.js r186 en `vendor/three/`.
 
@@ -2231,7 +2231,7 @@ git add README.md .nojekyll
 git commit -m "README con créditos y licencias"
 ```
 
-Expected: `npm test` da `# pass 27` y `# fail 0` antes del commit.
+Expected: `npm test` da `ℹ pass 27` y `ℹ fail 0` antes del commit.
 
 - [ ] **Paso 2: Crear el repo público, subir y activar Pages**
 
