@@ -1,0 +1,9 @@
+{
+  "name": "bchess",
+  "private": true,
+  "type": "module",
+  "description": "BChess — homenaje 3D a Battle Chess (1988)",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}
