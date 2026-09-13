@@ -2,8 +2,15 @@
 // Orientación como en Three.js: rotation.y = atan2(dx, dz) hace que un modelo glTF,
 // que mira a +Z, mire hacia el destino.
 
-// En reposo miran siempre al oponente (-Z, hacia las negras), como las piezas de ajedrez.
+// En reposo miran siempre al oponente, como las piezas de ajedrez: las blancas hacia -Z
+// (hacia las negras) y las negras hacia +Z (hacia las blancas).
 export const REST_FACING = Math.PI;
+const FACING_BY_COLOR = { white: Math.PI, black: 0 };
+
+export function restFacingFor(color) {
+  if (!Object.hasOwn(FACING_BY_COLOR, color)) throw new Error(`Color no válido: ${color}`);
+  return FACING_BY_COLOR[color];
+}
 
 export function planWalk(from, to, speed) {
   if (!(speed > 0)) throw new Error('La velocidad debe ser positiva');

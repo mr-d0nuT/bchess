@@ -22,7 +22,7 @@ function tween(seconds, step) {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export function createMover({ piece, board, dust, onBusy = () => {} }) {
+export function createMover({ piece, board, dust, onBusy = () => {}, restFacing = REST_FACING }) {
   let square = null;
   let busy = false;
 
@@ -55,8 +55,8 @@ export function createMover({ piece, board, dust, onBusy = () => {} }) {
     piece.placeAt(board.squareToWorld(target));
     piece.pedestal.visible = true;
     piece.pedestal.scale.setScalar(1);
-    piece.pedestal.rotation.y = REST_FACING; // el escudo de la peana, delante, como la pieza
-    piece.face(REST_FACING);
+    piece.pedestal.rotation.y = restFacing; // el escudo de la peana, delante, como la pieza
+    piece.face(restFacing);
   }
 
   function goTo(target) {
@@ -105,8 +105,8 @@ export function createMover({ piece, board, dust, onBusy = () => {} }) {
         piece.figure.position.y = h * k;
       });
 
-      // 5. Reposo mirando a la cámara.
-      await turnTo(REST_FACING, 0.35);
+      // 5. Reposo mirando al oponente.
+      await turnTo(restFacing, 0.35);
       square = target;
     });
   }

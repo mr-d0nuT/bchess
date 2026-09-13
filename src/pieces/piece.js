@@ -7,10 +7,12 @@ import { pickHandBone } from './bones.js';
 import { createSpear } from './spear.js';
 import { strideSpeed } from '../moves/walk.js';
 
-// Peones con esqueleto. `loadPawnKit` carga una sola vez los modelos y prepara las
-// animaciones, con varias versiones por acción; `spawnPawn` crea cada peón compartiendo
-// mallas, texturas y clips, con su propio esqueleto, lanza, escudo, peana y zona de toque.
-// `figure` y `pedestal` se colocan en coordenadas del tablero.
+// Piezas con esqueleto. `loadPieceKit` carga una sola vez los modelos de un tipo de pieza
+// (por ejemplo, el peón blanco) y prepara sus animaciones, con varias versiones por acción;
+// `spawnPiece` crea cada pieza compartiendo mallas, texturas y clips, con su propio esqueleto,
+// lanza, escudo, peana y zona de toque. `figure` y `pedestal` van en coordenadas del tablero.
+
+THREE.Cache.enabled = true; // un fichero de animaciones compartido por dos colores se descarga una vez
 
 const MODELS = 'assets/models/';
 const FALLBACK_PEDESTAL_HEIGHT = 0.26;
@@ -76,36 +78,41 @@ function rootTrack(clip) {
   return { name, track, upAxis: pickUpAxis([track.values[0], track.values[1], track.values[2]]) };
 }
 
-export async function loadPawnKit(manifest, quality) {
+export async function loadPieceKit(spec, quality) {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
-  const spec = manifest.pawn;
 
-  // El escudo y la peana son opcionales en el manifiesto: sin ellos, peana de reserva.
+  // El escudo y la peana son opcionales: sin peana, se usa la de reserva.
   const optional = (entry) => (entry ? loader.loadAsync(MODELS + entry.files[quality.name]) : null);
-  const [pawnGltf, shieldGltf, pedestalGltf, ...animationGltfs] = await Promise.all([
+  const [pieceGltf, shieldGltf, pedestalGltf, ...animationGltfs] = await Promise.all([
     loader.loadAsync(MODELS + spec.files[quality.name]),
-    optional(manifest.shield),
-    optional(manifest.pedestal),
+    optional(spec.shieldModel),
+    optional(spec.pedestalModel),
     ...(spec.animationFiles ?? []).map((file) => loader.loadAsync(MODELS + file)),
   ]);
-  const clips = [...pawnGltf.animations, ...animationGltfs.flatMap((g) => g.animations)];
+  const clips = [...pieceGltf.animations, ...animationGltfs.flatMap((g) => g.animations)];
+  // Solo la cadera conserva su pista de posición: así las animaciones de un esqueleto sirven
+  // a otro de proporciones algo distintas (cada hueso mantiene su propia longitud).
+  for (const clip of clips) {
+    const rootName = pickRootPositionTrack(clip.tracks.map((t) => t.name));
+    clip.tracks = clip.tracks.filter((t) => !t.name.endsWith('.position') || t.name === rootName);
+  }
   const clipNames = clips.map((c) => c.name);
   const clipByName = (name) => clips.find((c) => c.name === name);
 
-  const model = withShadows(pawnGltf.scene);
+  const model = withShadows(pieceGltf.scene);
   fitToHeight(model, spec.height);
   model.updateMatrixWorld(true);
-  const pedestalHeight = manifest.pedestal?.height ?? FALLBACK_PEDESTAL_HEIGHT;
+  const pedestalHeight = spec.pedestalModel?.height ?? FALLBACK_PEDESTAL_HEIGHT;
   const pedestal = pedestalGltf ? withShadows(pedestalGltf.scene) : createFallbackPedestal(pedestalHeight);
   fitToHeight(pedestal, pedestalHeight);
   const shield = shieldGltf ? withShadows(shieldGltf.scene) : null;
-  if (shield) fitToHeight(shield, manifest.shield.height);
+  if (shield) fitToHeight(shield, spec.shieldModel.height);
 
   const { moves, missing } = resolveMoves(clipNames, spec.moves ?? {});
   if (missing.length) console.warn(`[BChess] El manifiesto pide clips que no están en el GLB: ${missing.join(', ')}. Clips: ${clipNames.join(', ')}`);
   for (const action of ['idle', 'walk', 'attack', 'hit', 'fall']) {
-    if (!moves[action].length) console.warn(`[BChess] El peón no tiene animación «${action}». Clips: ${clipNames.join(', ') || '(ninguno)'}`);
+    if (!moves[action].length) console.warn(`[BChess] La pieza no tiene animación «${action}». Clips: ${clipNames.join(', ') || '(ninguno)'}`);
   }
 
   // Las pistas se cambian ANTES de crear acciones, porque cada acción las copia al crearse.
@@ -138,10 +145,9 @@ export async function loadPawnKit(manifest, quality) {
     right: spec.hands?.right ?? pickHandBone(bones, 'right'),
     left: spec.hands?.left ?? pickHandBone(bones, 'left'),
   };
-  if (!hands.right || !hands.left) console.warn(`[BChess] No encuentro las manos del peón. Huesos: ${bones.join(', ')}`);
+  if (!hands.right || !hands.left) console.warn(`[BChess] No encuentro las manos de la pieza. Huesos: ${bones.join(', ')}`);
 
   return {
-    manifest,
     spec,
     model,
     pedestal,
@@ -155,7 +161,7 @@ export async function loadPawnKit(manifest, quality) {
   };
 }
 
-export function spawnPawn(kit) {
+export function spawnPiece(kit) {
   const { spec } = kit;
 
   const pedestal = new THREE.Group();
@@ -170,7 +176,7 @@ export function spawnPawn(kit) {
   turn.add(model);
   figure.add(turn);
 
-  // Zona de toque invisible: un cilindro del tamaño del peón, más fácil de acertar que la malla.
+  // Zona de toque invisible: un cilindro del tamaño de la pieza, más fácil de acertar que la malla.
   const hitbox = new THREE.Mesh(
     new THREE.CylinderGeometry(0.34, 0.34, spec.height, 8),
     new THREE.MeshBasicMaterial({ visible: false }),
@@ -179,7 +185,7 @@ export function spawnPawn(kit) {
   figure.add(hitbox);
 
   const object = new THREE.Group();
-  object.name = 'peon';
+  object.name = 'pieza';
   object.add(pedestal, figure);
   object.updateMatrixWorld(true);
 
@@ -246,17 +252,17 @@ export function spawnPawn(kit) {
     return true;
   }
 
-  // Lanza y escudo: se enganchan con el peón ya en la postura de reposo (aún en el origen
+  // Lanza y escudo: se enganchan con la pieza ya en la postura de reposo (aún en el origen
   // y sin girar), colocados antes en el espacio de la figura; la lanza, vertical.
   play('idle', { fade: 0 });
   mixer.update(0);
   object.updateMatrixWorld(true);
   const boneFor = (side) => (kit.hands[side] ? model.getObjectByName(kit.hands[side]) : null);
   const props = {};
-  const spearBone = boneFor(spec.spear?.hand ?? 'right');
-  const shieldBone = boneFor(spec.shield?.hand ?? 'left');
+  const spearBone = spec.spear ? boneFor(spec.spear.hand ?? 'right') : null;
+  const shieldBone = spec.shield ? boneFor(spec.shield.hand ?? 'left') : null;
   if (spearBone) {
-    const spear = createSpear({ length: spec.spear?.length, grip: spec.spear?.grip });
+    const spear = createSpear({ length: spec.spear.length, grip: spec.spear.grip });
     props.spear = attachInWorld(spear, spearBone, spec.spear);
   }
   if (shieldBone && kit.shield) {
@@ -264,7 +270,7 @@ export function spawnPawn(kit) {
   }
   const spearHold = props.spear ? props.spear.quaternion.clone() : null;
 
-  // Cada peón respira a su ritmo: si todos empezaran a la vez parecerían soldaditos de cuerda.
+  // Cada pieza respira a su ritmo: si todas empezaran a la vez parecerían soldaditos de cuerda.
   const idleAction = variants.idle?.[0]?.action;
   if (idleAction) idleAction.time = Math.random() * idleAction.getClip().duration;
 

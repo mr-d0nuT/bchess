@@ -1,12 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planWalk, pointAlong, shortestTurn, strideSpeed, REST_FACING } from '../src/moves/walk.js';
+import { planWalk, pointAlong, shortestTurn, strideSpeed, REST_FACING, restFacingFor } from '../src/moves/walk.js';
 
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} no es ≈ ${b}`);
 
 test('siempre miran hacia delante (a las negras): girar PI', () => {
   close(REST_FACING, Math.PI);
   close(planWalk({ x: 0.5, z: 2.5 }, { x: 0.5, z: 0.5 }, 1).heading, Math.PI);
+});
+
+test('cada color mira a su oponente: blancas hacia -Z (PI), negras hacia +Z (0)', () => {
+  close(restFacingFor('white'), Math.PI);
+  close(restFacingFor('black'), 0);
+  assert.throws(() => restFacingFor('green'), /Color no válido/);
 });
 
 test('andar hacia +X mira a PI/2', () => {

@@ -4,16 +4,22 @@ import { addLighting } from './scene/lighting.js';
 import { createBoard } from './scene/board.js';
 import { createHighlights } from './scene/highlights.js';
 import { createHud } from './ui/hud.js';
-import { loadManifest, loadPawnKit, spawnPawn } from './pieces/piece.js';
+import { loadManifest, loadPieceKit, spawnPiece } from './pieces/piece.js';
 import { createDust } from './fx/dust.js';
 import { createMover } from './moves/sequence.js';
+import { restFacingFor } from './moves/walk.js';
 import { onBoardTap } from './input.js';
-import { whitePawnMoves } from './rules/pawn.js';
+import { pawnMoves } from './rules/pawn.js';
 
-// Arranque de la prueba: ocho peones blancos en la fila 2. Tocas uno, se marcan sus
-// casillas posibles y, al tocar una, anda hasta ella. Los botones actúan sobre el elegido.
+// Arranque de la prueba: peones blancos en la fila 2 y negros en la 7 (los colores que
+// traiga el manifiesto). Tocas uno, se marcan sus casillas posibles y, al tocar una, anda
+// hasta ella. Los botones actúan sobre el elegido.
 
-const START_SQUARES = ['a2', 'b2', 'c2', 'd2', 'e2', 'f2', 'g2', 'h2'];
+const SIDES = [
+  { color: 'white', kind: 'white-pawn', rank: 2 },
+  { color: 'black', kind: 'black-pawn', rank: 7 },
+];
+const FILES = 'abcdefgh';
 const BUTTON_ACTIONS = ['attack', 'hit', 'fall'];
 // Cada peón hace de vez en cuando un gesto suelto (rascarse, mirar alrededor…).
 const FIDGET_MIN_MS = 9000;
@@ -49,7 +55,7 @@ async function start() {
   stage.scene.add(board.group);
   const highlights = createHighlights(stage.scene, board);
   const dust = createDust(stage.scene);
-  const pawns = []; // { piece, mover }
+  const pawns = []; // { color, piece, mover, nextFidgetAt }
   const state = { selected: null, busy: false };
 
   let previous = performance.now();
@@ -71,12 +77,13 @@ async function start() {
 
   const occupied = () => new Set(pawns.map((p) => p.mover.square));
   const pawnAt = (square) => pawns.find((p) => p.mover.square === square) ?? null;
+  const movesOf = (pawn) => pawnMoves(pawn.mover.square, occupied(), pawn.color);
   const refreshButtons = () => hud.setBusy(state.busy || !state.selected);
 
   function select(pawn) {
     state.selected = pawn;
     highlights.select(pawn ? pawn.mover.square : null);
-    highlights.showMoves(pawn ? whitePawnMoves(pawn.mover.square, occupied()) : []);
+    highlights.showMoves(pawn ? movesOf(pawn) : []);
     refreshButtons();
   }
 
@@ -93,7 +100,7 @@ async function start() {
       return;
     }
     const pawn = state.selected;
-    if (pawn && square && whitePawnMoves(pawn.mover.square, occupied()).includes(square)) {
+    if (pawn && square && movesOf(pawn).includes(square)) {
       highlights.clear();
       await pawn.mover.goTo(square);
       select(pawn);
@@ -111,30 +118,38 @@ async function start() {
     if (!state.busy && state.selected) state.selected.mover.perform(action);
   });
 
-  async function loadPawns() {
+  async function loadPieces() {
     try {
       const manifest = await loadManifest();
-      const kit = await loadPawnKit(manifest, quality);
-      for (const square of START_SQUARES) {
-        const piece = spawnPawn(kit);
-        stage.scene.add(piece.object);
-        const pawn = { piece, mover: createMover({ piece, board, dust, onBusy }), nextFidgetAt: performance.now() + nextFidgetDelay() / 2 };
-        pawn.mover.placeOn(square);
-        piece.hitbox.userData.owner = pawn;
-        pawns.push(pawn);
-      }
+      const sides = SIDES.filter((side) => manifest.pieces?.[side.kind]);
+      const kits = await Promise.all(sides.map((side) => loadPieceKit(manifest.pieces[side.kind], quality)));
+      sides.forEach((side, i) => {
+        for (const file of FILES) {
+          const piece = spawnPiece(kits[i]);
+          stage.scene.add(piece.object);
+          const pawn = {
+            color: side.color,
+            piece,
+            mover: createMover({ piece, board, dust, onBusy, restFacing: restFacingFor(side.color) }),
+            nextFidgetAt: performance.now() + nextFidgetDelay() / 2,
+          };
+          pawn.mover.placeOn(file + side.rank);
+          piece.hitbox.userData.owner = pawn;
+          pawns.push(pawn);
+        }
+      });
       for (const action of BUTTON_ACTIONS) {
-        if (!kit.has(action)) hud.hideAction(action);
+        if (!kits.some((kit) => kit.has(action))) hud.hideAction(action);
       }
       refreshButtons();
     } catch (err) {
-      console.error('[BChess] No se pudieron cargar los peones:', err);
-      hud.showMessage('No se pudo cargar el peón', { retry: loadPawns });
+      console.error('[BChess] No se pudieron cargar las piezas:', err);
+      hud.showMessage('No se pudo cargar el peón', { retry: loadPieces });
     }
   }
 
   await addLighting(stage, quality);
-  await loadPawns();
+  await loadPieces();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = { stage, board, quality, pawns, state, tap: handleTap };
 }
