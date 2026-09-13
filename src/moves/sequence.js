@@ -55,6 +55,7 @@ export function createMover({ piece, board, dust, onBusy = () => {} }) {
     piece.placeAt(board.squareToWorld(target));
     piece.pedestal.visible = true;
     piece.pedestal.scale.setScalar(1);
+    piece.pedestal.rotation.y = REST_FACING; // el escudo de la peana, delante, como la pieza
     piece.face(REST_FACING);
   }
 
