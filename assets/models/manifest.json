@@ -1,0 +1,12 @@
+{
+  "pawn": {
+    "files": { "movil": "pawn-movil.glb", "ordenador": "pawn-ordenador.glb" },
+    "animationFiles": [],
+    "height": 1.35,
+    "yaw": 0,
+    "clips": {},
+    "hands": {},
+    "spear": { "hand": "right", "position": [0, 0, 0], "rotation": [0, 0, 0] },
+    "shield": { "hand": "left", "position": [0, 0, 0.06], "rotation": [0, 0, 0], "scale": 1 }
+  }
+}

@@ -62,7 +62,7 @@ Dirección: `https://mr-d0nut.github.io/bchess/`
 - **Cámara:** gira, acerca y aleja con ratón y con el dedo. Tiene límites para no
   meterse bajo el tablero ni alejarse de más.
 - **Peones:** ocho peones blancos, de a2 a h2, cada uno sobre su peana, con la animación
-  de reposo y mirando hacia el lado de las negras. Lo pidió el usuario el 2026-09-13.
+  de reposo y mirando siempre hacia delante (hacia las negras), como pide el usuario. Lo pidió el usuario el 2026-09-13.
 - **Elegir un peón:** al tocarlo se marca con un aro dorado bajo su peana y se iluminan
   las casillas a las que puede ir según las reglas del ajedrez, sin capturas:
   - una casilla hacia delante si está libre;
@@ -77,7 +77,7 @@ Dirección: `https://mr-d0nut.github.io/bchess/`
   3. El peón se gira hacia la casilla y anda hasta ella. El desplazamiento va sincronizado
      con la zancada para que los pies no patinen.
   4. La peana reaparece bajo sus pies con otra nube y lo sube a su altura.
-  5. El peón vuelve a reposo mirando hacia el lado de las negras.
+  5. El peón vuelve a reposo mirando siempre hacia delante (hacia las negras), como pide el usuario.
 
   Mientras dura la secuencia se ignoran los toques en el tablero y los botones. Al
   terminar, el peón sigue elegido.

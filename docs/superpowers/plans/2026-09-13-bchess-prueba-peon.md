@@ -2272,3 +2272,45 @@ cosas:
 4. los tres botones funcionan.
 
 Es el criterio de éxito del diseño.
+
+---
+
+## Cambios durante la ejecución (2026-09-13)
+
+- **Tripo Pro.** El plan gratuito no exporta ni el esqueleto ni las animaciones, así que
+  el usuario contrató Pro. Así quedó en realidad la Tarea 3:
+  1. «Malla Smart» (cuadriláteros, 15.000 polígonos) a partir de `raw/ref/peon-de-pie.jpeg`.
+  2. «Textura» (20 créditos).
+  3. «Animar»: esqueleto «v1.0 · humanoides» (20 créditos) y movimientos de la biblioteca,
+     que no gastan créditos: `reposo`, `caminar`, `acuchillar`, `golpe_al_cuerpo_01`,
+     `caer`, `saltar_abajo`.
+  4. «Exportar» con estos ajustes:
+     - GLB, textura 4K y «Exportar esqueleto» activado;
+     - «Número de animaciones» = 6 (vuelve a 0 cada vez que se abre el diálogo);
+     - «Animación en el sitio» desactivado.
+
+  El esqueleto de Tripo llama a los huesos `Hip`, `Pelvis`, `R_Hand`, `L_Hand`…
+  `pickRootPositionTrack` acepta ahora `Hip`, con su prueba.
+- **Ocho peones con su avance (petición del usuario).** Nueva tarea entre la 5 y la 6:
+  - `src/rules/pawn.js` y `tests/pawn.test.js`: `whitePawnMoves(square, occupied: Set) → string[]`.
+  - `src/scene/highlights.js`: `createHighlights(scene, board) → { select(square | null), showMoves(squares), clear() }`.
+  - `src/pieces/piece.js`: `createPawn` se divide en dos funciones.
+    - `loadPawnKit(manifest, quality)` carga los modelos una sola vez y prepara clips,
+      velocidad y manos.
+    - `spawnPawn(kit) → Piece` crea cada peón como clon con `SkeletonUtils.clone`, con una
+      zona de toque invisible (`hitbox`).
+
+    El escudo y la peana pasan a ser opcionales en el manifiesto; sin peana, se usa una
+    de reserva hecha en código.
+  - `src/input.js`: `onSquareTap` pasa a ser
+    `onBoardTap({ canvas, camera, board, targets }, handler({ owner, square }))`. Primero
+    comprueba si el toque cae en la zona de toque de una pieza.
+  - `src/main.js`:
+    - ocho peones de a2 a h2;
+    - al elegir uno, aro bajo su peana y marcas en sus casillas posibles;
+    - un único bloqueo global mientras un peón se mueve;
+    - los botones actúan sobre el peón elegido.
+- **Peana reciclada.** Una sola peana 3D para todas las piezas blancas, a petición del
+  usuario para ahorrar créditos.
+- **Escudo y peana.** Las imágenes aisladas salieron de Gemini (`raw/ref/escudo.jpeg` y
+  `raw/ref/peana.jpeg`). Sus modelos 3D se hacen en Tripo cuando los peones ya se muevan.

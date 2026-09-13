@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planWalk, pointAlong, shortestTurn, strideSpeed, FACING_BLACK } from '../src/moves/walk.js';
+import { planWalk, pointAlong, shortestTurn, strideSpeed, REST_FACING } from '../src/moves/walk.js';
 
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} no es ≈ ${b}`);
 
-test('mirar a las negras es girar PI', () => {
-  close(FACING_BLACK, Math.PI);
+test('siempre miran hacia delante (a las negras): girar PI', () => {
+  close(REST_FACING, Math.PI);
   close(planWalk({ x: 0.5, z: 2.5 }, { x: 0.5, z: 0.5 }, 1).heading, Math.PI);
 });
 
