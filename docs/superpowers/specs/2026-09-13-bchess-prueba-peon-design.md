@@ -63,8 +63,9 @@ Dirección: `https://mr-d0nut.github.io/bchess/`
   meterse bajo el tablero ni alejarse de más.
 - **Peones:** los ocho de cada bando, los blancos de a2 a h2 y los negros de a7 a h7. Cada
   uno está sobre su peana, con la animación de reposo y mirando siempre hacia delante, al
-  oponente, como pidió el usuario el 2026-09-13. De vez en cuando cada peón hace un gesto
-  suelto: mirar alrededor, rascarse o asustarse.
+  oponente, como pidió el usuario el 2026-09-13. Casi siempre se balancean un poco sobre la
+  peana. De tanto en tanto, uno solo de los dieciséis hace un gesto especial (mirar
+  alrededor, rascarse o asustarse), con 15–35 s de calma entre uno y otro.
 - **Elegir un peón:** al tocarlo se marca con un aro dorado bajo su peana y se iluminan
   las casillas a las que puede ir según las reglas del ajedrez, sin capturas:
   - una casilla hacia delante si está libre;

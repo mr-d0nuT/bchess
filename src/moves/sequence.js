@@ -147,9 +147,10 @@ export function createMover({ piece, board, dust, onBusy = () => {}, restFacing 
     });
   }
 
-  // Gesto suelto en reposo; nunca mientras la pieza está en plena coreografía.
-  function fidget() {
-    return busy ? false : piece.fidget();
+  // Gesto suelto en reposo; nunca mientras la pieza está en plena coreografía. Devuelve la
+  // versión elegida, o null.
+  function fidget(options) {
+    return busy ? null : piece.fidget(options);
   }
 
   return {

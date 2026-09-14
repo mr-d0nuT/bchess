@@ -2354,7 +2354,10 @@ Es el criterio de éxito del diseño.
      (`raw/ref/peana-negra.jpeg` y `raw/ref/escudo-negro.jpeg`).
   2. Medir las proporciones por código.
   3. Retexturizar en Tripo el mismo modelo blanco con esa imagen (20 créditos en vez de 55).
-- **Gestos en reposo** (`moves.fidget`): `look_around`, `scratch` y `frightened`.
+- **Gestos en reposo** (`moves.fidget`): `look_around`, `scratch` y `frightened`. Con un
+  reloj por peón se movían sin parar, así que el usuario pidió más calma. Ahora los dirige
+  `src/moves/gestures.js`: un solo gesto a la vez en todo el tablero, con 15–35 s de reposo
+  entre uno y otro y sin repetir el peón ni el gesto anteriores.
 - **Posturas de la lanza.** Cada versión de un movimiento puede pedir `"spear": "forward"`
   (estocada) o `"upright"` (erguida). `scratch` y `frightened` la llevan erguida porque, si
   sigue a la mano, se pone casi horizontal o boca abajo.

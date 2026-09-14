@@ -10,6 +10,7 @@ import { createMover } from './moves/sequence.js';
 import { restFacingFor } from './moves/walk.js';
 import { onBoardTap } from './input.js';
 import { pawnMoves } from './rules/pawn.js';
+import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
 
 // Arranque de la prueba: peones blancos en la fila 2 y negros en la 7 (los colores que
 // traiga el manifiesto). Tocas uno, se marcan sus casillas posibles y, al tocar una, anda
@@ -21,10 +22,6 @@ const SIDES = [
 ];
 const FILES = 'abcdefgh';
 const BUTTON_ACTIONS = ['attack', 'hit', 'fall'];
-// Cada peón hace de vez en cuando un gesto suelto (rascarse, mirar alrededor…).
-const FIDGET_MIN_MS = 9000;
-const FIDGET_RANGE_MS = 14000;
-const nextFidgetDelay = () => FIDGET_MIN_MS + Math.random() * FIDGET_RANGE_MS;
 const hud = createHud();
 
 function webglAvailable() {
@@ -55,20 +52,34 @@ async function start() {
   stage.scene.add(board.group);
   const highlights = createHighlights(stage.scene, board);
   const dust = createDust(stage.scene);
-  const pawns = []; // { color, piece, mover, nextFidgetAt }
+  const pawns = []; // { color, piece, mover }
   const state = { selected: null, busy: false };
+  // De tanto en tanto, un solo peón del tablero hace un gesto especial; nunca dos a la vez.
+  const gesture = { performer: null, last: null, lastVariant: -1, at: performance.now() + nextGestureDelay() };
+
+  function directGestures(now) {
+    if (gesture.performer) {
+      if (gesture.performer.piece.fidgeting) return;
+      gesture.performer = null;
+      gesture.at = now + nextGestureDelay();
+    }
+    if (now < gesture.at) return;
+    const candidates = state.busy ? [] : pawns.filter((pawn) => pawn !== state.selected);
+    const pawn = pickPerformer(candidates, gesture.last);
+    const variant = pawn ? pawn.mover.fidget({ avoid: gesture.lastVariant }) : null;
+    if (variant === null) {
+      gesture.at = now + GESTURE_RETRY_MS;
+      return;
+    }
+    Object.assign(gesture, { performer: pawn, last: pawn, lastVariant: variant });
+  }
 
   let previous = performance.now();
   stage.renderer.setAnimationLoop((now) => {
     const dt = Math.min((now - previous) / 1000, 0.1);
     previous = now;
-    for (const pawn of pawns) {
-      pawn.piece.update(dt);
-      if (now >= pawn.nextFidgetAt) {
-        if (!state.busy && pawn !== state.selected) pawn.mover.fidget();
-        pawn.nextFidgetAt = now + nextFidgetDelay();
-      }
-    }
+    for (const pawn of pawns) pawn.piece.update(dt);
+    directGestures(now);
     dust.update(dt);
     stage.controls.update();
     stage.renderer.render(stage.scene, stage.camera);
@@ -131,7 +142,6 @@ async function start() {
             color: side.color,
             piece,
             mover: createMover({ piece, board, dust, onBusy, restFacing: restFacingFor(side.color) }),
-            nextFidgetAt: performance.now() + nextFidgetDelay() / 2,
           };
           pawn.mover.placeOn(file + side.rank);
           piece.hitbox.userData.owner = pawn;
@@ -151,7 +161,7 @@ async function start() {
   await addLighting(stage, quality);
   await loadPieces();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
-  window.bchess = { stage, board, quality, pawns, state, tap: handleTap };
+  window.bchess = { stage, board, quality, pawns, state, gesture, tap: handleTap };
 }
 
 start();

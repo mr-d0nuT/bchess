@@ -207,11 +207,11 @@ export function spawnPiece(kit) {
   let spearBlend = 0;
   let spearPose = SPEAR_POSES.forward;
 
-  // Reproduce una versión al azar de la acción (sin repetir la anterior).
-  function play(action, { loop = true, fade = 0.25 } = {}) {
+  // Reproduce una versión al azar de la acción, sin repetir la anterior (o la de `avoid`).
+  function play(action, { loop = true, fade = 0.25, avoid } = {}) {
     const list = variants[action];
     if (!list?.length) return null;
-    const index = pickVariant(list.length, lastVariant[action] ?? -1);
+    const index = pickVariant(list.length, avoid ?? lastVariant[action] ?? -1);
     lastVariant[action] = index;
     const variant = list[index];
     const next = variant.action;
@@ -245,12 +245,14 @@ export function spawnPiece(kit) {
     });
   }
 
-  // Gesto suelto en reposo (rascarse, mirar alrededor…). No bloquea: si mientras tanto
-  // se pide otro movimiento, al terminar el gesto no vuelve a reposo.
-  function fidget() {
+  // Gesto suelto en reposo (rascarse, mirar alrededor…). Devuelve qué versión hace, o null
+  // si ahora no puede. No bloquea: si mientras tanto se pide otro movimiento, al terminar el
+  // gesto no vuelve a reposo.
+  function fidget({ avoid } = {}) {
     const idle = variants.idle?.[0]?.action;
-    if (!variants.fidget?.length || current !== idle) return false;
-    const running = play('fidget', { loop: false, fade: 0.3 });
+    if (!variants.fidget?.length || current !== idle) return null;
+    const running = play('fidget', { loop: false, fade: 0.3, avoid });
+    const index = lastVariant.fidget;
     const count = playCount;
     const done = (event) => {
       if (event.action !== running) return;
@@ -258,7 +260,7 @@ export function spawnPiece(kit) {
       if (count === playCount) play('idle', { fade: 0.4 });
     };
     mixer.addEventListener('finished', done);
-    return true;
+    return index;
   }
 
   // Lanza y escudo: se enganchan con la pieza ya en la postura de reposo (aún en el origen
@@ -340,6 +342,9 @@ export function spawnPiece(kit) {
     play,
     playOnce,
     fidget,
+    get fidgeting() {
+      return Boolean(variants.fidget?.some((variant) => variant.action === current));
+    },
     placeAt(position) {
       pedestal.position.set(position.x, 0, position.z);
       figure.position.set(position.x, kit.pedestalHeight, position.z);
