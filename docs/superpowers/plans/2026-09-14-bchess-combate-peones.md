@@ -1841,3 +1841,47 @@ Expected: `ℹ fail 0` y el push de `main`.
 3. Ejecutar la verificación de la tarea 5 con un estilo.
 
 Expected: los mismos resultados y ningún error en la consola.
+
+---
+
+## Cambios durante la ejecución (2026-09-14)
+
+- **`advance(seconds, fps)` en `window.bchess`.** Con el reloj de juego, una pestaña oculta frena
+  el bucle de animación y las comprobaciones se eternizaban. `advance` mueve el juego a mano,
+  fotograma a fotograma, sin depender de que la pestaña esté visible.
+- **Cámara de cine.** Prueba direcciones cada 30° alrededor de la de lado y se queda con la que
+  menos piezas mete entre la cámara y el combate. Tiene en cuenta la altura de la línea de visión
+  (`ELEVATION = 0.65`, `PIECE_TOP = 1.75`). `runCombat` recibe `obstacles` con las posiciones de
+  las demás piezas.
+- **Lanzas en combate.**
+  - Van erguidas (`setSpearDefault('upright')`) en todo lo que no es una estocada.
+  - Van subidas 0,3 en la mano (`COMBAT_RAISE`), para que el regatón no barra las peanas vecinas
+    en los golpes recibidos.
+  - La del vencido sale volando y se desvanece (`throwSpear`).
+  - Tras cada golpe, la lanza vuelve a su agarre antes de bajar el arma (`RECOVER = 0,3 s`,
+    `GRIP_SPEED = 4`).
+- **Cuerpo a cuerpo.** `measureStrikes` mide también cuánto se abren los pies (`sideStep`). El
+  cuerpo a cuerpo descarta los golpes que pasan de 0,3 (`MELEE_SIDE_STEP`), así que las patadas
+  (0,78 y 1,03) se quedan fuera.
+- **Destello.** Es una animación CSS que se desvanece sola. Con `requestAnimationFrame`, la
+  pantalla podía quedarse en blanco si el navegador frenaba los fotogramas.
+- **`playOnce` con `seconds`.** En clips muy largos, como la celebración `cheer` (12 s), la
+  versión del manifiesto puede cortar antes.
+- **Verificación con vecinos en las casillas de la esquina (el peor caso).** En los dos estilos
+  las reacciones llegan con un fotograma de retraso como mucho, el vencido no pasa de 0,35 de su
+  centro y la cámara vuelve exacta.
+
+  | | Duelo | Cuerpo a cuerpo |
+  |---|---|---|
+  | Holgura mínima con los vecinos | 0,038 | 0,006 |
+  | Lanza sobre el suelo | ≥ 0 | ≥ 0,06 |
+  | Punta respecto al centro del rival | ≥ 0,10 | — |
+- **Animaciones elegidas entre las 12 candidatas.**
+  - Provocación: `angry_01` y `angry_03`.
+  - Celebración: `cheer` (cortada) y `laugh_01`.
+  - Derrota: `defeat_03`, con `travel` para que se quede en su casilla.
+  - Golpes recibidos extra: `hit_to_side` y `hit_to_body_02`.
+  - Descartadas:
+    - `angry_02`: se va andando 1,86 casillas.
+    - `fold_arms` y `clap`: demasiado quietas.
+    - `defeat_02`: no llega a caer.
