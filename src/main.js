@@ -12,6 +12,7 @@ import { onBoardTap } from './input.js';
 import { pawnCaptures, pawnMoves } from './rules/pawn.js';
 import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
 import { createClock } from './combat/clock.js';
+import { measureStrikes } from './combat/strikes.js';
 
 // Arranque de la prueba: peones blancos en la fila 2 y negros en la 7 (los colores que
 // traiga el manifiesto). Tocas uno y se marcan sus casillas posibles (puntos dorados) y los
@@ -202,6 +203,7 @@ async function start() {
       const manifest = await loadManifest();
       const sides = SIDES.filter((side) => manifest.pieces?.[side.kind]);
       const kits = await Promise.all(sides.map((side) => loadPieceKit(manifest.pieces[side.kind], quality)));
+      for (const kit of kits) kit.strikes = measureStrikes(kit, spawnPiece);
       sides.forEach((side, i) => {
         for (const file of FILES) {
           const piece = spawnPiece(kits[i]);

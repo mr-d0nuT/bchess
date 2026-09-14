@@ -48,20 +48,21 @@ export function findClipName(clipNames, key) {
 
 // Versiones de cada acción: las del manifiesto (`moves`, con claves de Tripo y opciones
 // como `spear` o `travel`) y, para las acciones que no menciona, la detección automática.
-// `missing` lista las claves del manifiesto que no están en el GLB.
+// `missing` lista las claves del manifiesto que no están en el GLB. Cada versión guarda su
+// clave corta en `key` (para pedir una versión concreta).
 export function resolveMoves(clipNames, moves = {}) {
   const auto = mapClips(clipNames);
   const result = {};
   const missing = [];
   for (const action of new Set([...ACTIONS, ...Object.keys(moves)])) {
     if (!moves[action]) {
-      result[action] = auto[action] ? [{ clip: auto[action] }] : [];
+      result[action] = auto[action] ? [{ clip: auto[action], key: auto[action] }] : [];
       continue;
     }
     result[action] = [];
     for (const variant of moves[action]) {
       const name = findClipName(clipNames, variant.clip);
-      if (name) result[action].push({ ...variant, clip: name });
+      if (name) result[action].push({ ...variant, key: variant.clip, clip: name });
       else missing.push(variant.clip);
     }
   }

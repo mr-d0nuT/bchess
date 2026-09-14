@@ -25,6 +25,7 @@ const SPEAR_POSES = {
 };
 const SPEAR_TURN_SPEED = 7; // por segundo: la lanza tarda ~0,15 s en cambiar de postura
 const SPEAR_FLOOR_MARGIN = 0.02; // lo que queda su extremo más bajo por encima del suelo
+const GRIP_SPEED = 2.5; // casillas por segundo que resbala la lanza cuando lo pide el combate
 
 export async function loadManifest() {
   const response = await fetch(`${MODELS}manifest.json`);
@@ -206,12 +207,24 @@ export function spawnPiece(kit) {
   let spearTarget = 0; // 0 = lanza en la mano; 1 = en la postura `spearPose`
   let spearBlend = 0;
   let spearPose = SPEAR_POSES.forward;
+  let spearOverride = null; // postura que impone el combate a todo lo que haga ('upright'…)
+  let currentVariant = null;
+  let gripTarget = 0; // lo que el combate pide que la lanza resbale hacia el regatón
+  let grip = 0;
 
-  // Reproduce una versión al azar de la acción, sin repetir la anterior (o la de `avoid`).
-  function play(action, { loop = true, fade = 0.25, avoid } = {}) {
+  function applySpearPose() {
+    const pose = SPEAR_POSES[spearOverride ?? currentVariant?.spear];
+    if (pose) spearPose = pose;
+    spearTarget = pose ? 1 : 0;
+  }
+
+  // Reproduce una versión de la acción: la de clave `clip` si se pide, o una al azar sin
+  // repetir la anterior (o la de `avoid`).
+  function play(action, { loop = true, fade = 0.25, avoid, clip } = {}) {
     const list = variants[action];
     if (!list?.length) return null;
-    const index = pickVariant(list.length, avoid ?? lastVariant[action] ?? -1);
+    const forced = clip ? list.findIndex((variant) => variant.key === clip) : -1;
+    const index = forced >= 0 ? forced : pickVariant(list.length, avoid ?? lastVariant[action] ?? -1);
     lastVariant[action] = index;
     const variant = list[index];
     const next = variant.action;
@@ -222,16 +235,15 @@ export function spawnPiece(kit) {
     if (current && current !== next) next.crossFadeFrom(current, fade, false);
     next.play();
     current = next;
-    const pose = SPEAR_POSES[variant.spear];
-    if (pose) spearPose = pose;
-    spearTarget = pose ? 1 : 0;
+    currentVariant = variant;
+    applySpearPose();
     playCount++;
     return next;
   }
 
-  function playOnce(action, { fade = 0.2 } = {}) {
+  function playOnce(action, { fade = 0.2, clip } = {}) {
     return new Promise((resolve) => {
-      const running = play(action, { loop: false, fade });
+      const running = play(action, { loop: false, fade, clip });
       if (!running) {
         resolve(false);
         return;
@@ -314,8 +326,15 @@ export function spawnPiece(kit) {
       posed.copy(boneQuaternion).multiply(modelQuaternion);
       spear.quaternion.slerpQuaternions(spearHold, posed, spearBlend);
     }
-    // Si un extremo se hunde en la peana o en el tablero, la lanza resbala por la mano.
+    // El combate puede pedir que la lanza resbale hacia el regatón (para no atravesar al
+    // rival) y, si un extremo se hunde en la peana o en el tablero, resbala hacia arriba.
+    const gripStep = GRIP_SPEED * dt;
+    grip += Math.max(-gripStep, Math.min(gripStep, gripTarget - grip));
     spear.position.copy(spearGripAt);
+    if (grip > 0) {
+      axis.set(0, 1, 0).applyQuaternion(spear.quaternion);
+      spear.position.addScaledVector(axis, -grip / spear.parent.getWorldScale(boneScale).x);
+    }
     spear.updateWorldMatrix(true, false);
     spear.localToWorld(top.set(0, spearEnds.top, 0));
     spear.localToWorld(bottom.set(0, spearEnds.bottom, 0));
@@ -342,6 +361,24 @@ export function spawnPiece(kit) {
     play,
     playOnce,
     fidget,
+    // Para el combate.
+    setSpearPose(name) {
+      spearOverride = name ?? null;
+      applySpearPose();
+    },
+    setGripSlide(amount) {
+      gripTarget = Math.max(0, amount);
+    },
+    hasClip(action, key) {
+      return Boolean(variants[action]?.some((variant) => variant.key === key));
+    },
+    spearEnds,
+    get attacks() {
+      return kit.moves.attack ?? [];
+    },
+    get strikes() {
+      return kit.strikes ?? {};
+    },
     get fidgeting() {
       return Boolean(variants.fidget?.some((variant) => variant.action === current));
     },

@@ -70,11 +70,11 @@ test('resolveMoves usa el manifiesto y, para lo que no dice, la detección autom
     hit: [{ clip: 'hit_to_head' }],
     fidget: [{ clip: 'scratch' }],
   });
-  assert.deepEqual(moves.attack, [{ clip: 'preset:biped:boxing_01.001', spear: 'forward' }]);
-  assert.deepEqual(moves.hit, [{ clip: 'preset:biped:hit_to_head.001' }]);
-  assert.deepEqual(moves.idle, [{ clip: 'preset:biped:idle.001' }]);
-  assert.deepEqual(moves.walk, [{ clip: 'preset:biped:walk.001' }]);
-  assert.deepEqual(moves.fall, [{ clip: 'preset:biped:fall.001' }]);
+  assert.deepEqual(moves.attack, [{ clip: 'preset:biped:boxing_01.001', key: 'boxing_01', spear: 'forward' }]);
+  assert.deepEqual(moves.hit, [{ clip: 'preset:biped:hit_to_head.001', key: 'hit_to_head' }]);
+  assert.deepEqual(moves.idle, [{ clip: 'preset:biped:idle.001', key: 'preset:biped:idle.001' }]);
+  assert.deepEqual(moves.walk, [{ clip: 'preset:biped:walk.001', key: 'preset:biped:walk.001' }]);
+  assert.deepEqual(moves.fall, [{ clip: 'preset:biped:fall.001', key: 'preset:biped:fall.001' }]);
   assert.deepEqual(moves.jump, []);
   assert.deepEqual(moves.fidget, []);
   assert.deepEqual(missing, ['front_kick_01', 'scratch']);
