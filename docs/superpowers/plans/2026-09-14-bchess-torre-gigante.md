@@ -2927,3 +2927,26 @@ Actualizar `bchess-app.md` en la memoria con lo aprendido que no está en el rep
 - cómo adjuntar imágenes a Gemini;
 - las claves elegidas para el gigante;
 - los créditos gastados.
+
+---
+
+## Cambios durante la ejecución
+
+- **Orden.** Las tareas 4 a 10 se hicieron antes que los modelos de Tripo, con piezas provisionales: torres de ocho lados hechas en código (`raw/tmp/stand-in-tower.mjs`) y el peón de cada color a 1,9 casillas como gigante. Las comprobaciones de las tareas 9 y 10 pasaron con ellas y se repiten con los modelos definitivos.
+- **Siluetas.** `tools/silhouette.mjs` mide la caja de los bordes marcados (saltos de brillo) con umbral 12, en vez de comparar con el color de la esquina: con los fondos de estudio en degradado, ese método tomaba la imagen entera.
+- **Adjuntar en Gemini.** Soltar imágenes y los `input[type=file]` de Gemini no adjuntan de forma fiable. Las imágenes se suben a un `input[type=file]` propio creado en la página y se pegan con un evento `paste` sintético. El pegado adjunta cada imagen dos veces, sin efecto en el resultado.
+- **Descargas de Gemini.** Chrome dejó de descargar imágenes de Gemini tras las primeras (bloqueo de descargas múltiples). La bandera negra y el gigante negro se copiaron con «Copiar imagen» y se guardaron desde el portapapeles con `osascript`, a 1024 px: basta para la tela y como referencia de textura. Después se restauró el texto que tenía el portapapeles del usuario.
+- **Referencia de la torre.** Con `piezas_white_front.png` entera, Gemini convirtió las seis figuras en torres. La referencia es un recorte de la torre (`raw/tmp/ref-torre-*.png`) con la estrellita de la marca de agua tapada.
+- **Torre negra.** Se editó la torre blanca generada, con el recorte de la torre negra como referencia de materiales.
+- **Verificación de la punta de la lanza.** En `verificar-captura-torre.js`, la distancia de la punta al gigante solo se mide mientras la torre es visible. Antes seguía midiendo cuando el peón ya entraba en la casilla y daba un falso 0,043.
+- **Colores cambiados.** Se añadió la captura `torre-negra-come-peon`.
+- **Resultados con las piezas provisionales:**
+
+| Comprobación | hueco | holgura | a la vez | apartado | final |
+|---|---|---|---|---|---|
+| Torre blanca a1 → d1 | 0,216 | 0,303 | 0 | 0,08 | todo en su casilla, cámara 0 |
+| Torre negra h8 → e8 | 0,216 | 0,306 | 0 | 0,10 | todo en su casilla, cámara 0 |
+| Torre come peón | 0,030 | 0,401 | 0 | 0,35 | 19 piezas, rocas 0 |
+| Torre negra come peón | 0,030 | 0,394 | 0 | 0,35 | 19 piezas, rocas 0 |
+| Peón come torre (punta a 0,137 del centro; pecho a 0,157) | 0,216 | 0,127 | 0 | 0,35 | 19 piezas, rocas 0 |
+| Torre come torre | 0,127 | 0,379 | 0 | 0,35 | 19 piezas, rocas 0 |
