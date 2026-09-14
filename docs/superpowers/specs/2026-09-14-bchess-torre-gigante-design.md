@@ -95,7 +95,8 @@ colindantes».
     y al andar, más un margen;
   - al andar, también el tramo de 0,8 casillas que tiene por delante, para que las piezas se
     aparten antes de que llegue;
-  - al golpear, también el tramo hasta su rival.
+  - al pelear, un círculo con el radio que alcanzan sus golpes hacia los lados y hacia atrás
+    (delante tiene al rival, que no se aparta).
 - **Cómo se apartan:**
   - se deslizan peana y figura juntas, sin girar, y siguen respirando;
   - se alejan del gigante lo justo para que queden 0,03 casillas entre sus bordes, y como mucho
