@@ -215,6 +215,7 @@ export function spawnPiece(kit) {
   let gripTarget = 0; // lo que el combate pide que la lanza resbale hacia el regatón
   let grip = 0;
   let flying = null; // lanza que ha salido volando: { velocity, axis, age }
+  const cuts = []; // acciones de `playOnce` que acaban antes, por `seconds`: { action, at, resolve }
 
   function applySpearPose() {
     const pose = SPEAR_POSES[spearOverride ?? currentVariant?.spear ?? spearDefault];
@@ -245,9 +246,12 @@ export function spawnPiece(kit) {
     return next;
   }
 
+  // Una sola vez; se resuelve al terminar. Si la versión trae `seconds` (clips muy largos, como
+  // una celebración de 12 s), se resuelve al llegar a ese momento y quien llama pasa a otra cosa.
   function playOnce(action, { fade = 0.2, clip } = {}) {
     return new Promise((resolve) => {
       const running = play(action, { loop: false, fade, clip });
+      if (running && currentVariant?.seconds) cuts.push({ action: running, at: currentVariant.seconds, resolve });
       if (!running) {
         resolve(false);
         return;
@@ -349,6 +353,11 @@ export function spawnPiece(kit) {
 
   function update(dt) {
     mixer.update(dt);
+    for (const cut of [...cuts]) {
+      if (cut.action.time < cut.at && cut.action === current) continue;
+      cuts.splice(cuts.indexOf(cut), 1);
+      cut.resolve(true);
+    }
     const spear = props.spear;
     if (!spear) return;
     if (flying) {

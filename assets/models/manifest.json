@@ -2,7 +2,7 @@
   "pieces": {
     "white-pawn": {
       "files": { "movil": "pawn-movil.glb", "ordenador": "pawn-ordenador.glb" },
-      "animationFiles": ["pawn-fidgets.glb"],
+      "animationFiles": ["pawn-fidgets.glb", "pawn-combat.glb"],
       "height": 1.35,
       "yaw": 0,
       "moves": {
@@ -19,14 +19,19 @@
         "hit": [
           { "clip": "hit_to_head" },
           { "clip": "hit_to_stomach" },
-          { "clip": "hit_to_body_01" }
+          { "clip": "hit_to_body_01" },
+          { "clip": "hit_to_side" },
+          { "clip": "hit_to_body_02" }
         ],
         "fall": [{ "clip": "fall", "travel": 0.27 }],
         "fidget": [
           { "clip": "look_around" },
           { "clip": "scratch", "spear": "upright" },
           { "clip": "frightened", "spear": "upright", "travel": 0.6 }
-        ]
+        ],
+        "taunt": [{ "clip": "angry_01" }, { "clip": "angry_03" }],
+        "victory": [{ "clip": "cheer", "seconds": 3.2 }, { "clip": "laugh_01", "seconds": 3.5 }],
+        "defeat": [{ "clip": "defeat_03", "travel": 0.43 }]
       },
       "hands": {},
       "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.45, "length": 1.9 },
@@ -36,7 +41,7 @@
     },
     "black-pawn": {
       "files": { "movil": "black-pawn-movil.glb", "ordenador": "black-pawn-ordenador.glb" },
-      "animationFiles": [],
+      "animationFiles": ["black-pawn-combat.glb"],
       "height": 1.35,
       "yaw": 0,
       "moves": {
@@ -53,14 +58,19 @@
         "hit": [
           { "clip": "hit_to_head" },
           { "clip": "hit_to_stomach" },
-          { "clip": "hit_to_body_01" }
+          { "clip": "hit_to_body_01" },
+          { "clip": "hit_to_side" },
+          { "clip": "hit_to_body_02" }
         ],
         "fall": [{ "clip": "fall", "travel": 0.27 }],
         "fidget": [
           { "clip": "look_around" },
           { "clip": "scratch", "spear": "upright" },
           { "clip": "frightened", "spear": "upright", "travel": 0.6 }
-        ]
+        ],
+        "taunt": [{ "clip": "angry_01" }, { "clip": "angry_03" }],
+        "victory": [{ "clip": "cheer", "seconds": 3.2 }, { "clip": "laugh_01", "seconds": 3.5 }],
+        "defeat": [{ "clip": "defeat_03", "travel": 0.43 }]
       },
       "hands": {},
       "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.45, "length": 1.9 },

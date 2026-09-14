@@ -98,6 +98,11 @@ export async function runCombat({ attacker, defender, board, clock, fx, cinema, 
   const home = board.squareToWorld(attacker.mover.square);
   const spots = fightSpots(home, board.squareToWorld(target), style);
   const beats = planExchanges(sharedStrikes(attacker, defender, style), random);
+  for (const piece of [a, d]) {
+    piece.setSpearDefault('upright'); // también durante la provocación, que agita los brazos
+    piece.setGripSlide(-COMBAT_RAISE);
+    if (style === 'melee') piece.setSpearPose('upright');
+  }
 
   // 1. Preparación: la cámara encuadra, se encaran, provocación o susto, y bajan de la peana.
   const framing = cinema.frame(clock, spots.attacker, spots.defender, obstacles);
@@ -113,11 +118,6 @@ export async function runCombat({ attacker, defender, board, clock, fx, cinema, 
     attacker.mover.descend(style === 'duel' ? spots.attacker : home),
     defender.mover.descend(spots.defender),
   ]);
-  for (const piece of [a, d]) {
-    piece.setSpearDefault('upright');
-    piece.setGripSlide(-COMBAT_RAISE);
-    if (style === 'melee') piece.setSpearPose('upright');
-  }
   if (style === 'melee') await attacker.mover.walkTo(spots.attacker);
   await Promise.all([
     attacker.mover.turnTo(spots.attackerFacing, 0.25),
@@ -135,9 +135,9 @@ export async function runCombat({ attacker, defender, board, clock, fx, cinema, 
   await clock.wait(KO_SECONDS);
   await defender.mover.vanish();
 
-  // 5. Victoria: la cámara vuelve, el ganador ocupa la casilla y lo celebra.
+  // 5. Victoria: la cámara vuelve, el ganador ocupa la casilla y lo celebra con la lanza
+  // erguida (si siguiera a la mano, al alzar los brazos barrería a las piezas vecinas).
   a.setSpearPose(null);
-  a.setSpearDefault(null);
   a.setGripSlide(0);
   await Promise.all([cinema.restore(clock), attacker.mover.walkOnto(target)]);
   if (a.has('victory')) {
@@ -146,4 +146,5 @@ export async function runCombat({ attacker, defender, board, clock, fx, cinema, 
   } else {
     await attacker.mover.hop(2);
   }
+  a.setSpearDefault(null);
 }
