@@ -57,14 +57,12 @@ export function createHud() {
     aviso.hidden = false;
   }
 
-  // Destello blanco a pantalla completa (golpe final del combate).
+  // Destello blanco a pantalla completa (golpe final del combate). Es una animación CSS que
+  // se desvanece sola, sin depender de los fotogramas del navegador.
   function flash() {
-    flashEl.classList.remove('apagandose');
+    flashEl.classList.remove('encendido');
+    void flashEl.offsetWidth; // reinicia la animación aunque ya se hubiera usado
     flashEl.classList.add('encendido');
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      flashEl.classList.remove('encendido');
-      flashEl.classList.add('apagandose');
-    }));
   }
 
   return { tickFps, onAction, setBusy, hideAction, showMessage, hideMessage, flash };

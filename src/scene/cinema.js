@@ -7,7 +7,9 @@ import * as THREE from 'three';
 const MOVE_SECONDS = 0.8;
 const SHAKE_SECONDS = 0.3;
 const MIN_DISTANCE = 3.4;
-const ELEVATION = 0.9; // altura de la cámara por cada casilla de distancia: mira por encima
+const ELEVATION = 0.65; // altura de la cámara por cada casilla de distancia: mira por encima
+const PIECE_TOP = 1.75; // altura de una pieza sobre su peana, para saber si tapa el encuadre
+const ANGLE_STEP = Math.PI / 6; // se prueban direcciones cada 30° alrededor de la de lado
 const smooth = (t) => t * t * (3 - 2 * t);
 
 export function createCinema({ camera, controls }) {
@@ -32,9 +34,10 @@ export function createCinema({ camera, controls }) {
       return saved !== null;
     },
 
-    // Encuadra a los luchadores en `a` y `b` ({x, z}) de lado y desde arriba, para ver por
-    // encima de las demás piezas. Elige el lado con menos piezas (`obstacles`, {x, z}) entre
-    // la cámara y el combate; si empatan, el más cercano a la cámara del usuario.
+    // Encuadra a los luchadores en `a` y `b` ({x, z}) desde arriba y, a ser posible, de lado.
+    // Prueba direcciones cada 30° alrededor de las dos de lado y se queda con la que menos
+    // piezas (`obstacles`, {x, z}) meten entre la cámara y el combate. Penaliza un poco alejarse
+    // de lado y el lado contrario al de la cámara del usuario.
     frame(clock, a, b, obstacles = []) {
       if (!saved) saved = { position: camera.position.clone(), target: controls.target.clone() };
       controls.enabled = false;
@@ -42,17 +45,23 @@ export function createCinema({ camera, controls }) {
       const gap = Math.hypot(b.x - a.x, b.z - a.z);
       const halfWidth = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * Math.min(camera.aspect, 1.6);
       const distance = Math.max(MIN_DISTANCE, (gap + 1.4) / (2 * halfWidth));
-      const across = new THREE.Vector3(-(b.z - a.z), 0, b.x - a.x).normalize();
-      const blockers = (side) => obstacles.filter((o) => {
-        const along = (o.x - mid.x) * side.x + (o.z - mid.z) * side.z;
-        const aside = Math.abs((o.x - mid.x) * side.z - (o.z - mid.z) * side.x);
-        return along > 0.4 && along < distance && aside < 0.8;
-      }).length;
-      const other = across.clone().negate();
       const toUser = new THREE.Vector3().subVectors(saved.position, mid).setY(0);
-      const [first, second] = across.dot(toUser) >= 0 ? [across, other] : [other, across];
-      const side = blockers(second) < blockers(first) ? second : first;
-      const position = mid.clone().addScaledVector(side, distance).add(new THREE.Vector3(0, distance * ELEVATION, 0));
+      const sideways = Math.atan2(b.x - a.x, -(b.z - a.z)); // ángulo (en x, z) perpendicular a la línea
+      let best = null;
+      for (const base of [sideways, sideways + Math.PI]) {
+        for (const step of [0, 1, -1, 2, -2]) {
+          const angle = base + step * ANGLE_STEP;
+          const dir = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+          const blockers = obstacles.filter((o) => {
+            const along = (o.x - mid.x) * dir.x + (o.z - mid.z) * dir.z;
+            const aside = Math.abs((o.x - mid.x) * dir.z - (o.z - mid.z) * dir.x);
+            return along > 0.3 && along < distance && aside < 0.55 && 0.75 + ELEVATION * along < PIECE_TOP;
+          }).length;
+          const score = blockers + Math.abs(step) * 0.3 + (dir.dot(toUser) < 0 ? 0.2 : 0);
+          if (!best || score < best.score) best = { score, dir };
+        }
+      }
+      const position = mid.clone().addScaledVector(best.dir, distance).add(new THREE.Vector3(0, distance * ELEVATION, 0));
       return glide(clock, position, mid);
     },
 

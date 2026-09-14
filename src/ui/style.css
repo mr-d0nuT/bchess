@@ -89,8 +89,8 @@ html, body {
 }
 
 #destello { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
-#destello.encendido { opacity: 0.85; }
-#destello.apagandose { transition: opacity 0.35s ease-out; }
+#destello.encendido { animation: destello 0.4s ease-out forwards; }
+@keyframes destello { from { opacity: 0.85; } to { opacity: 0; } }
 
 @media (max-width: 520px) {
   #acciones button { min-width: 0; padding: 10px 14px; }
