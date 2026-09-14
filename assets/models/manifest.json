@@ -28,6 +28,39 @@
       "shield": { "hand": "left", "offset": [0.04, -0.34, 0.02], "rotation": [0, 1.5707963267948966, 0], "scale": 1 },
       "shieldModel": { "files": { "movil": "shield-movil.glb", "ordenador": "shield-ordenador.glb" }, "height": 0.62 },
       "pedestalModel": { "files": { "movil": "pedestal-movil.glb", "ordenador": "pedestal-ordenador.glb" }, "height": 0.26 }
+    },
+    "black-pawn": {
+      "files": { "movil": "black-pawn-movil.glb", "ordenador": "black-pawn-ordenador.glb" },
+      "animationFiles": [],
+      "height": 1.35,
+      "yaw": 0,
+      "moves": {
+        "idle": [{ "clip": "idle" }],
+        "walk": [{ "clip": "walk" }],
+        "jump": [],
+        "attack": [
+          { "clip": "box_03", "spear": "forward", "travel": 0.73 },
+          { "clip": "front_kick_02" },
+          { "clip": "box_01", "spear": "forward", "travel": 0.75 },
+          { "clip": "front_kick_01", "travel": 0.42 },
+          { "clip": "box_02", "spear": "forward" }
+        ],
+        "hit": [
+          { "clip": "hit_to_head" },
+          { "clip": "hit_to_stomach" },
+          { "clip": "hit_to_body_01" }
+        ],
+        "fall": [{ "clip": "fall", "travel": 0.27 }],
+        "fidget": [
+          { "clip": "look_around" },
+          { "clip": "scratch", "spear": "upright" },
+          { "clip": "frightened", "spear": "upright", "travel": 0.6 }
+        ]
+      },
+      "hands": {},
+      "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.45, "length": 1.9 },
+      "shield": { "hand": "left", "offset": [0.04, -0.34, 0.02], "rotation": [0, 1.5707963267948966, 0], "scale": 1 },
+      "pedestalModel": { "files": { "movil": "black-pedestal-movil.glb", "ordenador": "black-pedestal-ordenador.glb" }, "height": 0.26 }
     }
   }
 }
