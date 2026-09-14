@@ -9,13 +9,14 @@ import { createDust } from './fx/dust.js';
 import { createMover } from './moves/sequence.js';
 import { restFacingFor } from './moves/walk.js';
 import { onBoardTap } from './input.js';
-import { pawnMoves } from './rules/pawn.js';
+import { pawnCaptures, pawnMoves } from './rules/pawn.js';
 import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
 import { createClock } from './combat/clock.js';
 
 // Arranque de la prueba: peones blancos en la fila 2 y negros en la 7 (los colores que
-// traiga el manifiesto). Tocas uno, se marcan sus casillas posibles y, al tocar una, anda
-// hasta ella. Los botones actúan sobre el elegido.
+// traiga el manifiesto). Tocas uno y se marcan sus casillas posibles (puntos dorados) y los
+// enemigos que puede comerse (aros rojos). Al tocar una casilla anda hasta ella; al tocar un
+// enemigo marcado, se lo come. Los botones actúan sobre el elegido.
 
 const SIDES = [
   { color: 'white', kind: 'white-pawn', rank: 2 },
@@ -55,7 +56,7 @@ async function start() {
   const dust = createDust(stage.scene);
   const clock = createClock();
   const pawns = []; // { color, piece, mover }
-  const state = { selected: null, busy: false };
+  const state = { selected: null, busy: false, fighting: false, lastStyle: null };
   // De tanto en tanto, un solo peón del tablero hace un gesto especial; nunca dos a la vez.
   const gesture = { performer: null, last: null, lastVariant: -1, at: performance.now() + nextGestureDelay() };
 
@@ -66,7 +67,7 @@ async function start() {
       gesture.at = now + nextGestureDelay();
     }
     if (now < gesture.at) return;
-    const candidates = state.busy ? [] : pawns.filter((pawn) => pawn !== state.selected);
+    const candidates = state.busy || state.fighting ? [] : pawns.filter((pawn) => pawn !== state.selected);
     const pawn = pickPerformer(candidates, gesture.last);
     const variant = pawn ? pawn.mover.fidget({ avoid: gesture.lastVariant }) : null;
     if (variant === null) {
@@ -82,6 +83,7 @@ async function start() {
     for (const pawn of pawns) pawn.piece.update(step);
     directGestures(now);
     dust.update(step);
+    highlights.pulse(now / 1000);
     stage.controls.update();
   }
 
@@ -118,12 +120,18 @@ async function start() {
   const occupied = () => new Set(pawns.map((p) => p.mover.square));
   const pawnAt = (square) => pawns.find((p) => p.mover.square === square) ?? null;
   const movesOf = (pawn) => pawnMoves(pawn.mover.square, occupied(), pawn.color);
-  const refreshButtons = () => hud.setBusy(state.busy || !state.selected);
+  const capturesOf = (pawn) => pawnCaptures(
+    pawn.mover.square,
+    new Set(pawns.filter((p) => p.color !== pawn.color).map((p) => p.mover.square)),
+    pawn.color,
+  );
+  const refreshButtons = () => hud.setBusy(state.busy || state.fighting || !state.selected);
 
   function select(pawn) {
     state.selected = pawn;
     highlights.select(pawn ? pawn.mover.square : null);
     highlights.showMoves(pawn ? movesOf(pawn) : []);
+    highlights.showCaptures(pawn ? capturesOf(pawn) : []);
     refreshButtons();
   }
 
@@ -132,14 +140,45 @@ async function start() {
     refreshButtons();
   }
 
+  function removePawn(pawn) {
+    stage.scene.remove(pawn.piece.object);
+    pawns.splice(pawns.indexOf(pawn), 1);
+    if (gesture.performer === pawn) gesture.performer = null;
+    if (gesture.last === pawn) gesture.last = null;
+  }
+
+  // Un peón se come a otro: el vencido se esfuma y el ganador anda hasta su casilla.
+  async function capture(attacker, defender) {
+    state.fighting = true;
+    highlights.clear();
+    refreshButtons();
+    const target = defender.mover.square;
+    try {
+      await defender.mover.vanish();
+      removePawn(defender);
+      await attacker.mover.goTo(target);
+    } catch (err) {
+      console.error('[BChess] La captura falló:', err);
+      attacker.mover.placeOn(target);
+    } finally {
+      if (pawns.includes(defender)) removePawn(defender);
+      state.fighting = false;
+      select(attacker);
+    }
+  }
+
   async function handleTap({ owner, square }) {
-    if (state.busy) return;
+    if (state.busy || state.fighting) return;
     const tapped = owner ?? (square ? pawnAt(square) : null);
+    const pawn = state.selected;
+    if (pawn && tapped && tapped.color !== pawn.color && capturesOf(pawn).includes(tapped.mover.square)) {
+      await capture(pawn, tapped);
+      return;
+    }
     if (tapped) {
       select(tapped);
       return;
     }
-    const pawn = state.selected;
     if (pawn && square && movesOf(pawn).includes(square)) {
       highlights.clear();
       await pawn.mover.goTo(square);
@@ -155,7 +194,7 @@ async function start() {
   );
 
   hud.onAction((action) => {
-    if (!state.busy && state.selected) state.selected.mover.perform(action);
+    if (!state.busy && !state.fighting && state.selected) state.selected.mover.perform(action);
   });
 
   async function loadPieces() {
@@ -190,7 +229,7 @@ async function start() {
   await addLighting(stage, quality);
   await loadPieces();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
-  window.bchess = { stage, board, quality, pawns, state, gesture, clock, advance, tap: handleTap };
+  window.bchess = { stage, board, quality, pawns, state, gesture, clock, highlights, advance, tap: handleTap, capture };
 }
 
 start();

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pawnMoves } from '../src/rules/pawn.js';
+import { pawnCaptures, pawnMoves } from '../src/rules/pawn.js';
 
 test('blancas: desde la fila 2 puede avanzar una o dos casillas', () => {
   assert.deepEqual(pawnMoves('e2', new Set(['e2']), 'white'), ['e3', 'e4']);
@@ -36,4 +36,21 @@ test('negras: avanzan hacia la fila 1, dos casillas desde la 7', () => {
 
 test('un color desconocido lanza error', () => {
   assert.throws(() => pawnMoves('e2', new Set(), 'green'), /Color no válido/);
+});
+
+test('capturas: en diagonal hacia delante, solo si hay un enemigo', () => {
+  assert.deepEqual(pawnCaptures('d4', new Set(['c5', 'e5']), 'white'), ['c5', 'e5']);
+  assert.deepEqual(pawnCaptures('d4', new Set(['d5', 'c3', 'e3']), 'white'), []);
+  assert.deepEqual(pawnCaptures('e5', new Set(['d4', 'f4']), 'black'), ['d4', 'f4']);
+  assert.deepEqual(pawnCaptures('e5', new Set(['d6', 'f6']), 'black'), []);
+});
+
+test('capturas en los bordes del tablero', () => {
+  assert.deepEqual(pawnCaptures('a2', new Set(['b3']), 'white'), ['b3']);
+  assert.deepEqual(pawnCaptures('h7', new Set(['g6']), 'black'), ['g6']);
+});
+
+test('sin capturas desde la última fila; color desconocido, error', () => {
+  assert.deepEqual(pawnCaptures('c8', new Set(['b9', 'd9']), 'white'), []);
+  assert.throws(() => pawnCaptures('e2', new Set(), 'green'), /Color no válido/);
 });
