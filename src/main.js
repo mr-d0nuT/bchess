@@ -13,6 +13,8 @@ import { pawnCaptures, pawnMoves } from './rules/pawn.js';
 import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
 import { createClock } from './combat/clock.js';
 import { measureStrikes } from './combat/strikes.js';
+import { createImpactFx } from './fx/impact.js';
+import { createCinema } from './scene/cinema.js';
 
 // Arranque de la prueba: peones blancos en la fila 2 y negros en la 7 (los colores que
 // traiga el manifiesto). Tocas uno y se marcan sus casillas posibles (puntos dorados) y los
@@ -56,6 +58,8 @@ async function start() {
   const highlights = createHighlights(stage.scene, board);
   const dust = createDust(stage.scene);
   const clock = createClock();
+  const fx = createImpactFx(stage.scene);
+  const cinema = createCinema(stage);
   const pawns = []; // { color, piece, mover }
   const state = { selected: null, busy: false, fighting: false, lastStyle: null };
   // De tanto en tanto, un solo peón del tablero hace un gesto especial; nunca dos a la vez.
@@ -84,8 +88,10 @@ async function start() {
     for (const pawn of pawns) pawn.piece.update(step);
     directGestures(now);
     dust.update(step);
+    fx.update(step);
     highlights.pulse(now / 1000);
-    stage.controls.update();
+    if (!cinema.active) stage.controls.update();
+    cinema.update(dt);
   }
 
   let previous = performance.now();
@@ -231,7 +237,7 @@ async function start() {
   await addLighting(stage, quality);
   await loadPieces();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
-  window.bchess = { stage, board, quality, pawns, state, gesture, clock, highlights, advance, tap: handleTap, capture };
+  window.bchess = { stage, board, quality, pawns, state, gesture, clock, highlights, fx, cinema, hud, advance, tap: handleTap, capture };
 }
 
 start();
