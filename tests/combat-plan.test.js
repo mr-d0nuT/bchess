@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DUEL_RETREAT, MELEE_DISTANCE, fightSpots, gripSlideForReach, peak, pickStyle, planExchanges, usableStrikes,
+  DUEL_RETREAT, MELEE_DISTANCE, bestStrike, fightSpots, gripSlideForReach, peak, pickStyle, planExchanges, strikeSpot, usableStrikes,
 } from '../src/combat/plan.js';
 
 const close = (a, b) => Math.abs(a - b) < 1e-9;
@@ -81,4 +81,26 @@ test('planExchanges: uno o dos golpes previos y el final del atacante, sin repet
 
 test('planExchanges sin golpes lanza error', () => {
   assert.throws(() => planExchanges([]), /No hay golpes/);
+});
+
+test('bestStrike: el golpe con mano o pie que más alcanza', () => {
+  const attacks = [{ key: 'a' }, { key: 'b' }, { key: 'c' }];
+  const strikes = { a: { body: { reach: 0.5 } }, b: { body: { reach: 0.9 } }, c: { body: null } };
+  assert.equal(bestStrike(attacks, strikes), 'b');
+  assert.equal(bestStrike([{ key: 'c' }], strikes), null);
+});
+
+test('strikeSpot: se para donde su golpe llega al pecho del rival', () => {
+  const spot = strikeSpot({ x: 0, z: 0 }, { x: 3, z: 0 }, { reach: 0.8, torso: 0.17 });
+  assert.ok(Math.abs(spot.attacker.x - 2.03) < 1e-9);
+  assert.equal(spot.attacker.z, 0);
+  assert.ok(Math.abs(spot.distance - 0.97) < 1e-9);
+  assert.equal(spot.attackerFacing, Math.PI / 2);
+  assert.equal(spot.defenderFacing, -Math.PI / 2);
+});
+
+test('strikeSpot: si ya le llega, golpea desde donde está, y nunca se acerca más de closest', () => {
+  assert.deepEqual(strikeSpot({ x: 0, z: 0 }, { x: 1, z: 0 }, { reach: 0.9, torso: 0.17 }).attacker, { x: 0, z: 0 });
+  const close = strikeSpot({ x: 0, z: 0 }, { x: 3, z: 0 }, { reach: 0.3, torso: 0.17, closest: 0.75 });
+  assert.ok(Math.abs(close.attacker.x - 2.25) < 1e-9);
 });
