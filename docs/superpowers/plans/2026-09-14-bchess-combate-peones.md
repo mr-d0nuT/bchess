@@ -1885,3 +1885,20 @@ Expected: los mismos resultados y ningún error en la consola.
     - `angry_02`: se va andando 1,86 casillas.
     - `fold_arms` y `clap`: demasiado quietas.
     - `defeat_02`: no llega a caer.
+- **Lanza erguida durante todo el combate**, desde la provocación (que agita los brazos) hasta el
+  final de la celebración.
+- **`pawn-combat.glb`.** La exportación del peón blanco con solo las 7 animaciones no llegó a
+  descargarse. El fichero sale de la exportación de las 12 candidatas del mismo esqueleto,
+  filtrada con `tools/optimize-anims.sh <entrada> <nombre> clave1,clave2,…`.
+- **Verificación final** con vecinos en d4 y e5, en las cuatro combinaciones. En todas:
+  - reacciones con un fotograma de retraso como mucho;
+  - 15 peones al terminar;
+  - la cámara vuelve exacta;
+  - la consola sin errores.
+
+  | Ataca | Estilo | Holgura con los vecinos | Lanza sobre el suelo | Defensor desde su centro | Celebración |
+  |---|---|---|---|---|---|
+  | Blancas | Duelo | 0,074 | 0,030 | 0,308 | 3,5 s |
+  | Blancas | Cuerpo a cuerpo | 0,006 | 0,030 | 0,308 | 3,5 s |
+  | Negras | Duelo | 0,076 | 0,038 | 0,313 | 3,5 s |
+  | Negras | Cuerpo a cuerpo | 0,003 | 0,038 | 0,313 | 3,5 s |

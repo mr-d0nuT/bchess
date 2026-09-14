@@ -13,6 +13,8 @@ Para forzar el nivel de detalle, añade `?calidad=movil` o `?calidad=ordenador` 
 - Toca un peón: se marca con un aro dorado y se iluminan las casillas a las que puede avanzar.
 - Toca una casilla iluminada: el peón baja de su peana, anda hasta ella y la peana
   reaparece bajo sus pies.
+- Si tiene un enemigo en diagonal hacia delante, aparece un aro rojo bajo el enemigo. Tócalo y
+  pelearán. Unas veces es un duelo de lanzas y otras, cuerpo a cuerpo; gana el que ataca.
 - Los botones **Atacar**, **Golpe** y **Caer** actúan sobre el peón elegido.
 - Arrastra para girar la cámara y pellizca o usa la rueda para acercarte.
 
