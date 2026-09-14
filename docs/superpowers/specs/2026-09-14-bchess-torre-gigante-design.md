@@ -12,12 +12,16 @@ pidió el usuario: «recuerda que debe convertirse en un gigante de piedra».
 **Éxito:** en la web publicada:
 - las cuatro torres aparecen en sus casillas;
 - al moverlas se transforman en gigantes, andan hasta su casilla y vuelven a ser torres;
+- el gigante ocupa más que su casilla, así que las piezas de alrededor se apartan deslizando su
+  peana, sin chocar entre ellas, y al acabar vuelven a su sitio;
 - cuando comen o las comen hay un golpe corto y brutal.
 
 Comprobado por código:
-- el gigante no toca a las piezas vecinas, ni al andar ni al pelear;
+- entre dos piezas que se apartan o vuelven siempre quedan al menos 0,03 casillas;
+- el gigante no toca a las piezas que tienen hueco para apartarse, ni al andar ni al pelear;
 - la torre y el gigante no se ven a la vez salvo durante la transformación;
-- al terminar cada jugada el tablero queda coherente, con la torre visible en su casilla.
+- al terminar cada jugada, todas las piezas están en el centro de su casilla y la torre se ve en
+  la suya.
 
 ## 2. Reglas y toques
 
@@ -40,7 +44,7 @@ Comprobado por código:
 | Qué es | Modelo estático (sin esqueleto) con su base octogonal de piedra | Modelo con esqueleto y animaciones |
 | Cuándo se ve | En reposo | Al moverse y al pelear |
 | Altura | 1,75 casillas, base incluida | 1,9 casillas |
-| Bandera | Hecha en código: tela que ondea con el emblema (león azul o grifo dorado), recortado de las imágenes de los escudos | La del modelo, clavada en la espalda |
+| Bandera | Hecha en código: un banderín de dos puntas que ondea en lo alto, con el emblema de su bando (león azul sobre blanco o grifo dorado sobre rojo) | La del modelo, clavada en la espalda |
 
 - **Peana.** La torre no lleva la peana de madera de los peones: su base de piedra ya lo es,
   como en la imagen de referencia.
@@ -53,7 +57,8 @@ Comprobado por código:
 ## 4. La transformación
 
 **De torre a gigante** (1,2 s):
-1. La torre tiembla durante 0,4 s, cada vez más, con polvo en la base.
+1. La torre tiembla durante 0,4 s, cada vez más, con polvo en la base. Mientras tanto, las piezas
+   de alrededor empiezan a hacerle sitio (sección 6).
 2. **Estalla:**
    - la torre desaparece;
    - salen despedidas de 14 a 20 rocas, trozos de piedra hechos en código con el color de la
@@ -73,13 +78,44 @@ Las rocas que quedan en el tablero encogen y desaparecen en 1 s.
 
 1. Transformación de torre a gigante en su casilla.
 2. El gigante gira hacia su destino y anda con su paseo pesado. La velocidad sale de su zancada
-   medida, como con los peones.
+   medida, como con los peones. A su paso, las piezas cercanas se apartan y después vuelven.
 3. Transformación de gigante a torre en la casilla de destino.
+4. La jugada termina cuando todas las piezas han vuelto al centro de su casilla.
 
-## 6. Capturas cortas y brutales
+## 6. Hacer sitio
+
+Lo pidió el usuario: que las piezas colindantes «se separen un poco de ella para hacerle
+sitio», deslizando «la peana con la figura encima», «sin que lleguen a chocar con las
+colindantes».
+
+- **Quién se aparta.** Las piezas en reposo: el peón con su peana y la torre con su base. No se
+  apartan las que participan en la jugada.
+- **Cuánto sitio pide el gigante:**
+  - un círculo con su radio, medido al cargar: hasta dónde llegan sus manos y sus pies en reposo
+    y al andar, más un margen;
+  - al andar, también el tramo de 0,8 casillas que tiene por delante, para que las piezas se
+    aparten antes de que llegue;
+  - al golpear, también el tramo hasta su rival.
+- **Cómo se apartan:**
+  - se deslizan peana y figura juntas, sin girar, y siguen respirando;
+  - se alejan del gigante lo justo para que queden 0,03 casillas entre sus bordes, y como mucho
+    0,35 casillas desde el centro de su casilla;
+  - van a 1,2 casillas por segundo como mucho, arrancando y frenando con suavidad.
+- **Sin chocar:**
+  - entre dos piezas siempre quedan al menos 0,03 casillas;
+  - si alejarse en línea recta del gigante las lleva hacia otra pieza, prueban a desviarse hasta
+    60° a cada lado;
+  - en cada fotograma, una pieza solo avanza si su nueva posición respeta esa distancia con todas
+    las demás, así que no pueden chocar aunque se muevan varias a la vez;
+  - si no hay hueco, la pieza se queda donde ha llegado y el gigante puede rozarla.
+- **Vuelta.** Cuando el gigante ya no necesita el sitio (ha pasado de largo o ha vuelto a ser
+  torre), las piezas vuelven deslizándose al centro de su casilla con las mismas reglas.
+
+## 7. Capturas cortas y brutales
 
 Usan la cámara de cine, el congelado de impacto, las chispas y la cámara lenta del combate entre
-peones. Las batallas largas y variadas llegan en el paso siguiente.
+peones. Las piezas cercanas también hacen sitio; el atacante y el defensor no se apartan. Las
+batallas largas y variadas llegan en el paso siguiente.
 
 - **Torre come a peón:**
   1. La torre se transforma.
@@ -99,14 +135,16 @@ peones. Las batallas largas y variadas llegan en el paso siguiente.
 
 Las distancias salen del alcance medido de cada golpe, como en el combate entre peones.
 
-## 7. Modelos y animaciones
+## 8. Modelos y animaciones
 
-1. **Imágenes (Gemini, gratis).**
-   - Torre blanca aislada: vista de frente y un poco desde arriba, con su base octogonal y
-     fondo gris.
-   - Gigante blanco: el boceto aprobado.
-   - Versiones negras: se editan las blancas cambiando solo los materiales y los emblemas, y
-     las proporciones se miden por código.
+1. **Imágenes (Gemini, gratis):**
+   - torre blanca aislada: de frente y un poco desde arriba, con su base octogonal, sin bandera
+     ni mástil y con fondo gris;
+   - gigante blanco: el boceto aprobado;
+   - versiones negras: se editan las blancas cambiando solo los materiales y los emblemas, y las
+     proporciones se miden por código;
+   - banderas: el emblema de cada bando sobre una tela plana, vista de frente, para la textura
+     del banderín.
 2. **Tripo** (unos 220 créditos):
    - torre blanca con «Modelo HD» (55);
    - torre negra: retextura del modelo blanco (20);
@@ -118,38 +156,47 @@ Las distancias salen del alcance medido de cada golpe, como en el combate entre 
 4. **Optimización.** La torre, simplificada como las peanas (versión ligera para el móvil). El
    gigante, como los peones.
 
-## 8. Arquitectura
+## 9. Arquitectura
 
 | Fichero | Responsabilidad |
 |---|---|
 | `src/rules/rook.js` | Puro. `rookMoves(square, occupied, enemies) → { moves, captures }`. |
-| `src/pieces/tower.js` | Carga la torre estática y crea cada una con su bandera hecha en código. |
-| `src/fx/rubble.js` | Rocas que salen despedidas, rebotan y desaparecen. |
+| `src/moves/room.js` | Puro. Dónde debe ponerse cada pieza para hacer sitio (`roomTargets`) y cuánto avanza en un fotograma sin chocar (`stepRoom`). |
+| `src/moves/crowd.js` | Cada fotograma aplica el sitio que piden los gigantes: desliza las piezas y avisa cuando todas han vuelto. |
+| `src/pieces/rook.js` | Carga la torre estática y el gigante, y crea cada torre con su banderín hecho en código. |
+| `src/fx/rubble.js` | Rocas que salen despedidas o vuelan hacia la casilla, rebotan y desaparecen. |
 | `src/moves/transform.js` | Transformaciones torre ⇄ gigante con el reloj de juego. |
 | `src/moves/rook-mover.js` | Mover de la torre, con la misma forma que el de los peones (`placeOn`, `goTo`, `square`, `busy`). |
 | `src/combat/smash.js` | Capturas cortas en las que participa una torre. |
-| `src/main.js` | Lista `pieces` con `kind` (`pawn` o `rook`), reglas y capturas según el tipo de pieza. |
+| `src/scene/cinema.js` | El temblor de cámara también sirve fuera del combate, sin descolocar los controles. |
+| `src/main.js` | Lista `pieces` con `kind` (`pawn` o `rook`): reglas, toques y capturas según el tipo de pieza. |
 | `assets/models/manifest.json` | Tipos `white-rook` y `black-rook`, con `tower` y `giant`. |
 
-## 9. Errores
+## 10. Errores
 
 - **Sin gigante o sin sus animaciones:** la torre se desliza con polvo hasta su casilla, sin
   transformarse. En las capturas, el vencido se esfuma.
 - **Error durante una transformación o una captura:** se registra en la consola y el tablero
-  queda coherente, con la torre visible en su casilla, la cámara restaurada y los toques
-  desbloqueados.
+  queda coherente: la torre visible en su casilla, las piezas apartadas de vuelta en la suya, la
+  cámara restaurada y los toques desbloqueados.
 
-## 10. Pruebas
+## 11. Pruebas
 
 - **Unitarias** (`node --test`):
   - movimientos y capturas de la torre, con bloqueos por piezas propias y enemigas y en los
     bordes;
   - peones con torres en medio;
+  - hacer sitio:
+    - las piezas se alejan lo justo y nunca más de 0,35 casillas;
+    - se desvían si detrás hay otra pieza;
+    - ningún paso deja dos piezas a menos de 0,03 casillas;
+    - vuelven al centro;
   - colocación por alcance en las capturas nuevas.
 - **En el navegador, por código:**
   - la torre y el gigante no se ven a la vez fuera de la transformación y, al terminar, solo
     queda la torre;
-  - el gigante no toca piezas vecinas al andar junto a una columna llena;
-  - las tres capturas (torre come peón, peón come torre, torre come torre) dejan el tablero
-    coherente y la cámara restaurada.
+  - con los peones en la fila 2, la torre de a1 va a d1: distancia mínima entre piezas, holgura
+    del gigante con los peones y todas las piezas de vuelta en su casilla;
+  - las tres capturas (torre come peón, peón come torre, torre come torre), con las mismas
+    medidas, el tablero coherente y la cámara restaurada.
 - **En la web publicada:** carga sin errores y las jugadas de la torre funcionan.
