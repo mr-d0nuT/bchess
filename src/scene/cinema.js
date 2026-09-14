@@ -70,9 +70,15 @@ export function createCinema({ camera, controls }) {
       shakeSize = size;
     },
 
-    // Cada fotograma, en tiempo real, después de mover la cámara.
-    update(dt) {
+    // Cada fotograma, antes de que los controles de órbita lean la cámara: quita el temblor del
+    // fotograma anterior, para que no se les acumule (también tiembla fuera del combate).
+    settle() {
       camera.position.sub(offset);
+      offset.set(0, 0, 0);
+    },
+
+    // Cada fotograma, en tiempo real, después de mover la cámara: pone el temblor de este.
+    update(dt) {
       if (shakeLeft > 0) {
         shakeLeft = Math.max(0, shakeLeft - dt);
         const k = shakeSize * (shakeLeft / SHAKE_SECONDS);

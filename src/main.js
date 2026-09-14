@@ -7,8 +7,10 @@ import { createHud } from './ui/hud.js';
 import { loadManifest, loadPieceKit, spawnPiece } from './pieces/piece.js';
 import { loadRookKit, spawnRook } from './pieces/rook.js';
 import { createDust } from './fx/dust.js';
+import { createRubble } from './fx/rubble.js';
 import { createMover } from './moves/sequence.js';
 import { createRookMover } from './moves/rook-mover.js';
+import { createCrowd } from './moves/crowd.js';
 import { restFacingFor } from './moves/walk.js';
 import { onBoardTap } from './input.js';
 import { pawnCaptures, pawnMoves } from './rules/pawn.js';
@@ -66,7 +68,9 @@ async function start() {
   const clock = createClock();
   const fx = createImpactFx(stage.scene);
   const cinema = createCinema(stage);
+  const rubble = createRubble(stage.scene);
   const pieces = []; // { kind: 'pawn' | 'rook', color, piece, mover }
+  const crowd = createCrowd({ board, entries: () => pieces });
   const state = { selected: null, busy: false, fighting: false, lastStyle: null };
   // De tanto en tanto, un solo peón del tablero hace un gesto especial; nunca dos a la vez.
   const gesture = { performer: null, last: null, lastVariant: -1, at: performance.now() + nextGestureDelay() };
@@ -88,14 +92,17 @@ async function start() {
     Object.assign(gesture, { performer: pawn, last: pawn, lastVariant: variant });
   }
 
-  // Un fotograma de juego: reloj, animaciones, gestos y efectos.
+  // Un fotograma de juego: reloj, sitio para los gigantes, animaciones, gestos y efectos.
   function frame(now, dt) {
     const step = clock.tick(dt);
+    crowd.update(step);
     for (const entry of pieces) entry.piece.update(step);
     directGestures(now);
     dust.update(step);
+    rubble.update(step);
     fx.update(step);
     highlights.pulse(now / 1000);
+    cinema.settle();
     if (!cinema.active) stage.controls.update();
     cinema.update(dt);
   }
@@ -272,7 +279,7 @@ async function start() {
         for (const file of ROOK_FILES) {
           const piece = spawnRook(kits[i]);
           const entry = { kind: 'rook', color: side.color, piece };
-          entry.mover = createRookMover({ rook: piece, board, dust, clock, onBusy, restFacing: restFacingFor(side.color) });
+          entry.mover = createRookMover({ rook: piece, owner: entry, board, dust, rubble, clock, cinema, crowd, onBusy, restFacing: restFacingFor(side.color) });
           addPiece(entry, file + side.backRank);
         }
       });
@@ -298,7 +305,7 @@ async function start() {
   await loadPieces();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
-    stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, hud, advance, tap: handleTap, capture,
+    stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, hud, advance, tap: handleTap, capture, crowd, rubble,
     get pawns() {
       return pieces.filter((entry) => entry.kind === 'pawn');
     },
