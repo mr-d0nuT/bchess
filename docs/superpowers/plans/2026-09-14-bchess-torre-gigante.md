@@ -2950,3 +2950,21 @@ Actualizar `bchess-app.md` en la memoria con lo aprendido que no está en el rep
 | Torre negra come peón | 0,030 | 0,394 | 0 | 0,35 | 19 piezas, rocas 0 |
 | Peón come torre (punta a 0,137 del centro; pecho a 0,157) | 0,216 | 0,127 | 0 | 0,35 | 19 piezas, rocas 0 |
 | Torre come torre | 0,127 | 0,379 | 0 | 0,35 | 19 piezas, rocas 0 |
+- **Animaciones del gigante.** De las 15 candidatas revisadas en la galería quedan 10:
+  - `idle` y `walk`;
+  - `box_03` y `box_01`;
+  - `hit_to_body_01` y `hit_to_stomach`;
+  - `defeat_03` y `fall`;
+  - `angry_01` y `angry_03`, cortadas a 2,6 s.
+
+  Se descartan `front_kick_02` (con este esqueleto el gólem da la vuelta de lado), `chop` y `slash` (6,6 s y de espada), `swagger` y `laugh_02`. La biblioteca de Tripo no tiene pisotones.
+- **Un solo fichero por gigante.** `tools/keep-anims.mjs` deja dentro del modelo solo las animaciones elegidas. El gigante no lleva `animationFiles` y basta una exportación de Tripo por color.
+- **Gigante negro sin segundo esqueleto.** Al retexturizar la malla blanca, Tripo conservó el esqueleto: solo hubo que volver a aplicar las 10 animaciones. Se ahorraron 20 créditos.
+- **Aplicar animaciones en Tripo.** Cada animación pasa un rato por «Retargeting», y un clic durante ese proceso se ignora. Hay que esperar a que termine (unos 30 s). Si se queda colgado, se recarga la página: lo aplicado se conserva.
+- **Hueco máximo.** Con el gigante definitivo, la provocación abre los brazos hasta 1,02 casillas. Con el máximo de 0,35, el peón de b3 no podía apartarse lo suficiente (holgura −0,08), así que el máximo pasa a 0,45 casillas, también en el diseño.
+- **Créditos (200 en total; quedan 2.650):**
+  - torre blanca: 55;
+  - textura de la torre negra: 20;
+  - malla del gigante: 65;
+  - texturas blanca y negra del gigante: 40;
+  - esqueleto: 20.
