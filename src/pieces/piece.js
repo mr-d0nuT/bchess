@@ -25,7 +25,9 @@ const SPEAR_POSES = {
 };
 const SPEAR_TURN_SPEED = 7; // por segundo: la lanza tarda ~0,15 s en cambiar de postura
 const SPEAR_FLOOR_MARGIN = 0.02; // lo que queda su extremo más bajo por encima del suelo
-const GRIP_SPEED = 2.5; // casillas por segundo que resbala la lanza cuando lo pide el combate
+const GRIP_SPEED = 4; // casillas por segundo que resbala la lanza cuando lo pide el combate
+const SPEAR_FLIGHT = 0.8; // segundos que tarda en desvanecerse la lanza que sale volando
+const SPEAR_GRAVITY = 6;
 
 export async function loadManifest() {
   const response = await fetch(`${MODELS}manifest.json`);
@@ -208,12 +210,14 @@ export function spawnPiece(kit) {
   let spearBlend = 0;
   let spearPose = SPEAR_POSES.forward;
   let spearOverride = null; // postura que impone el combate a todo lo que haga ('upright'…)
+  let spearDefault = null; // postura en combate de lo que no pide ninguna (reacciones, guardia)
   let currentVariant = null;
   let gripTarget = 0; // lo que el combate pide que la lanza resbale hacia el regatón
   let grip = 0;
+  let flying = null; // lanza que ha salido volando: { velocity, axis, age }
 
   function applySpearPose() {
-    const pose = SPEAR_POSES[spearOverride ?? currentVariant?.spear];
+    const pose = SPEAR_POSES[spearOverride ?? currentVariant?.spear ?? spearDefault];
     if (pose) spearPose = pose;
     spearTarget = pose ? 1 : 0;
   }
@@ -311,10 +315,46 @@ export function spawnPiece(kit) {
   const axis = new THREE.Vector3();
   const boneScale = new THREE.Vector3();
 
+  // La lanza sale disparada hacia arriba, girando, y se desvanece: el vencido queda desarmado.
+  // `direction` es la dirección horizontal (unitaria) en la que sale despedido.
+  function throwSpear(direction) {
+    const spear = props.spear;
+    if (!spear || flying) return;
+    object.attach(spear); // conserva su sitio en el mundo y deja de seguir a la mano
+    spear.traverse((o) => {
+      if (!o.isMesh) return;
+      o.material = o.material.clone();
+      o.material.transparent = true;
+    });
+    flying = {
+      velocity: new THREE.Vector3(direction.x * 0.3, 4.5, direction.z * 0.3),
+      axis: new THREE.Vector3(direction.z, 0, -direction.x).normalize(),
+      age: 0,
+    };
+  }
+
+  const spin = new THREE.Quaternion();
+
+  function flySpear(spear, dt) {
+    flying.age += dt;
+    flying.velocity.y -= SPEAR_GRAVITY * dt;
+    spear.position.addScaledVector(flying.velocity, dt);
+    spear.quaternion.premultiply(spin.setFromAxisAngle(flying.axis, 5 * dt));
+    const opacity = Math.max(0, 1 - flying.age / SPEAR_FLIGHT);
+    spear.traverse((o) => {
+      if (o.isMesh) o.material.opacity = opacity;
+    });
+    spear.visible = opacity > 0;
+  }
+
   function update(dt) {
     mixer.update(dt);
     const spear = props.spear;
     if (!spear) return;
+    if (flying) {
+      flySpear(spear, dt);
+      return;
+    }
     const step = SPEAR_TURN_SPEED * dt;
     spearBlend += Math.max(-step, Math.min(step, spearTarget - spearBlend));
     if (spearBlend <= 0.0001) {
@@ -331,7 +371,7 @@ export function spawnPiece(kit) {
     const gripStep = GRIP_SPEED * dt;
     grip += Math.max(-gripStep, Math.min(gripStep, gripTarget - grip));
     spear.position.copy(spearGripAt);
-    if (grip > 0) {
+    if (grip !== 0) {
       axis.set(0, 1, 0).applyQuaternion(spear.quaternion);
       spear.position.addScaledVector(axis, -grip / spear.parent.getWorldScale(boneScale).x);
     }
@@ -341,7 +381,7 @@ export function spawnPiece(kit) {
     const slide = slideAboveFloor({
       lowY: Math.min(top.y, bottom.y),
       floorY: figure.getWorldPosition(floor).y + SPEAR_FLOOR_MARGIN,
-      axisY: (top.y - bottom.y) / (spearEnds.top - spearEnds.bottom),
+      axisY: (top.y - bottom.y) / Math.max(1e-6, top.distanceTo(bottom)), // la figura puede estar encogiendo
     });
     if (slide) {
       axis.set(0, 1, 0).applyQuaternion(spear.quaternion);
@@ -366,9 +406,15 @@ export function spawnPiece(kit) {
       spearOverride = name ?? null;
       applySpearPose();
     },
-    setGripSlide(amount) {
-      gripTarget = Math.max(0, amount);
+    setSpearDefault(name) {
+      spearDefault = name ?? null;
+      applySpearPose();
     },
+    // Desliza la lanza en la mano: positivo, hacia el regatón; negativo, hacia la punta (sube).
+    setGripSlide(amount) {
+      gripTarget = Math.max(-1, amount);
+    },
+    throwSpear,
     hasClip(action, key) {
       return Boolean(variants[action]?.some((variant) => variant.key === key));
     },

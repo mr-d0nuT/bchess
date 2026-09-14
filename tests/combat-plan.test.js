@@ -55,13 +55,18 @@ test('peak devuelve la muestra más alta', () => {
 });
 
 test('usableStrikes: estocadas para el duelo y golpes que llegan para el cuerpo a cuerpo', () => {
-  const attacks = [{ key: 'box_03', spear: 'forward' }, { key: 'front_kick_01' }, { key: 'front_kick_02' }, { key: 'sin_medir' }];
+  const attacks = [
+    { key: 'box_03', spear: 'forward' }, { key: 'box_02', spear: 'forward' },
+    { key: 'front_kick_01' }, { key: 'front_kick_02' }, { key: 'sin_medir' },
+  ];
   const strikes = {
-    box_03: { spear: { t: 1.1, reach: 2.18 }, body: { t: 0.7, reach: 0.68, bone: 'L_Hand' } },
-    front_kick_01: { spear: { t: 0.5, reach: 1.62 }, body: { t: 0.68, reach: 0.33, bone: 'R_ToeBase' } },
-    front_kick_02: { spear: { t: 0, reach: 0.41 }, body: { t: 0.95, reach: 0.78, bone: 'R_ToeBase' } },
+    box_03: { spear: { t: 1.1, reach: 2.18 }, body: { t: 0.7, reach: 0.68, bone: 'L_Hand' }, sideStep: 0.2 },
+    box_02: { spear: { t: 2.3, reach: 2.44 }, body: { t: 2.3, reach: 0.68, bone: 'R_Hand' }, sideStep: 0.45 },
+    front_kick_01: { spear: { t: 0.5, reach: 1.62 }, body: { t: 0.68, reach: 0.33, bone: 'R_ToeBase' }, sideStep: 0.15 },
+    front_kick_02: { spear: { t: 0, reach: 0.41 }, body: { t: 0.95, reach: 0.78, bone: 'R_ToeBase' }, sideStep: 0.25 },
   };
-  assert.deepEqual(usableStrikes(attacks, strikes, 'duel'), ['box_03']);
+  assert.deepEqual(usableStrikes(attacks, strikes, 'duel'), ['box_03', 'box_02']);
+  // En el cuerpo a cuerpo, box_02 abre demasiado los pies (pisaría las casillas vecinas).
   assert.deepEqual(usableStrikes(attacks, strikes, 'melee'), ['box_03', 'front_kick_02']);
 });
 

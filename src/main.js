@@ -15,6 +15,8 @@ import { createClock } from './combat/clock.js';
 import { measureStrikes } from './combat/strikes.js';
 import { createImpactFx } from './fx/impact.js';
 import { createCinema } from './scene/cinema.js';
+import { pickStyle } from './combat/plan.js';
+import { canFight, runCombat } from './combat/duel.js';
 
 // Arranque de la prueba: peones blancos en la fila 2 y negros en la 7 (los colores que
 // traiga el manifiesto). Tocas uno y se marcan sus casillas posibles (puntos dorados) y los
@@ -154,18 +156,32 @@ async function start() {
     if (gesture.last === pawn) gesture.last = null;
   }
 
-  // Un peón se come a otro: el vencido se esfuma y el ganador anda hasta su casilla.
+  // Un peón se come a otro con un combate (duelo de lanzas o cuerpo a cuerpo, sin repetir el
+  // estilo anterior). Si no hay animaciones para pelear, el vencido se esfuma y el ganador
+  // anda hasta su casilla. Pase lo que pase, el tablero queda coherente.
   async function capture(attacker, defender) {
     state.fighting = true;
     highlights.clear();
     refreshButtons();
     const target = defender.mover.square;
+    const style = pickStyle(state.lastStyle);
     try {
-      await defender.mover.vanish();
-      removePawn(defender);
-      await attacker.mover.goTo(target);
+      if (canFight(attacker, defender, style)) {
+        state.lastStyle = style;
+        const obstacles = pawns.filter((p) => p !== attacker && p !== defender).map((p) => p.piece.figure.position);
+        await runCombat({ attacker, defender, board, clock, fx, cinema, hud, style, obstacles });
+      } else {
+        await defender.mover.vanish();
+        removePawn(defender);
+        await attacker.mover.goTo(target);
+      }
     } catch (err) {
-      console.error('[BChess] La captura falló:', err);
+      console.error('[BChess] El combate falló:', err);
+      clock.timeScale = 1;
+      cinema.reset();
+      attacker.piece.setSpearPose(null);
+      attacker.piece.setSpearDefault(null);
+      attacker.piece.setGripSlide(0);
       attacker.mover.placeOn(target);
     } finally {
       if (pawns.includes(defender)) removePawn(defender);
