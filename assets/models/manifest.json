@@ -2,7 +2,7 @@
   "pieces": {
     "white-pawn": {
       "files": { "movil": "pawn-movil.glb", "ordenador": "pawn-ordenador.glb" },
-      "animationFiles": [],
+      "animationFiles": ["pawn-fidgets.glb"],
       "height": 1.35,
       "yaw": 0,
       "moves": {
@@ -21,7 +21,12 @@
           { "clip": "hit_to_stomach" },
           { "clip": "hit_to_body_01" }
         ],
-        "fall": [{ "clip": "fall", "travel": 0.27 }]
+        "fall": [{ "clip": "fall", "travel": 0.27 }],
+        "fidget": [
+          { "clip": "look_around" },
+          { "clip": "scratch", "spear": "upright" },
+          { "clip": "frightened", "spear": "upright", "travel": 0.6 }
+        ]
       },
       "hands": {},
       "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.45, "length": 1.9 },
