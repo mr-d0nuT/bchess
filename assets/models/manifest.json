@@ -60,6 +60,7 @@
       "hands": {},
       "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.45, "length": 1.9 },
       "shield": { "hand": "left", "offset": [0.04, -0.34, 0.02], "rotation": [0, 1.5707963267948966, 0], "scale": 1 },
+      "shieldModel": { "files": { "movil": "black-shield-movil.glb", "ordenador": "black-shield-ordenador.glb" }, "height": 0.62 },
       "pedestalModel": { "files": { "movil": "black-pedestal-movil.glb", "ordenador": "black-pedestal-ordenador.glb" }, "height": 0.26 }
     }
   }
