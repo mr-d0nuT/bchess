@@ -61,13 +61,16 @@ Dirección: `https://mr-d0nut.github.io/bchess/`
   de un HDRI libre (Poly Haven, CC0) y sombras suaves.
 - **Cámara:** gira, acerca y aleja con ratón y con el dedo. Tiene límites para no
   meterse bajo el tablero ni alejarse de más.
-- **Peones:** ocho peones blancos, de a2 a h2, cada uno sobre su peana, con la animación
-  de reposo y mirando siempre hacia delante (hacia las negras), como pide el usuario. Lo pidió el usuario el 2026-09-13.
+- **Peones:** los ocho de cada bando, los blancos de a2 a h2 y los negros de a7 a h7. Cada
+  uno está sobre su peana, con la animación de reposo y mirando siempre hacia delante, al
+  oponente, como pidió el usuario el 2026-09-13. De vez en cuando cada peón hace un gesto
+  suelto: mirar alrededor, rascarse o asustarse.
 - **Elegir un peón:** al tocarlo se marca con un aro dorado bajo su peana y se iluminan
   las casillas a las que puede ir según las reglas del ajedrez, sin capturas:
   - una casilla hacia delante si está libre;
-  - dos casillas si está en la fila 2 y las dos están libres;
-  - en la fila 8 no puede avanzar (la coronación llega con la Parte 2).
+  - dos casillas desde su fila de salida (la 2 para las blancas y la 7 para las negras) si
+    las dos están libres;
+  - en la última fila no puede avanzar (la coronación llega con la Parte 2).
 
   Tocar otro peón cambia la elección; tocar cualquier otra casilla la quita.
 - **Tocar una casilla iluminada** lanza esta secuencia con el peón elegido:
@@ -77,7 +80,7 @@ Dirección: `https://mr-d0nut.github.io/bchess/`
   3. El peón se gira hacia la casilla y anda hasta ella. El desplazamiento va sincronizado
      con la zancada para que los pies no patinen.
   4. La peana reaparece bajo sus pies con otra nube y lo sube a su altura.
-  5. El peón vuelve a reposo mirando siempre hacia delante (hacia las negras), como pide el usuario.
+  5. El peón vuelve a reposo mirando siempre hacia delante, al oponente.
 
   Mientras dura la secuencia se ignoran los toques en el tablero y los botones. Al
   terminar, el peón sigue elegido.
@@ -87,8 +90,8 @@ Dirección: `https://mr-d0nut.github.io/bchess/`
   nube de polvo.
 - Los tres botones actúan sobre el peón elegido y están desactivados si no hay ninguno.
 - **Contador de fluidez:** fotogramas por segundo, en una esquina.
-- **Pie de página:** «Modelos: Tripo AI (CC BY 4.0) · Homenaje a Battle Chess (Interplay,
-  1988)» y el dónut de autoría del usuario.
+- **Pie de página:** «Modelos: Tripo AI · Homenaje a Battle Chess (Interplay, 1988)» y el
+  dónut de autoría del usuario.
 
 ### 4.3 Fabricación de los modelos
 
@@ -119,6 +122,10 @@ Entradas: `~/Downloads/white-peon.png` (seis vistas del peón) y
    - Los originales descargados se guardan en `raw/`, que está en `.gitignore` y no se
      sube al repo.
 
+> **Actualización 2026-09-14:** la fabricación real está en «Cambios durante la ejecución»
+> del plan: Tripo Pro, un esqueleto con sus propias animaciones por modelo, y la peana y
+> el escudo negros hechos retexturizando los modelos blancos.
+
 ### 4.4 Estructura técnica de la web
 
 Sin compilación: módulos ES con import map. Three.js r186 se guarda dentro del repo en
@@ -139,7 +146,8 @@ HDRLoader, el decodificador meshopt y SkeletonUtils.
 | `src/input.js` | Traduce toques y clics a casillas mediante raycast. |
 | `src/ui/hud.js` | Botones, contador de fluidez y créditos. |
 | `assets/models/`, `assets/env/` | Modelos optimizados y HDRI. |
-| `src/rules/pawn.js` | Puro. Casillas a las que puede avanzar un peón blanco. |
+| `src/rules/pawn.js` | Puro. Casillas a las que puede avanzar un peón de cualquier color. |
+| `src/pieces/grip.js` | Puro. Cuánto resbala la lanza por la mano para no hundirse en la peana o el tablero. |
 | `src/scene/highlights.js` | Aro de selección y marcas de las casillas posibles. |
 | `tests/` | Pruebas unitarias con `node --test`. |
 
@@ -172,8 +180,8 @@ Niveles de calidad:
 
 ### 4.7 Fuera de alcance de la Parte 1
 
-Reglas de ajedrez salvo el avance del peón blanco, capturas, coronación, otras piezas,
-piezas negras, batallas, sonido, arrodillarse como en la imagen y caballo.
+Reglas de ajedrez salvo el avance de los peones, capturas, coronación, otras piezas,
+batallas, sonido, arrodillarse como en la imagen y caballo.
 
 ## Anexo A — Las 35 batallas del original
 

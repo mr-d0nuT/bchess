@@ -2197,7 +2197,7 @@ git commit -m "Botones de ataque, golpe y caída, aviso de error con reintento y
 - Consumes: todo lo anterior.
 - Produces: `https://mr-d0nut.github.io/bchess/`.
 
-- [ ] **Paso 1: README y `.nojekyll`**
+- [x] **Paso 1: README y `.nojekyll`**
 
 `README.md`:
 
@@ -2239,7 +2239,7 @@ git commit -m "README con créditos y licencias"
 
 Expected: `npm test` da `ℹ pass 27` y `ℹ fail 0` antes del commit.
 
-- [ ] **Paso 2: Crear el repo público, subir y activar Pages**
+- [x] **Paso 2: Crear el repo público, subir y activar Pages**
 
 ```bash
 cd /Users/mr_donut/bchess
@@ -2250,7 +2250,7 @@ gh api -X POST repos/mr-d0nuT/bchess/pages -f "source[branch]=main" -f "source[p
 Expected: el repo creado con `main` subido. La API de Pages responde 201; si responde que
 ya existe, repetir con `-X PUT`.
 
-- [ ] **Paso 3: Esperar al despliegue y comprobarlo**
+- [x] **Paso 3: Esperar al despliegue y comprobarlo**
 
 Run: `gh api repos/mr-d0nuT/bchess/pages/builds/latest --jq .status` hasta que dé `built`.
 Un Monitor con bucle `until` que consulte cada 20 s.
@@ -2330,3 +2330,38 @@ Es el criterio de éxito del diseño.
 - **`tools/optimize-model.sh <entrada> <nombre> [ratio]`** hace dedup, prune y resample,
   redimensiona las texturas (2048/1024), las pasa a WebP y aplica meshopt. El ratio
   opcional simplifica la malla, solo en objetos sin esqueleto.
+
+## Cambios durante la ejecución (2026-09-14)
+
+- **Peón negro, con su propio esqueleto.** Se hizo con el mismo proceso que el blanco,
+  a partir de `raw/ref/peon-negro-de-pie.jpeg`:
+  1. «Malla Smart» a 15.000 polígonos. El ajuste vuelve a 5.000 y el reintento gratis repite
+     los ajustes anteriores.
+  2. Textura 4K.
+  3. Esqueleto «v1.0 · humanoides». El desplegable viene marcado en «v2.5 · animales».
+  4. Movimientos de la biblioteca.
+
+  La postura de reposo de cada esqueleto de Tripo se ajusta a su malla: entre el blanco y el
+  negro hay hasta 23° de diferencia en la mano derecha. Por eso **cada modelo exporta sus
+  propias animaciones** y no se comparten clips entre esqueletos.
+  - Se pueden aplicar más de 15 movimientos. Al exportar se eligen en «Elegir animaciones»
+    (botones con `data-state="checked"`).
+  - `tools/strip-anim.mjs` y `tools/optimize-anims.sh` dejan un GLB solo con sus animaciones.
+    Sirven para exportar del mismo modelo los clips que no caben en el GLB principal.
+- **Los dos bandos, con la misma forma.** El usuario vio que la peana negra salía más alta
+  y con el escudito más grande, y que el escudo negro era más estrecho. La solución:
+  1. Editar en Gemini la imagen del objeto blanco, cambiando solo los colores y el emblema
+     (`raw/ref/peana-negra.jpeg` y `raw/ref/escudo-negro.jpeg`).
+  2. Medir las proporciones por código.
+  3. Retexturizar en Tripo el mismo modelo blanco con esa imagen (20 créditos en vez de 55).
+- **Gestos en reposo** (`moves.fidget`): `look_around`, `scratch` y `frightened`.
+- **Posturas de la lanza.** Cada versión de un movimiento puede pedir `"spear": "forward"`
+  (estocada) o `"upright"` (erguida). `scratch` y `frightened` la llevan erguida porque, si
+  sigue a la mano, se pone casi horizontal o boca abajo.
+
+  Si un extremo baja de la peana o del tablero, la lanza resbala por la mano
+  (`src/pieces/grip.js`, `slideAboveFloor`, con pruebas). Se comprobó simulando cada versión
+  fotograma a fotograma. Solo en las estocadas algún extremo baja, como mucho 0,007 casillas,
+  del plano de la peana, y es la punta, que ya está fuera de ella.
+- **Publicado el 2026-09-14:** repo público `mr-d0nuT/bchess` y Pages desde `main`. La web
+  publicada carga los 16 peones sin errores en la consola.
