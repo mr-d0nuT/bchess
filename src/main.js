@@ -11,6 +11,7 @@ import { restFacingFor } from './moves/walk.js';
 import { onBoardTap } from './input.js';
 import { pawnMoves } from './rules/pawn.js';
 import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
+import { createClock } from './combat/clock.js';
 
 // Arranque de la prueba: peones blancos en la fila 2 y negros en la 7 (los colores que
 // traiga el manifiesto). Tocas uno, se marcan sus casillas posibles y, al tocar una, anda
@@ -52,6 +53,7 @@ async function start() {
   stage.scene.add(board.group);
   const highlights = createHighlights(stage.scene, board);
   const dust = createDust(stage.scene);
+  const clock = createClock();
   const pawns = []; // { color, piece, mover }
   const state = { selected: null, busy: false };
   // De tanto en tanto, un solo peón del tablero hace un gesto especial; nunca dos a la vez.
@@ -74,17 +76,44 @@ async function start() {
     Object.assign(gesture, { performer: pawn, last: pawn, lastVariant: variant });
   }
 
+  // Un fotograma de juego: reloj, animaciones, gestos y efectos.
+  function frame(now, dt) {
+    const step = clock.tick(dt);
+    for (const pawn of pawns) pawn.piece.update(step);
+    directGestures(now);
+    dust.update(step);
+    stage.controls.update();
+  }
+
   let previous = performance.now();
+  let manual = false; // mientras `advance` mueve el juego a mano
   stage.renderer.setAnimationLoop((now) => {
     const dt = Math.min((now - previous) / 1000, 0.1);
     previous = now;
-    for (const pawn of pawns) pawn.piece.update(dt);
-    directGestures(now);
-    dust.update(dt);
-    stage.controls.update();
+    if (!manual) frame(now, dt);
     stage.renderer.render(stage.scene, stage.camera);
     hud.tickFps(now);
   });
+
+  // Para comprobar por código: avanza `seconds` de juego a `fps` fotogramas por segundo sin
+  // depender de que la pestaña esté visible (oculta, el navegador frena el bucle de animación).
+  async function advance(seconds, fps = 60) {
+    const nextTask = () => new Promise((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => resolve();
+      channel.port2.postMessage(null);
+    });
+    manual = true;
+    try {
+      for (let i = 0; i < Math.round(seconds * fps); i++) {
+        frame(performance.now(), 1 / fps);
+        await nextTask();
+      }
+    } finally {
+      manual = false;
+      previous = performance.now();
+    }
+  }
 
   const occupied = () => new Set(pawns.map((p) => p.mover.square));
   const pawnAt = (square) => pawns.find((p) => p.mover.square === square) ?? null;
@@ -141,7 +170,7 @@ async function start() {
           const pawn = {
             color: side.color,
             piece,
-            mover: createMover({ piece, board, dust, onBusy, restFacing: restFacingFor(side.color) }),
+            mover: createMover({ piece, board, dust, clock, onBusy, restFacing: restFacingFor(side.color) }),
           };
           pawn.mover.placeOn(file + side.rank);
           piece.hitbox.userData.owner = pawn;
@@ -161,7 +190,7 @@ async function start() {
   await addLighting(stage, quality);
   await loadPieces();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
-  window.bchess = { stage, board, quality, pawns, state, gesture, tap: handleTap };
+  window.bchess = { stage, board, quality, pawns, state, gesture, clock, advance, tap: handleTap };
 }
 
 start();
