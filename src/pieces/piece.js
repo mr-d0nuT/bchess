@@ -6,6 +6,7 @@ import { pickRootPositionTrack, pickUpAxis, pickVariant, removeLinearDrift, reso
 import { pickHandBone } from './bones.js';
 import { createSpear } from './spear.js';
 import { strideSpeed } from '../moves/walk.js';
+import { slideAboveFloor } from './grip.js';
 
 // Piezas con esqueleto. `loadPieceKit` carga una sola vez los modelos de un tipo de pieza
 // (por ejemplo, el peón blanco) y prepara sus animaciones, con varias versiones por acción;
@@ -16,9 +17,14 @@ THREE.Cache.enabled = true; // un fichero de animaciones compartido por dos colo
 
 const MODELS = 'assets/models/';
 const FALLBACK_PEDESTAL_HEIGHT = 0.26;
-// Lanza en estocada: su eje (+Y) apunta al frente de la figura y un poco hacia abajo.
-const SPEAR_FORWARD = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(98));
-const SPEAR_TURN_SPEED = 7; // por segundo: la lanza tarda ~0,15 s en ponerse en estocada
+// Posturas de la lanza respecto a la figura cuando deja de seguir a la mano: en estocada, su
+// eje (+Y) apunta al frente y un poco hacia abajo; erguida, hacia arriba.
+const SPEAR_POSES = {
+  forward: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(98)),
+  upright: new THREE.Quaternion(),
+};
+const SPEAR_TURN_SPEED = 7; // por segundo: la lanza tarda ~0,15 s en cambiar de postura
+const SPEAR_FLOOR_MARGIN = 0.02; // lo que queda su extremo más bajo por encima del suelo
 
 export async function loadManifest() {
   const response = await fetch(`${MODELS}manifest.json`);
@@ -197,8 +203,9 @@ export function spawnPiece(kit) {
   const lastVariant = {};
   let current = null;
   let playCount = 0;
-  let spearTarget = 0; // 0 = lanza en la mano; 1 = en estocada
+  let spearTarget = 0; // 0 = lanza en la mano; 1 = en la postura `spearPose`
   let spearBlend = 0;
+  let spearPose = SPEAR_POSES.forward;
 
   // Reproduce una versión al azar de la acción (sin repetir la anterior).
   function play(action, { loop = true, fade = 0.25 } = {}) {
@@ -215,7 +222,9 @@ export function spawnPiece(kit) {
     if (current && current !== next) next.crossFadeFrom(current, fade, false);
     next.play();
     current = next;
-    spearTarget = variant.spear === 'forward' ? 1 : 0;
+    const pose = SPEAR_POSES[variant.spear];
+    if (pose) spearPose = pose;
+    spearTarget = pose ? 1 : 0;
     playCount++;
     return next;
   }
@@ -261,14 +270,19 @@ export function spawnPiece(kit) {
   const props = {};
   const spearBone = spec.spear ? boneFor(spec.spear.hand ?? 'right') : null;
   const shieldBone = spec.shield ? boneFor(spec.shield.hand ?? 'left') : null;
+  let spearEnds = null; // alturas del regatón y de la punta respecto al agarre
   if (spearBone) {
     const spear = createSpear({ length: spec.spear.length, grip: spec.spear.grip });
+    spear.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(spear);
+    spearEnds = { bottom: box.min.y, top: box.max.y };
     props.spear = attachInWorld(spear, spearBone, spec.spear);
   }
   if (shieldBone && kit.shield) {
     props.shield = attachInWorld(new THREE.Group().add(kit.shield.clone()), shieldBone, spec.shield);
   }
   const spearHold = props.spear ? props.spear.quaternion.clone() : null;
+  const spearGripAt = props.spear ? props.spear.position.clone() : null;
 
   // Cada pieza respira a su ritmo: si todas empezaran a la vez parecerían soldaditos de cuerda.
   const idleAction = variants.idle?.[0]?.action;
@@ -276,22 +290,42 @@ export function spawnPiece(kit) {
 
   const modelQuaternion = new THREE.Quaternion();
   const boneQuaternion = new THREE.Quaternion();
-  const spearForward = new THREE.Quaternion();
+  const posed = new THREE.Quaternion();
+  const top = new THREE.Vector3();
+  const bottom = new THREE.Vector3();
+  const floor = new THREE.Vector3();
+  const axis = new THREE.Vector3();
+  const boneScale = new THREE.Vector3();
 
   function update(dt) {
     mixer.update(dt);
-    if (!props.spear) return;
+    const spear = props.spear;
+    if (!spear) return;
     const step = SPEAR_TURN_SPEED * dt;
     spearBlend += Math.max(-step, Math.min(step, spearTarget - spearBlend));
     if (spearBlend <= 0.0001) {
-      props.spear.quaternion.copy(spearHold);
-      return;
+      spear.quaternion.copy(spearHold);
+    } else {
+      // Fuera de la mano, la orientación de la lanza se fija respecto a la figura.
+      model.getWorldQuaternion(modelQuaternion).multiply(spearPose);
+      spear.parent.getWorldQuaternion(boneQuaternion).invert();
+      posed.copy(boneQuaternion).multiply(modelQuaternion);
+      spear.quaternion.slerpQuaternions(spearHold, posed, spearBlend);
     }
-    // En estocada, la orientación de la lanza se fija respecto a la figura y no a la mano.
-    model.getWorldQuaternion(modelQuaternion).multiply(SPEAR_FORWARD);
-    props.spear.parent.getWorldQuaternion(boneQuaternion).invert();
-    spearForward.copy(boneQuaternion).multiply(modelQuaternion);
-    props.spear.quaternion.slerpQuaternions(spearHold, spearForward, spearBlend);
+    // Si un extremo se hunde en la peana o en el tablero, la lanza resbala por la mano.
+    spear.position.copy(spearGripAt);
+    spear.updateWorldMatrix(true, false);
+    spear.localToWorld(top.set(0, spearEnds.top, 0));
+    spear.localToWorld(bottom.set(0, spearEnds.bottom, 0));
+    const slide = slideAboveFloor({
+      lowY: Math.min(top.y, bottom.y),
+      floorY: figure.getWorldPosition(floor).y + SPEAR_FLOOR_MARGIN,
+      axisY: (top.y - bottom.y) / (spearEnds.top - spearEnds.bottom),
+    });
+    if (slide) {
+      axis.set(0, 1, 0).applyQuaternion(spear.quaternion);
+      spear.position.addScaledVector(axis, slide / spear.parent.getWorldScale(boneScale).x);
+    }
   }
 
   return {
