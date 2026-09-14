@@ -22,6 +22,7 @@ import { createImpactFx } from './fx/impact.js';
 import { createCinema } from './scene/cinema.js';
 import { pickStyle } from './combat/plan.js';
 import { canFight, runCombat } from './combat/duel.js';
+import { canSmash, runSmash } from './combat/smash.js';
 
 // Arranque: peones blancos en la fila 2 y negros en la 7, y torres en las esquinas (las piezas
 // que traiga el manifiesto). Tocas una pieza y se marcan sus casillas posibles (puntos dorados) y
@@ -35,6 +36,7 @@ const SIDES = [
 const FILES = 'abcdefgh';
 const ROOK_FILES = 'ah';
 const BUTTON_ACTIONS = ['attack', 'hit', 'fall'];
+const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
 const hud = createHud();
 
 function webglAvailable() {
@@ -177,8 +179,9 @@ async function start() {
   }
 
   // Una pieza se come a otra. Entre peones, un combate (duelo de lanzas o cuerpo a cuerpo, sin
-  // repetir el estilo anterior). Si no hay combate para esas piezas, el vencido se esfuma y el
-  // ganador va hasta su casilla. Pase lo que pase, el tablero queda coherente.
+  // repetir el estilo anterior); si hay una torre, una captura corta con su gigante. Si faltan
+  // animaciones, el vencido se esfuma y el ganador va hasta su casilla. Pase lo que pase, el
+  // tablero queda coherente.
   async function capture(attacker, defender) {
     state.fighting = true;
     highlights.clear();
@@ -190,6 +193,8 @@ async function start() {
       if (attacker.kind === 'pawn' && defender.kind === 'pawn' && canFight(attacker, defender, style)) {
         state.lastStyle = style;
         await runCombat({ attacker, defender, board, clock, fx, cinema, hud, style, obstacles });
+      } else if (canSmash(attacker, defender)) {
+        await runSmash({ attacker, defender, board, clock, fx, cinema, hud, crowd, obstacles });
       } else {
         await plainCapture(attacker, defender, target);
       }
@@ -205,6 +210,7 @@ async function start() {
       attacker.mover.placeOn(target);
     } finally {
       if (pieces.includes(defender)) removePiece(defender);
+      await Promise.race([crowd.settle(), clock.wait(SETTLE_LIMIT)]);
       state.fighting = false;
       select(attacker);
     }
