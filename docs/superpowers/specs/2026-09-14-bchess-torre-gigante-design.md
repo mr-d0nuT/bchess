@@ -100,7 +100,7 @@ colindantes».
 - **Cómo se apartan:**
   - se deslizan peana y figura juntas, sin girar, y siguen respirando;
   - se alejan del gigante lo justo para que queden 0,03 casillas entre sus bordes, y como mucho
-    0,35 casillas desde el centro de su casilla;
+    0,45 casillas desde el centro de su casilla;
   - van a 1,2 casillas por segundo como mucho, arrancando y frenando con suavidad.
 - **Sin chocar:**
   - entre dos piezas siempre quedan al menos 0,03 casillas;

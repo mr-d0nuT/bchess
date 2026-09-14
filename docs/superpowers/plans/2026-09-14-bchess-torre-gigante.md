@@ -16,7 +16,7 @@
 - Textos de la interfaz y comentarios en castellano; commits en castellano terminados en `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
 - Tono de dibujos animados, sin sangre. Gana siempre el atacante.
 - Medidas en casillas (1 casilla = 1 unidad). Torre: 1,75 de alto con su base. Gigante: 1,9.
-- Hacer sitio: hueco mínimo de 0,03 entre piezas; como mucho 0,35 desde el centro de su casilla; 1,2 casillas por segundo como mucho; desvíos de hasta 60°; al andar, el gigante pide 0,8 casillas por delante.
+- Hacer sitio: hueco mínimo de 0,03 entre piezas; como mucho 0,45 desde el centro de su casilla; 1,2 casillas por segundo como mucho; desvíos de hasta 60°; al andar, el gigante pide 0,8 casillas por delante.
 - De torre a gigante, 1,2 s: temblor de 0,4 s, de 14 a 20 rocas y el gigante crece de 0,2 a 1 en 0,5 s. De gigante a torre, 1 s. Las rocas del suelo desaparecen en 1 s.
 - Los dos colores, idénticos en forma: la versión negra de cada modelo es una retextura del modelo blanco; nunca se genera otro.
 - Tripo: unos 220 créditos. Antes de pulsar, comprobar el coste que muestra cada botón. Esqueleto «v1.0 · humanoides» (el desplegable viene en «v2.5 · animales»). No compartir clips entre esqueletos. Al exportar, marcar las animaciones una a una y comprobar el contador.
@@ -431,7 +431,7 @@ git commit -m "Reglas de movimiento y captura de la torre" -m "Co-Authored-By: C
 
 **Interfaces:**
 - Produces:
-  - constantes `ROOM_GAP = 0.03`, `MAX_SHIFT = 0.35`, `SLIDE_SPEED = 1.2`, `SLIDE_ACCEL = 6`;
+  - constantes `ROOM_GAP = 0.03`, `MAX_SHIFT = 0.45`, `SLIDE_SPEED = 1.2`, `SLIDE_ACCEL = 6`;
   - `roomClearance(x, z, radius, bodies) → number`, negativo si la pieza no deja sitio;
   - `roomTarget(piece: { home: {x, z}, radius }, bodies, others = []) → { x, z }`, el desplazamiento respecto al centro de su casilla;
   - `stepRoom(pieces: { home, radius, offset: {x, z}, speed, target: {x, z} }[], fixed: { x, z, radius }[], dt)`, que modifica `offset` y `speed`.
@@ -544,7 +544,7 @@ Expected: FAIL con `ERR_MODULE_NOT_FOUND` (`src/moves/room.js`).
 // from = to, un círculo.
 
 export const ROOM_GAP = 0.03; // hueco mínimo entre los bordes de dos piezas
-export const MAX_SHIFT = 0.35; // lo más que se aleja una pieza del centro de su casilla
+export const MAX_SHIFT = 0.45; // lo más que se aleja una pieza del centro de su casilla
 export const SLIDE_SPEED = 1.2; // casillas por segundo
 export const SLIDE_ACCEL = 6; // casillas por segundo², para arrancar con suavidad
 const SLIDE_GAIN = 8; // al llegar frena: la velocidad no pasa de lo que falta × SLIDE_GAIN
@@ -2434,7 +2434,7 @@ Cuando `window.__r` tenga el resultado:
 
 Expected:
 - `cuerpo`: `walk` entre 0,5 y 0,95; `margin` entre 0,05 y 0,3; `torso` entre 0,15 y 0,45.
-- `hueco` ≥ 0,029, `holgura` ≥ 0, `ambos` 0 y `apartado` ≤ 0,35.
+- `hueco` ≥ 0,029, `holgura` ≥ 0, `ambos` 0 y `apartado` ≤ 0,45.
 - `fuera` vacío; la torre de d1 con `torre: true`, `gigante: false` y `centro: 0`.
 - `camara` 0, `controles: true`, `rocas: 0` y ningún error en la consola.
 
@@ -2836,7 +2836,7 @@ import('/raw/tmp/verificar-captura-torre.js').then((m) => m.capturar('torre-come
 ```
 
 Expected, en las tres (`torre-come-peon`, `peon-come-torre`, `torre-come-torre`):
-- `hueco` ≥ 0,029, `holgura` ≥ 0, `ambos` 0 y `apartado` ≤ 0,35.
+- `hueco` ≥ 0,029, `holgura` ≥ 0, `ambos` 0 y `apartado` ≤ 0,45.
 - `acciones` con el ataque del atacante y la derrota o el golpe del defensor.
 - `ganador` = la casilla del defensor; `fuera` vacío; `piezas` 19.
 - Las torres que quedan, con `torre: true`, `gigante: false` y `centro: 0`.

@@ -4,7 +4,7 @@
 // from = to, un círculo.
 
 export const ROOM_GAP = 0.03; // hueco mínimo entre los bordes de dos piezas
-export const MAX_SHIFT = 0.35; // lo más que se aleja una pieza del centro de su casilla
+export const MAX_SHIFT = 0.45; // lo más que se aleja una pieza del centro de su casilla
 export const SLIDE_SPEED = 1.2; // casillas por segundo
 export const SLIDE_ACCEL = 6; // casillas por segundo², para arrancar con suavidad
 const SLIDE_GAIN = 8; // al llegar frena: la velocidad no pasa de lo que falta × SLIDE_GAIN
