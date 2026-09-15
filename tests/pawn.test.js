@@ -54,3 +54,8 @@ test('sin capturas desde la última fila; color desconocido, error', () => {
   assert.deepEqual(pawnCaptures('c8', new Set(['b9', 'd9']), 'white'), []);
   assert.throws(() => pawnCaptures('e2', new Set(), 'green'), /Color no válido/);
 });
+
+test('las torres bloquean a los peones y se pueden comer en diagonal', () => {
+  assert.deepEqual(pawnMoves('a7', new Set(['a7', 'a6']), 'black'), []);
+  assert.deepEqual(pawnCaptures('b2', new Set(['a3', 'c3']), 'white'), ['a3', 'c3']);
+});

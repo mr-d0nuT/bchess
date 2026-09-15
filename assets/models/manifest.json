@@ -77,6 +77,48 @@
       "shield": { "hand": "left", "offset": [0.04, -0.34, 0.02], "rotation": [0, 1.5707963267948966, 0], "scale": 1 },
       "shieldModel": { "files": { "movil": "black-shield-movil.glb", "ordenador": "black-shield-ordenador.glb" }, "height": 0.62 },
       "pedestalModel": { "files": { "movil": "black-pedestal-movil.glb", "ordenador": "black-pedestal-ordenador.glb" }, "height": 0.26 }
+    },
+    "white-rook": {
+      "tower": { "files": { "movil": "tower-movil.glb", "ordenador": "tower-ordenador.glb" }, "height": 1.75 },
+      "flag": { "texture": "assets/textures/flag-white.jpg" },
+      "stone": "#d8ccb4",
+      "giant": {
+        "files": { "movil": "giant-movil.glb", "ordenador": "giant-ordenador.glb" },
+        "height": 1.9,
+        "yaw": 0,
+        "moves": {
+          "idle": [{ "clip": "idle" }],
+          "walk": [{ "clip": "walk" }],
+          "jump": [],
+          "fall": [],
+          "attack": [{ "clip": "box_03" }, { "clip": "box_01" }],
+          "hit": [{ "clip": "hit_to_body_01" }, { "clip": "hit_to_stomach" }],
+          "defeat": [{ "clip": "defeat_03", "travel": 0.4 }, { "clip": "fall", "travel": 0.4 }],
+          "taunt": [{ "clip": "angry_01", "seconds": 2.6 }, { "clip": "angry_03", "seconds": 2.6 }]
+        },
+        "hands": {}
+      }
+    },
+    "black-rook": {
+      "tower": { "files": { "movil": "black-tower-movil.glb", "ordenador": "black-tower-ordenador.glb" }, "height": 1.75 },
+      "flag": { "texture": "assets/textures/flag-black.jpg" },
+      "stone": "#3b3733",
+      "giant": {
+        "files": { "movil": "black-giant-movil.glb", "ordenador": "black-giant-ordenador.glb" },
+        "height": 1.9,
+        "yaw": 0,
+        "moves": {
+          "idle": [{ "clip": "idle" }],
+          "walk": [{ "clip": "walk" }],
+          "jump": [],
+          "fall": [],
+          "attack": [{ "clip": "box_03" }, { "clip": "box_01" }],
+          "hit": [{ "clip": "hit_to_body_01" }, { "clip": "hit_to_stomach" }],
+          "defeat": [{ "clip": "defeat_03", "travel": 0.4 }, { "clip": "fall", "travel": 0.4 }],
+          "taunt": [{ "clip": "angry_01", "seconds": 2.6 }, { "clip": "angry_03", "seconds": 2.6 }]
+        },
+        "hands": {}
+      }
     }
   }
 }

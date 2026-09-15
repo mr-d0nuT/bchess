@@ -91,15 +91,18 @@ colindantes».
 - **Quién se aparta.** Las piezas en reposo: el peón con su peana y la torre con su base. No se
   apartan las que participan en la jugada.
 - **Cuánto sitio pide el gigante:**
-  - un círculo con su radio, medido al cargar: hasta dónde llegan sus manos y sus pies en reposo
-    y al andar, más un margen;
+  - al moverse, un círculo con su radio, medido al cargar: hasta dónde llegan sus manos y sus pies
+    en reposo y al andar, más un margen;
   - al andar, también el tramo de 0,8 casillas que tiene por delante, para que las piezas se
     aparten antes de que llegue;
-  - al golpear, también el tramo hasta su rival.
+  - al pelear, un abanico: lo que alcanza en cada dirección (24 sectores) con lo que va a hacer en
+    su puesto, medido al cargar para cada animación, más el margen. Así, un puñetazo pide sitio
+    hacia delante y una provocación, hacia donde abre los brazos. Lo pide desde que empieza la
+    captura, para que las piezas ya se hayan apartado cuando golpea, provoca o se derrumba.
 - **Cómo se apartan:**
   - se deslizan peana y figura juntas, sin girar, y siguen respirando;
   - se alejan del gigante lo justo para que queden 0,03 casillas entre sus bordes, y como mucho
-    0,35 casillas desde el centro de su casilla;
+    0,45 casillas desde el centro de su casilla;
   - van a 1,2 casillas por segundo como mucho, arrancando y frenando con suavidad.
 - **Sin chocar:**
   - entre dos piezas siempre quedan al menos 0,03 casillas;
@@ -117,23 +120,30 @@ Usan la cámara de cine, el congelado de impacto, las chispas y la cámara lenta
 peones. Las piezas cercanas también hacen sitio; el atacante y el defensor no se apartan. Las
 batallas largas y variadas llegan en el paso siguiente.
 
+Antes de empezar se decide qué hará cada gigante en su puesto. De sus derrumbes y provocaciones,
+elige los que dejan más hueco a las piezas de alrededor; si provocar les quitaría sitio, no
+provoca. A igual hueco, elige el derrumbe que menos se echa encima del arma del rival.
+
 - **Torre come a peón:**
   1. La torre se transforma.
-  2. El gigante anda hasta que su golpe alcanza al peón y lo provoca, si tiene provocación.
-  3. Golpea a cámara lenta con el puñetazo o pisotón que más alcanza.
+  2. El gigante anda hasta que su golpe alcanza al peón y lo provoca, si cabe.
+  3. Golpea a cámara lenta con el puñetazo o pisotón que más alcanza sin tener que retroceder, y
+     se para donde la cara del golpe toca al peón.
   4. El peón sale despedido, se le cae la lanza y se esfuma en polvo.
   5. El gigante ocupa la casilla y vuelve a ser torre.
 - **Peón come a torre:**
-  1. La torre se transforma.
-  2. El peón baja de su peana y le da una estocada, con el alcance medido como en el duelo.
-  3. El gigante hace su derrumbe y se deshace en rocas y polvo.
+  1. La torre se transforma y el gigante provoca, si cabe.
+  2. El peón baja de su peana y le da una estocada. La lanza resbala en su mano antes de la
+     estocada, para que la punta toque la piedra justo en el golpe, y después rebota.
+  3. El gigante se tambalea y, 0,8 s después del golpe, se deshace en rocas y polvo.
   4. El peón anda hasta la casilla y sube a su peana.
 - **Torre come a torre:**
   1. Las dos se transforman.
-  2. El atacante golpea y el defensor se derrumba en rocas.
+  2. El atacante golpea; el defensor se tambalea y, 0,8 s después del golpe, se deshace en rocas.
   3. El atacante ocupa la casilla y vuelve a ser torre.
 
-Las distancias salen del alcance medido de cada golpe, como en el combate entre peones.
+Las distancias salen del alcance medido de cada golpe y de rayos contra la malla del rival, para
+que la lanza y el puño lo toquen sin atravesarlo.
 
 ## 8. Modelos y animaciones
 
@@ -161,13 +171,14 @@ Las distancias salen del alcance medido de cada golpe, como en el combate entre 
 | Fichero | Responsabilidad |
 |---|---|
 | `src/rules/rook.js` | Puro. `rookMoves(square, occupied, enemies) → { moves, captures }`. |
-| `src/moves/room.js` | Puro. Dónde debe ponerse cada pieza para hacer sitio (`roomTargets`) y cuánto avanza en un fotograma sin chocar (`stepRoom`). |
-| `src/moves/crowd.js` | Cada fotograma aplica el sitio que piden los gigantes: desliza las piezas y avisa cuando todas han vuelto. |
+| `src/moves/room.js` | Puro. Cuerpos que piden sitio, en tramo o en abanico: dónde debe ponerse cada pieza para hacer sitio (`roomTarget`), cuánto avanza en un fotograma sin chocar (`stepRoom`) y cuánto hueco faltaría (`roomOverlap`). |
+| `src/moves/crowd.js` | Cada fotograma aplica el sitio que piden los gigantes: desliza las piezas y avisa cuando todas han vuelto. Dice cuánto hueco faltaría para unos cuerpos (`overlap`). |
 | `src/pieces/rook.js` | Carga la torre estática y el gigante, y crea cada torre con su banderín hecho en código. |
 | `src/fx/rubble.js` | Rocas que salen despedidas o vuelan hacia la casilla, rebotan y desaparecen. |
 | `src/moves/transform.js` | Transformaciones torre ⇄ gigante con el reloj de juego. |
 | `src/moves/rook-mover.js` | Mover de la torre, con la misma forma que el de los peones (`placeOn`, `goTo`, `square`, `busy`). |
-| `src/combat/smash.js` | Capturas cortas en las que participa una torre. |
+| `src/combat/strikes.js` | También mide el cuerpo del gigante: margen, pecho, radio al andar y alcance en abanico de cada animación. |
+| `src/combat/smash.js` | Capturas cortas en las que participa una torre; elige el derrumbe y la provocación que caben. |
 | `src/scene/cinema.js` | El temblor de cámara también sirve fuera del combate, sin descolocar los controles. |
 | `src/main.js` | Lista `pieces` con `kind` (`pawn` o `rook`): reglas, toques y capturas según el tipo de pieza. |
 | `assets/models/manifest.json` | Tipos `white-rook` y `black-rook`, con `tower` y `giant`. |
@@ -187,8 +198,11 @@ Las distancias salen del alcance medido de cada golpe, como en el combate entre 
     bordes;
   - peones con torres en medio;
   - hacer sitio:
-    - las piezas se alejan lo justo y nunca más de 0,35 casillas;
+    - las piezas se alejan lo justo y nunca más de 0,45 casillas;
     - se desvían si detrás hay otra pieza;
+    - el abanico aparta a quien tiene delante, no a quien tiene al lado o detrás, y gira con el
+      gigante;
+    - el hueco que falta es cero si todas caben y crece si una pieza cierra el paso;
     - ningún paso deja dos piezas a menos de 0,03 casillas;
     - vuelven al centro;
   - colocación por alcance en las capturas nuevas.
@@ -198,5 +212,6 @@ Las distancias salen del alcance medido de cada golpe, como en el combate entre 
   - con los peones en la fila 2, la torre de a1 va a d1: distancia mínima entre piezas, holgura
     del gigante con los peones y todas las piezas de vuelta en su casilla;
   - las tres capturas (torre come peón, peón come torre, torre come torre), con las mismas
-    medidas, el tablero coherente y la cámara restaurada.
+    medidas, el tablero coherente y la cámara restaurada; en la estocada, cuánto se hunde la
+    punta en la malla del gigante.
 - **En la web publicada:** carga sin errores y las jugadas de la torre funcionan.

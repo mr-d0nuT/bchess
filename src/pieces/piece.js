@@ -37,7 +37,7 @@ export async function loadManifest() {
 
 // Escala un objeto recién cargado (sin transformar) a una altura, con la base en y = 0
 // y centrado en X y Z.
-function fitToHeight(object, height) {
+export function fitToHeight(object, height) {
   object.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(object);
   const k = height / (box.max.y - box.min.y);
@@ -69,7 +69,7 @@ function createFallbackPedestal(height) {
   return withShadows(new THREE.Group().add(mesh));
 }
 
-function withShadows(object) {
+export function withShadows(object) {
   object.traverse((o) => {
     if (o.isMesh) {
       o.castShadow = true;
@@ -112,17 +112,26 @@ export async function loadPieceKit(spec, quality) {
   const model = withShadows(pieceGltf.scene);
   fitToHeight(model, spec.height);
   model.updateMatrixWorld(true);
-  const pedestalHeight = spec.pedestalModel?.height ?? FALLBACK_PEDESTAL_HEIGHT;
-  const pedestal = pedestalGltf ? withShadows(pedestalGltf.scene) : createFallbackPedestal(pedestalHeight);
-  fitToHeight(pedestal, pedestalHeight);
+  // Con `pedestal: false` (el gigante), sin peana: los pies, en el tablero.
+  const standsOnBoard = spec.pedestal === false;
+  const pedestalHeight = standsOnBoard ? 0 : spec.pedestalModel?.height ?? FALLBACK_PEDESTAL_HEIGHT;
+  let pedestal = new THREE.Group();
+  if (!standsOnBoard) {
+    pedestal = pedestalGltf ? withShadows(pedestalGltf.scene) : createFallbackPedestal(pedestalHeight);
+    fitToHeight(pedestal, pedestalHeight);
+  }
+  // Radio de la pieza en el tablero (el de su peana, o el de la figura), para hacer sitio.
+  const footprint = new THREE.Box3().setFromObject(standsOnBoard ? model : pedestal);
+  const radius = Math.max(footprint.max.x - footprint.min.x, footprint.max.z - footprint.min.z) / 2;
   const shield = shieldGltf ? withShadows(shieldGltf.scene) : null;
   if (shield) fitToHeight(shield, spec.shieldModel.height);
 
   const { moves, missing } = resolveMoves(clipNames, spec.moves ?? {});
   if (missing.length) console.warn(`[BChess] El manifiesto pide clips que no están en el GLB: ${missing.join(', ')}. Clips: ${clipNames.join(', ')}`);
-  for (const action of ['idle', 'walk', 'attack', 'hit', 'fall']) {
+  for (const action of ['idle', 'walk', 'attack', 'hit']) {
     if (!moves[action].length) console.warn(`[BChess] La pieza no tiene animación «${action}». Clips: ${clipNames.join(', ') || '(ninguno)'}`);
   }
+  if (!moves.fall.length && !moves.defeat?.length) console.warn(`[BChess] La pieza no tiene animación para caer. Clips: ${clipNames.join(', ') || '(ninguno)'}`);
 
   // Las pistas se cambian ANTES de crear acciones, porque cada acción las copia al crearse.
   // Paseo: se quita su avance y de él sale la velocidad. Resto: `travel` acorta el
@@ -161,6 +170,7 @@ export async function loadPieceKit(spec, quality) {
     model,
     pedestal,
     pedestalHeight,
+    radius,
     shield,
     clips,
     moves,
@@ -405,6 +415,8 @@ export function spawnPiece(kit) {
     props,
     hitbox,
     pedestalHeight: kit.pedestalHeight,
+    radius: kit.radius,
+    height: kit.spec.height + kit.pedestalHeight,
     walkSpeed: kit.walkSpeed,
     has: (action) => Boolean(variants[action]?.length),
     play,

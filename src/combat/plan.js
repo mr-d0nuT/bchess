@@ -82,3 +82,31 @@ export function planExchanges(keys, random = Math.random) {
   beats.push({ by: 'attacker', key: next(), final: true });
   return beats;
 }
+
+// Clave del golpe con mano o pie que más lejos llega por delante, o null si no hay ninguno medido.
+export function bestStrike(attacks, strikes) {
+  let best = null;
+  for (const attack of attacks) {
+    const body = strikes[attack.key]?.body;
+    if (body && (!best || body.reach > strikes[best].body.reach)) best = attack.key;
+  }
+  return best;
+}
+
+// Dónde se para quien golpea con la mano o el pie para que el golpe, que le llega a `reach` por
+// delante, alcance el pecho de un rival que lo tiene a `torso` de su centro, sin acercarse a menos
+// de `closest`. Si desde `from` ya le llega, no se mueve. `from` y `to` son centros {x, z}.
+export function strikeSpot(from, to, { reach, torso = TORSO, closest = 0 }) {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const length = Math.hypot(dx, dz);
+  const ux = dx / length;
+  const uz = dz / length;
+  const distance = Math.min(length, Math.max(reach + torso, closest));
+  return {
+    attacker: { x: to.x - ux * distance, z: to.z - uz * distance },
+    attackerFacing: Math.atan2(ux, uz),
+    defenderFacing: Math.atan2(-ux, -uz),
+    distance,
+  };
+}
