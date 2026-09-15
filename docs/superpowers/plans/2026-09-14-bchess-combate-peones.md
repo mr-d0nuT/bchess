@@ -1902,3 +1902,27 @@ Expected: los mismos resultados y ningún error en la consola.
   | Blancas | Cuerpo a cuerpo | 0,006 | 0,030 | 0,308 | 3,5 s |
   | Negras | Duelo | 0,076 | 0,038 | 0,313 | 3,5 s |
   | Negras | Cuerpo a cuerpo | 0,003 | 0,038 | 0,313 | 3,5 s |
+- **Lanza que salía disparada (2026-09-15).** El usuario vio que, tras algunas estocadas, la lanza se
+  desplazaba hacia el rival, desaparecía y reaparecía. Pasaban tres cosas:
+  - al empezar la estocada, la lanza giraba de golpe de erguida a horizontal, antes de resbalar en
+    la mano, y la punta aparecía 2,1 casillas por delante, dentro del rival;
+  - al terminar, volvía a subir en la mano cuando aún apuntaba hacia delante, y la punta avanzaba
+    de 1,36 a 2,29, atravesando al rival;
+  - al pasar a reposo, giraba de golpe a erguida.
+
+  Ahora:
+  - la lanza gira poco a poco de una postura a otra (7 radianes por segundo, unos 0,25 s);
+  - antes de la estocada, el peón apunta la lanza al rival y la hace resbalar en la mano aún quieto
+    (0,35 s). Si girara y resbalara ya atacando, además de la punta, el regatón se hundía 0,12 en el
+    suelo en las estocadas más agachadas;
+  - al terminar, primero la yergue y después la vuelve a subir en la mano.
+
+  Sin saltos de la punta en todo el combate; al recuperar, la punta no pasa de 0,13 por delante del
+  peón (frente a 1,55 en la estocada). Con los vecinos en d4 y e5:
+
+  | Ataca | Estilo | Holgura con los vecinos | Lanza sobre el suelo | Defensor desde su centro | Celebración |
+  |---|---|---|---|---|---|
+  | Blancas | Duelo | 0,064 | 0,005 | 0,308 | 3,5 s |
+  | Negras | Duelo | 0,081 | 0,003 | 0,313 | 3,5 s |
+  | Blancas | Cuerpo a cuerpo | 0,064 | 0,030 | 0,308 | 3,2 s |
+  | Negras | Cuerpo a cuerpo | 0,003 | 0,038 | 0,313 | 3,2 s |

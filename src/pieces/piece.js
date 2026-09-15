@@ -361,6 +361,11 @@ export function spawnPiece(kit) {
     spear.visible = opacity > 0;
   }
 
+  // Postura que tiene ahora la lanza fuera de la mano. Al pasar de una postura a otra (de erguida a
+  // en estocada, o al revés) gira poco a poco hacia la nueva, en vez de saltar de golpe.
+  const poseNow = new THREE.Quaternion();
+  const POSE_TURN_SPEED = 7; // radianes por segundo: de erguida a en estocada tarda ~0,25 s
+
   function update(dt) {
     mixer.update(dt);
     for (const cut of [...cuts]) {
@@ -374,13 +379,16 @@ export function spawnPiece(kit) {
       flySpear(spear, dt);
       return;
     }
+    // Con la lanza en la mano, la postura no se ve: la próxima empieza ya en su sitio.
+    if (spearBlend <= 0.0001) poseNow.copy(spearPose);
     const step = SPEAR_TURN_SPEED * dt;
     spearBlend += Math.max(-step, Math.min(step, spearTarget - spearBlend));
     if (spearBlend <= 0.0001) {
       spear.quaternion.copy(spearHold);
     } else {
       // Fuera de la mano, la orientación de la lanza se fija respecto a la figura.
-      model.getWorldQuaternion(modelQuaternion).multiply(spearPose);
+      poseNow.rotateTowards(spearPose, POSE_TURN_SPEED * dt);
+      model.getWorldQuaternion(modelQuaternion).multiply(poseNow);
       spear.parent.getWorldQuaternion(boneQuaternion).invert();
       posed.copy(boneQuaternion).multiply(modelQuaternion);
       spear.quaternion.slerpQuaternions(spearHold, posed, spearBlend);
