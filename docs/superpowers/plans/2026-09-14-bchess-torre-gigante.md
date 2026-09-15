@@ -2968,3 +2968,30 @@ Actualizar `bchess-app.md` en la memoria con lo aprendido que no está en el rep
   - malla del gigante: 65;
   - texturas blanca y negra del gigante: 40;
   - esqueleto: 20.
+- **Sitio para pelear, en abanico.** Con el gigante definitivo no bastaba un círculo. La provocación `angry_01` abre los dos brazos y `angry_03` solo el izquierdo; los puñetazos barren hacia delante, y `fall` llega a 1,65 casillas si se deja entero. En `peon-come-torre`, `angry_01` rozaba al peón de d5 (holgura −0,029) aunque ya estaba en su tope.
+  - Al cargar, `measureFans` mide para cada animación, por tramos de 0,25 s, hasta dónde llegan los huesos en 24 sectores alrededor del gigante.
+  - En una captura, cada gigante pide sitio con el abanico de lo que hará en su puesto. `room.js` calcula la holgura con abanicos y cuánto hueco faltaría en total (`roomOverlap`).
+  - Se eligen la provocación y el derrumbe que menos hueco quitan. Si provocar quita sitio, no provoca.
+- **Derrumbe corto.** El gigante vencido se deshace en rocas 0,8 s después del golpe, sin esperar a que acabe el ataque; en ese rato sus derrumbes caben junto a piezas pegadas. A igual hueco, se elige el que menos se adelanta hacia el rival: `fall` se desplomaba sobre la lanza y la punta entraba 0,43.
+- **Estocada contra el gigante.**
+  - La lanza resbala en la mano antes de la estocada. Si lo hacía mientras giraba hacia delante, la punta se adelantaba y se clavaba.
+  - El pecho medido en el centro (0,158) no sirve para la línea de la lanza, que va a la altura de la cadera y hacia la mano derecha: la punta se quedaba a 0,2 de la piedra.
+  - Ahora un rayo sigue esa línea contra el gigante tal y como estará en el impacto: su reposo se adelanta lo que falta, solo para medir. La punta entra 0,03 y, tras el golpe, rebota 0,12.
+- **Puñetazo del gigante.** Colocarse por el hueso de la mano y un pecho fijo hundía el puño 0,24 en el peón.
+  - Al cargar se mide dónde está la mano en lo más largo del golpe y hasta dónde llega su malla en cinco líneas: por el hueso y a medio puño a cada lado, arriba y abajo.
+  - Al empezar la captura, esas líneas buscan al rival plantado y mirándolo, y el gigante se para donde la primera toca. Prueba los golpes del que más alcanza al que menos y se queda con el primero que no le obliga a retroceder; así casi siempre basta con cinco rayos, de unos 10 ms cada uno.
+  - Los rayos atraviesan al rival entero. Contra el otro gigante, la línea central solo toca justo detrás de su centro, y cortarlos ahí lo acercaba de más (puño 0,277 dentro).
+- **Cámara de cine y tamaño de la ventana.** Al cambiar el tamaño de la ventana (girar el móvil, o una captura de pantalla de Chrome), la escena volvía a encuadrar el tablero en mitad del combate. Ahora la cámara de cine se queda donde está y, al terminar, vuelve al encuadre de reposo del tamaño nuevo.
+- **Verificación del golpe.** `verificar-captura-torre.js` mide cuánto se hunde la punta de la lanza o el puño en la malla del rival, desde el golpe hasta que el vencido se deshace. Usa solo las mallas con esqueleto: la zona de toque invisible del gigante, un cilindro de radio 0,34, falseaba la medida. Las capturas se lanzan en segundo plano y se consultan después, porque el panel oculto corta cada llamada a los 45 s.
+- **Resultados con los modelos definitivos.** En «golpe», lo que se hunde en la malla del rival la punta de la lanza o el puño al golpear; si es negativo, lo que le falta para tocarlo.
+
+| Comprobación | hueco | holgura | a la vez | apartado | golpe | final |
+|---|---|---|---|---|---|---|
+| Torre blanca a1 → d1 | 0,151 | 0,243 | 0 | 0,37 | — | todo en su casilla, cámara 0 |
+| Torre negra h8 → e8 | 0,151 | 0,243 | 0 | 0,37 | — | todo en su casilla, cámara 0 |
+| Torre come peón (`angry_03`, `box_01`) | 0,062 | 0,047 | 0 | 0,45 | 0,030 | 19 piezas, rocas 0 |
+| Torre negra come peón (`angry_03`, `box_01`) | 0,062 | 0,039 | 0 | 0,447 | −0,001 | 19 piezas, rocas 0 |
+| Peón come torre (`angry_03`, `defeat_03`; estocadas `box_03` y `box_02`) | 0,225 | 0,054 | 0 | 0,39 | 0,030, sin pasar de ahí | 19 piezas, rocas 0 |
+| Torre come torre (`angry_03`, `box_01`, `defeat_03`) | 0,225 | 0,118 | 0 | 0,37 | −0,008 | 19 piezas, rocas 0 |
+
+  Vistas en Chrome con la cámara de cine: la provocación no toca a los vecinos, y la estocada y el puñetazo tocan al rival sin atravesarlo.
