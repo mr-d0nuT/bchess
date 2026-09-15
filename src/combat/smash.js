@@ -354,12 +354,13 @@ async function pawnFellsGiant({ attacker, defender, home, center, target, clock,
   await Promise.all(taunts);
   const idle = giant.play('idle', { fade: 0.25 });
   await attacker.mover.descend(spots.attacker);
-  // La lanza resbala en la mano antes de la estocada, aún erguida: si lo hiciera mientras gira
-  // hacia delante, la punta se adelantaría y se clavaría en el gigante. Se mide contra el gigante tal
-  // y como estará en el impacto.
+  // Antes de la estocada, aún quieto, apunta la lanza al gigante y la hace resbalar en la mano. Si
+  // girara y resbalara ya atacando, la punta se clavaría en el gigante y, al agacharse, el regatón
+  // se hundiría en el suelo. Se mide contra el gigante tal y como estará en el impacto.
   const slide = poseAhead(giant, idle, GRIP_SETTLE + measure.spear.t, () => gripSlideToGiant({
     spear: measure.spear, spot: spots.attacker, facing: spots.attackerFacing, distance: spots.distance, giant, torso: defender.piece.body.torso,
   }));
+  a.setSpearPose('forward');
   a.setGripSlide(slide);
   await Promise.all([attacker.mover.turnTo(spots.attackerFacing, 0.2), clock.wait(GRIP_SETTLE)]);
 
@@ -376,6 +377,7 @@ async function pawnFellsGiant({ attacker, defender, home, center, target, clock,
   await afterImpact(clock);
   await attack;
   // Baja el arma y, con la lanza ya erguida, vuelve a subirla en la mano.
+  a.setSpearPose(null);
   a.play('idle', { fade: 0.3 });
   await clock.wait(RECOVER);
   a.setGripSlide(-COMBAT_RAISE);
