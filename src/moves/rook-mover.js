@@ -7,6 +7,7 @@ import { giantToTower, towerToGiant } from './transform.js';
 // gigante, la torre se desliza entre polvo. Los pasos sueltos (`room`, `turnTo`, `awaken`,
 // `walkTo`, `walkOnto`, `crumble`) los usa el director de capturas, que ya tiene el bloqueo general.
 
+export const CRUMBLE_SECONDS = 0.25; // lo que tarda en deshacerse en rocas tras perder
 const SLIDE_SECONDS = 0.45; // por casilla, cuando se desliza sin gigante
 const LOOK_AHEAD = 0.8; // casillas por delante que pide al andar
 const SETTLE_LIMIT = 4; // segundos de juego que espera, como mucho, a que vuelvan las piezas
@@ -18,7 +19,7 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
   let square = null;
   let busy = false;
   let heading = null; // destino {x, z} mientras el gigante anda
-  let shrinking = false; // mientras el gigante encoge para volver a ser torre
+  let shrinking = false; // mientras el gigante encoge para volver a ser torre o se deshace en rocas
   const others = () => crowd.obstacles([owner]);
 
   function setBusy(value) {
@@ -52,10 +53,18 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
     }
   }
 
-  // Cuerpos con los que pide sitio ahora: su círculo y, al andar, el tramo que tiene por delante.
-  // Mientras encoge, pide cada vez menos; deshecho en rocas, ya no pide nada.
-  function room({ fighting = false } = {}) {
+  // Cuerpos con los que pide sitio ahora: su círculo y, al andar, el tramo que tiene por delante. En
+  // una captura, `stance` ({ at, facing, reach }) es el abanico de lo que hará en su puesto: lo pide
+  // desde el principio y, mientras no anda, en lugar del círculo. Mientras encoge o se deshace, pide
+  // cada vez menos; deshecho en rocas, ya no pide nada.
+  function room({ stance = null } = {}) {
     if (!giant || !rook.body || !rook.object.visible) return [];
+    const scale = shrinking ? giant.figure.scale.x : 1;
+    const bodies = [];
+    if (stance) {
+      bodies.push({ at: stance.at, facing: stance.facing, reach: stance.reach.map((r) => r * scale), margin: rook.body.margin * scale });
+      if (!heading) return bodies;
+    }
     const at = giant.figure.position;
     const from = { x: at.x, z: at.z };
     let to = from;
@@ -68,8 +77,8 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
         to = { x: at.x + dx * k, z: at.z + dz * k };
       }
     }
-    const radius = (fighting ? rook.body.fight : rook.body.walk) * (shrinking ? giant.figure.scale.x : 1);
-    return [{ from, to, radius }];
+    bodies.push({ from, to, radius: rook.body.walk * scale });
+    return bodies;
   }
 
   function turnTo(angle, seconds) {
@@ -145,10 +154,11 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
   // Tras perder: se deshace en rocas y polvo.
   async function crumble() {
     const at = giant.figure.position.clone();
+    shrinking = true;
     rubble.explode(at, { color: rook.stone, count: 22, height: rook.height, obstacles: others });
     dust.puff(new THREE.Vector3(at.x, DUST_Y, at.z), { count: 20, radius: 1, duration: 0.9 });
     cinema.shake(0.15);
-    await clock.tween(0.25, (t) => {
+    await clock.tween(CRUMBLE_SECONDS, (t) => {
       giant.figure.scale.setScalar(Math.max(0.001, 1 - t));
     });
     rook.object.visible = false;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { roomTarget, stepRoom } from './room.js';
+import { roomOverlap, roomTarget, stepRoom } from './room.js';
 
 // Hacer sitio a los gigantes (diseño, sección 6). En cada fotograma, las piezas que no participan
 // en la jugada se apartan de los cuerpos que piden sitio, sin chocar entre ellas, y cuando ya no
@@ -14,7 +14,8 @@ export function createCrowd({ board, entries }) {
   let settled = true;
 
   // Pide sitio hasta que se llame a la función que devuelve. `owners` son las piezas de la jugada,
-  // que no se apartan; `bodies()` devuelve los cuerpos que empujan ahora ({ from, to, radius }).
+  // que no se apartan; `bodies()` devuelve los cuerpos que empujan ahora ({ from, to, radius } o
+  // abanicos, como en `room.js`).
   function claim({ owners, bodies }) {
     const entry = { owners: new Set(owners), bodies };
     claims.add(entry);
@@ -75,6 +76,22 @@ export function createCrowd({ board, entries }) {
     return new Promise((resolve) => waiting.push(resolve));
   }
 
+  // Hueco que les faltaría en total a las piezas, salvo `owners`, para dejar sitio a `bodies`, sin
+  // contar los cuerpos que ya lo piden (`roomOverlap`). Cero si todas caben.
+  function overlap({ owners, bodies }) {
+    const fixed = [];
+    const yielding = [];
+    for (const entry of entries()) {
+      if (owners.includes(entry)) {
+        entry.piece.figure.getWorldPosition(point);
+        fixed.push({ x: point.x, z: point.z, radius: entry.piece.radius });
+      } else {
+        yielding.push({ home: board.squareToWorld(entry.mover.square), radius: entry.piece.radius });
+      }
+    }
+    return roomOverlap(yielding, bodies, fixed);
+  }
+
   // Cilindros de las piezas visibles, salvo `except`, para que las rocas reboten en ellas.
   function obstacles(except = []) {
     return entries()
@@ -85,5 +102,5 @@ export function createCrowd({ board, entries }) {
       });
   }
 
-  return { claim, update, settle, obstacles };
+  return { claim, update, settle, overlap, obstacles };
 }

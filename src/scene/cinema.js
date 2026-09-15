@@ -12,11 +12,20 @@ const PIECE_TOP = 1.75; // altura de una pieza sobre su peana, para saber si tap
 const ANGLE_STEP = Math.PI / 6; // se prueban direcciones cada 30° alrededor de la de lado
 const smooth = (t) => t * t * (3 - 2 * t);
 
-export function createCinema({ camera, controls }) {
+export function createCinema(stage) {
+  const { camera, controls } = stage;
   let saved = null;
   let shakeLeft = 0;
   let shakeSize = 0;
   const offset = new THREE.Vector3();
+
+  // Si la ventana cambia de tamaño mientras encuadra, la cámara sigue donde está y, al terminar,
+  // vuelve al encuadre de reposo del tamaño nuevo.
+  stage.keepCamera = (view) => {
+    if (!saved) return false;
+    saved = { position: view.position.clone(), target: view.target.clone() };
+    return true;
+  };
 
   function glide(clock, toPosition, toTarget) {
     const fromPosition = camera.position.clone().sub(offset);

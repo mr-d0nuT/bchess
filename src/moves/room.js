@@ -1,16 +1,23 @@
 // Hacer sitio a los gigantes (diseño, sección 6). Todo puro y en casillas: dónde debe ponerse cada
-// pieza para dejar sitio (`roomTarget`) y cómo avanza hacia allí sin chocar con nadie
-// (`stepRoom`). Un cuerpo que pide sitio es un tramo { from, to } con grosor `radius`; si
-// from = to, un círculo.
+// pieza para dejar sitio (`roomTarget`), cómo avanza hacia allí sin chocar con nadie (`stepRoom`) y
+// cuánto hueco faltaría en total (`roomOverlap`). Un cuerpo que pide sitio puede ser:
+// - un tramo { from, to } con grosor `radius`; si from = to, un círculo;
+// - un abanico { at, facing, reach, margin }: alrededor de `at`, `reach` son las distancias a las que
+//   llega en FAN_SECTORS sectores iguales, el primero detrás y girando como atan2(x, z) desde
+//   `facing`, hacia donde mira; `margin` es lo que sobresale de esas distancias.
 
 export const ROOM_GAP = 0.03; // hueco mínimo entre los bordes de dos piezas
 export const MAX_SHIFT = 0.45; // lo más que se aleja una pieza del centro de su casilla
 export const SLIDE_SPEED = 1.2; // casillas por segundo
 export const SLIDE_ACCEL = 6; // casillas por segundo², para arrancar con suavidad
+export const FAN_SECTORS = 24;
+export const FAN_STEP = 0.25; // segundos de cada tramo de un alcance medido
 const SLIDE_GAIN = 8; // al llegar frena: la velocidad no pasa de lo que falta × SLIDE_GAIN
 const SNAP = 0.004; // más cerca del objetivo que esto, llega de golpe
 const SAMPLE = 0.01; // paso con el que se tantea cada dirección
 const DETOURS = [0, 20, -20, 40, -40, 60, -60].map((degrees) => (degrees * Math.PI) / 180);
+const SECTOR = (2 * Math.PI) / FAN_SECTORS;
+const ORIGIN = { x: 0, z: 0 };
 
 function closestOnSegment(from, to, x, z) {
   const dx = to.x - from.x;
@@ -20,13 +27,43 @@ function closestOnSegment(from, to, x, z) {
   return { x: from.x + dx * t, z: from.z + dz * t };
 }
 
+// Distancia de (x, z) a un abanico, sin su margen. Cada sector es un trozo de círculo con el vértice
+// en `at`: dentro de su ángulo, lo más cercano está en el arco; fuera, en uno de sus dos bordes.
+function fanDistance(fan, x, z) {
+  const dx = x - fan.at.x;
+  const dz = z - fan.at.z;
+  const distance = Math.hypot(dx, dz);
+  let angle = Math.atan2(dx, dz) - fan.facing;
+  angle -= 2 * Math.PI * Math.floor((angle + Math.PI) / (2 * Math.PI)); // entre -π y π
+  const px = Math.sin(angle) * distance;
+  const pz = Math.cos(angle) * distance;
+  let nearest = distance;
+  fan.reach.forEach((reach, k) => {
+    if (reach <= 0) return;
+    const start = -Math.PI + k * SECTOR;
+    if (angle >= start && angle < start + SECTOR) {
+      nearest = Math.min(nearest, Math.max(0, distance - reach));
+      return;
+    }
+    for (const edge of [start, start + SECTOR]) {
+      const near = closestOnSegment(ORIGIN, { x: Math.sin(edge) * reach, z: Math.cos(edge) * reach }, px, pz);
+      nearest = Math.min(nearest, Math.hypot(px - near.x, pz - near.z));
+    }
+  });
+  return nearest;
+}
+
+// Holgura con un cuerpo de una pieza de radio `radius` en (x, z): negativa si no le deja sitio.
+function clearanceTo(body, x, z, radius) {
+  if (body.reach) return fanDistance(body, x, z) - body.margin - radius - ROOM_GAP;
+  const near = closestOnSegment(body.from, body.to, x, z);
+  return Math.hypot(x - near.x, z - near.z) - body.radius - radius - ROOM_GAP;
+}
+
 // Holgura de una pieza de radio `radius` en (x, z) con los cuerpos: negativa si no les deja sitio.
 export function roomClearance(x, z, radius, bodies) {
   let clearance = Infinity;
-  for (const body of bodies) {
-    const near = closestOnSegment(body.from, body.to, x, z);
-    clearance = Math.min(clearance, Math.hypot(x - near.x, z - near.z) - body.radius - radius - ROOM_GAP);
-  }
+  for (const body of bodies) clearance = Math.min(clearance, clearanceTo(body, x, z, radius));
   return clearance;
 }
 
@@ -36,16 +73,16 @@ function fits(x, z, radius, others) {
 
 // Desplazamiento { x, z }, respecto al centro de su casilla (`piece.home`), al que debe ir una
 // pieza para dejar sitio a `bodies` sin acercarse demasiado a `others` ({ x, z, radius }). Se aleja
-// del cuerpo que más la aprieta; si por ahí choca con otra pieza, prueba a desviarse. Si no hay
-// hueco suficiente, elige lo que más sitio deja.
+// del cuerpo que más la aprieta (del centro del abanico o del punto más cercano del tramo); si por
+// ahí choca con otra pieza, prueba a desviarse. Si no hay hueco suficiente, elige lo que más sitio deja.
 export function roomTarget(piece, bodies, others = []) {
   const { home, radius } = piece;
   if (!bodies.length || roomClearance(home.x, home.z, radius, bodies) >= 0) return { x: 0, z: 0 };
   let away = null;
   for (const body of bodies) {
-    const near = closestOnSegment(body.from, body.to, home.x, home.z);
+    const near = body.reach ? body.at : closestOnSegment(body.from, body.to, home.x, home.z);
     const distance = Math.hypot(home.x - near.x, home.z - near.z);
-    const deficit = body.radius + radius + ROOM_GAP - distance;
+    const deficit = -clearanceTo(body, home.x, home.z, radius);
     if (distance > 1e-6 && (!away || deficit > away.deficit)) {
       away = { deficit, angle: Math.atan2(home.x - near.x, home.z - near.z) };
     }
@@ -67,6 +104,32 @@ export function roomTarget(piece, bodies, others = []) {
     if (reached && (!best || reached.clearance > best.clearance)) best = reached;
   }
   return best ? { x: best.x, z: best.z } : { x: 0, z: 0 };
+}
+
+// Hueco que falta en total para dejar sitio a `bodies`: coloca las piezas de una en una donde las
+// llevaría `roomTarget`, contando con las ya colocadas y con las fijas (`fixed`, { x, z, radius }), y
+// suma lo que le falta a cada una. Cero si todas caben.
+export function roomOverlap(pieces, bodies, fixed = []) {
+  const spots = pieces.map(({ home, radius }) => ({ x: home.x, z: home.z, radius }));
+  let missing = 0;
+  pieces.forEach((piece, i) => {
+    const target = roomTarget(piece, bodies, [...spots.slice(0, i), ...spots.slice(i + 1), ...fixed]);
+    spots[i] = { x: piece.home.x + target.x, z: piece.home.z + target.z, radius: piece.radius };
+    missing += Math.max(0, -roomClearance(spots[i].x, spots[i].z, piece.radius, bodies));
+  });
+  return missing;
+}
+
+// Alcance por sectores en los primeros `seconds` de una acción medida (`strikes.js`): `profile[i]`
+// es lo que ha alcanzado hasta el final de su tramo i de FAN_STEP segundos.
+export function fanReach(profile, seconds) {
+  const step = Math.ceil(seconds / FAN_STEP - 1e-9) - 1;
+  return profile[Math.max(0, Math.min(profile.length - 1, step))];
+}
+
+// Alcance de varias acciones juntas: en cada sector, el mayor.
+export function joinReach(reaches) {
+  return Array.from({ length: FAN_SECTORS }, (_, k) => Math.max(0, ...reaches.map((reach) => reach[k] ?? 0)));
 }
 
 // ¿Puede la pieza pasar al desplazamiento (x, z)? Sí, si queda a ROOM_GAP de todas las demás o, de

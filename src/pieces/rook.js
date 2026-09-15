@@ -33,7 +33,7 @@ export async function loadRookKit(spec, quality) {
   const down = new THREE.Raycaster(new THREE.Vector3(0, spec.tower.height + 1, 0), new THREE.Vector3(0, -1, 0));
   const roof = down.intersectObject(tower, true)[0]?.point.y ?? spec.tower.height * 0.9;
   if (giant) {
-    giant.strikes = measureStrikes(giant, spawnPiece);
+    giant.strikes = measureStrikes(giant, spawnPiece, { faces: true });
     giant.body = measureBody(giant, spawnPiece);
   }
   return {

@@ -27,6 +27,10 @@ export function createStage(canvas, quality) {
   controls.minDistance = 3;
   controls.maxPolarAngle = THREE.MathUtils.degToRad(82);
   const viewDirection = new THREE.Vector3(0, 7.1, 10.2).normalize();
+  const home = controls.target.clone();
+  // `keepCamera(view)` puede quedarse con el encuadre de reposo nuevo sin que la cámara se mueva
+  // (lo hace la cámara de cine mientras encuadra un combate).
+  const stage = { renderer, scene, camera, controls, keepCamera: () => false };
 
   function resize() {
     const width = window.innerWidth;
@@ -38,11 +42,14 @@ export function createStage(canvas, quality) {
     const halfHorizontalFov = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.aspect);
     const distance = Math.max(DEFAULT_DISTANCE, BOARD_HALF_WIDTH / Math.tan(halfHorizontalFov));
     controls.maxDistance = Math.max(18, distance * 1.3);
-    camera.position.copy(controls.target).addScaledVector(viewDirection, distance);
+    const view = { position: home.clone().addScaledVector(viewDirection, distance), target: home.clone() };
+    if (stage.keepCamera(view)) return;
+    camera.position.copy(view.position);
+    controls.target.copy(view.target);
     controls.update();
   }
   window.addEventListener('resize', resize);
   resize();
 
-  return { renderer, scene, camera, controls };
+  return stage;
 }
