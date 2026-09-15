@@ -8,8 +8,9 @@ test('la espera entre gestos va del mínimo al mínimo más el margen', () => {
   assert.ok(nextGestureDelay(() => 0.999999) < GESTURE_MIN_MS + GESTURE_RANGE_MS);
 });
 
-test('entre gesto y gesto pasan al menos 15 segundos', () => {
-  assert.ok(GESTURE_MIN_MS >= 15000);
+test('entre gesto y gesto pasan de 4 a 10 segundos', () => {
+  assert.ok(GESTURE_MIN_MS >= 4000);
+  assert.ok(GESTURE_MIN_MS + GESTURE_RANGE_MS <= 10000);
 });
 
 test('sin candidatos no elige a nadie', () => {

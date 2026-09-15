@@ -1,9 +1,10 @@
-// Gestos especiales en reposo (mirar alrededor, rascarse, asustarse): de tanto en tanto, un
+// Gestos especiales en reposo (mirar alrededor, rascarse, asustarse): cada pocos segundos, un
 // solo peón del tablero hace uno. El resto del tiempo todos siguen en su reposo, con ese
-// balanceo suave sobre la peana. Lo pidió el usuario: con un reloj por peón se movían sin parar.
+// balanceo suave sobre la peana. Lo pidió el usuario: con un reloj por peón se movían sin parar,
+// y después, que los gestos fueran más a menudo (2026-09-15).
 
-export const GESTURE_MIN_MS = 15000;
-export const GESTURE_RANGE_MS = 20000;
+export const GESTURE_MIN_MS = 4000;
+export const GESTURE_RANGE_MS = 6000;
 export const GESTURE_RETRY_MS = 2000; // si ahora no puede nadie, se vuelve a probar en un rato
 
 // Espera desde que acaba un gesto hasta que empieza el siguiente.
