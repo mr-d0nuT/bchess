@@ -10,7 +10,8 @@ const SLOW_BEFORE = 0.35; // segundos de juego antes del golpe final en cámara 
 const SLOW_AFTER = 0.4;
 const KNOCKBACK = 0.2; // lo que sale despedido el vencido
 const KO_SECONDS = 1.2;
-const RECOVER = 0.3; // la lanza vuelve a su agarre antes de bajar el arma, para no barrer al lado
+const GRIP_SETTLE = 0.35; // lo que tarda la lanza en resbalar en la mano antes de la estocada
+const RECOVER = 0.3; // lo que tarda en bajar el arma y erguir la lanza antes de volver a subirla en la mano
 // En combate, las lanzas van erguidas y algo subidas en la mano, para que el regatón no barra
 // las peanas vecinas en los golpes recibidos.
 const COMBAT_RAISE = 0.3;
@@ -47,7 +48,14 @@ async function strike({ hitter, receiver, beat, style, spots, clock, fx, cinema,
   const r = receiver.piece;
   const measure = h.strikes[beat.key];
   const impact = style === 'duel' ? measure.spear : measure.body;
-  if (style === 'duel') h.setGripSlide(gripSlideForReach({ reach: measure.spear.reach, distance: spots.distance }));
+  if (style === 'duel') {
+    // Antes de la estocada, aún quieto, apunta la lanza al rival y la hace resbalar en la mano. Si
+    // girara y resbalara ya atacando, la punta atravesaría al rival y, al agacharse, el regatón se
+    // hundiría en el suelo.
+    h.setSpearPose('forward');
+    h.setGripSlide(gripSlideForReach({ reach: measure.spear.reach, distance: spots.distance }));
+    await clock.wait(GRIP_SETTLE);
+  }
   const attack = h.playOnce('attack', { clip: beat.key, fade: 0.15 });
 
   if (!beat.final) {
@@ -57,10 +65,13 @@ async function strike({ hitter, receiver, beat, style, spots, clock, fx, cinema,
     const reaction = r.playOnce('hit', { fade: 0.08 });
     await clock.hold(HIT_STOP);
     await Promise.all([attack, reaction]);
-    h.setGripSlide(-COMBAT_RAISE);
-    await clock.wait(RECOVER);
+    // Baja el arma y, con la lanza ya erguida, vuelve a subirla en la mano: si resbalara antes, con
+    // la lanza aún de punta, saldría disparada hacia el rival.
+    if (style === 'duel') h.setSpearPose(null);
     h.play('idle', { fade: 0.25 });
     r.play('idle', { fade: 0.25 });
+    await clock.wait(RECOVER);
+    h.setGripSlide(-COMBAT_RAISE);
     await clock.wait(0.25);
     return;
   }
@@ -85,9 +96,10 @@ async function strike({ hitter, receiver, beat, style, spots, clock, fx, cinema,
   await clock.wait(SLOW_AFTER);
   clock.timeScale = 1;
   await Promise.all([attack, fall, knock]);
-  h.setGripSlide(-COMBAT_RAISE);
-  await clock.wait(RECOVER);
+  if (style === 'duel') h.setSpearPose(null);
   h.play('idle', { fade: 0.3 });
+  await clock.wait(RECOVER);
+  h.setGripSlide(-COMBAT_RAISE);
 }
 
 // `obstacles` son las posiciones {x, z} de las demás piezas, para que la cámara no quede tapada.
