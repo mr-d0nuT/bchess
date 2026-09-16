@@ -25,6 +25,16 @@ const FACE_SPREAD = 0.12; // medio puño
 // lado, arriba y abajo.
 const FACE_RAYS = [[0, 0], [FACE_SPREAD, 0], [-FACE_SPREAD, 0], [0, FACE_SPREAD], [0, -FACE_SPREAD]];
 
+// De las manos de un golpe de arriba abajo, la que más sube y por dónde pasa ({ bone, path }), o null.
+function highestHand(paths) {
+  let best = null;
+  for (const [bone, path] of Object.entries(paths)) {
+    const top = Math.max(...path.map((sample) => sample.y));
+    if (!best || top > best.top) best = { bone, path, top };
+  }
+  return best && { bone: best.bone, path: best.path };
+}
+
 // Con `faces`, cada golpe con mano o pie guarda también dónde está el hueso en ese momento (`side`,
 // `height`) y, en cada línea de FACE_RAYS ({ dx, dy }), hasta dónde llega por delante su malla
 // (`face`, o null si por ahí no hay malla), para que un gigante no hunda el puño en su rival.
@@ -45,6 +55,7 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
     let spear = null;
     let body = null;
     let sideStep = 0;
+    const paths = {}; // en un golpe de arriba abajo (`overhead` en el manifiesto), por dónde pasa cada mano
     for (let frame = 0; frame < Math.ceil(duration * FPS); frame++) {
       piece.update(1 / FPS);
       piece.object.updateMatrixWorld(true);
@@ -60,6 +71,7 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
         const at = limb.getWorldPosition(point);
         if (!body || at.z > body.reach) body = { t, reach: at.z, bone: limb.name };
         if (limb.name.includes('Toe')) sideStep = Math.max(sideStep, Math.abs(at.x));
+        if (attack.overhead && limb.name.includes('Hand')) (paths[limb.name] ??= []).push({ t, x: at.x, y: at.y, z: at.z });
       }
     }
     if (faces && body) {
@@ -75,7 +87,7 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
         return { dx, dy, face: hit ? limb.z + 1 - hit.distance : null };
       });
     }
-    strikes[attack.key] = { duration, spear, body, sideStep };
+    strikes[attack.key] = { duration, spear, body, sideStep, overhead: highestHand(paths) };
   }
   return strikes;
 }
