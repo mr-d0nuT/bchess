@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planWalk, pointAlong, shortestTurn, strideSpeed, REST_FACING, restFacingFor } from '../src/moves/walk.js';
+import { BOARD_EDGE, nearestEdgeExit, planWalk, pointAlong, shortestTurn, strideSpeed, REST_FACING, restFacingFor } from '../src/moves/walk.js';
 
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} no es ≈ ${b}`);
 
@@ -43,4 +43,11 @@ test('shortestTurn gira por el lado corto', () => {
 test('strideSpeed usa el avance del clip y, si anda en el sitio, la altura', () => {
   close(strideSpeed({ rootDistance: 1.2, clipDuration: 1, height: 1.35 }), 1.2);
   close(strideSpeed({ rootDistance: 0, clipDuration: 1, height: 1.35 }), 0.945);
+});
+
+test('nearestEdgeExit sale en línea recta por el borde más cercano del marco', () => {
+  assert.deepEqual(nearestEdgeExit({ x: 3.2, z: -1 }), { x: BOARD_EDGE, z: -1 });
+  assert.deepEqual(nearestEdgeExit({ x: -0.5, z: -3.9 }), { x: -0.5, z: -BOARD_EDGE });
+  assert.deepEqual(nearestEdgeExit({ x: 1, z: 2.5 }), { x: 1, z: BOARD_EDGE });
+  assert.deepEqual(nearestEdgeExit({ x: -2, z: 2 }), { x: -BOARD_EDGE, z: 2 });
 });

@@ -6,6 +6,7 @@
 // (hacia las negras) y las negras hacia +Z (hacia las blancas).
 export const REST_FACING = Math.PI;
 const FACING_BY_COLOR = { white: Math.PI, black: 0 };
+export const BOARD_EDGE = 4.5; // del centro del tablero al borde de su marco
 
 export function restFacingFor(color) {
   if (!Object.hasOwn(FACING_BY_COLOR, color)) throw new Error(`Color no válido: ${color}`);
@@ -38,4 +39,11 @@ export function shortestTurn(fromAngle, toAngle) {
 export function strideSpeed({ rootDistance, clipDuration, height }) {
   if (rootDistance > 0.05 * height && clipDuration > 0) return rootDistance / clipDuration;
   return 0.7 * height;
+}
+
+// Punto del borde del marco más cercano a `point`, en línea recta hacia fuera: por donde huye un
+// caballo. A igual distancia de dos bordes, sale por los lados (eje X).
+export function nearestEdgeExit(point, edge = BOARD_EDGE) {
+  if (Math.abs(point.x) >= Math.abs(point.z)) return { x: point.x < 0 ? -edge : edge, z: point.z };
+  return { x: point.x, z: point.z < 0 ? -edge : edge };
 }
