@@ -79,7 +79,7 @@ Orden: las tareas 1 a 3 (modelos) y 4 a 7 (código puro y extracción) son indep
 - Consumes: `raw/ref/piezas_white_front.png` y `raw/ref/piezas_black_front.png` (el caballero es la segunda figura) y `tools/silhouette.mjs`.
 - Produces: las cuatro imágenes que suben a Tripo las tareas 2 y 3.
 
-- [ ] **Paso 1: Recortar el caballero de las referencias**
+- [x] **Paso 1: Recortar el caballero de las referencias**
 
 Con la hoja entera, Gemini convierte todas las figuras; se recorta antes la segunda figura, de la punta de la lanza a la peana. El borde del escudo del peón asoma abajo a la izquierda del recorte, así que se tapa con el verde del fondo:
 
@@ -98,7 +98,7 @@ for (const [from, to] of [['piezas_white_front', 'ref-caballero-blanco'], ['piez
 
 Expected: `ref-caballero-blanco 262 740 { r: …, g: …, b: … }` y lo mismo para el negro, con un verde. Mirar los dos recortes: el caballero entero, con la punta de la lanza y la peana, sin trozos del escudo del peón ni del alfil.
 
-- [ ] **Paso 2: Cómo adjuntar y guardar en Gemini**
+- [x] **Paso 2: Cómo adjuntar y guardar en Gemini**
 
 - Adjuntar: crear en la página de Gemini un `input[type=file]` propio, subir a él la imagen con `file_upload` y pegar `input.files` sobre el editor con un `ClipboardEvent('paste')` sintético (adjunta dos veces cada imagen, sin efecto en el resultado). Escribir el texto con `document.execCommand('insertText')` y enviar con el botón de enviar.
 - Gemini rechaza un fichero con el mismo nombre que otro ya subido en la conversación: cada imagen se sube con su nombre.
@@ -116,7 +116,7 @@ cd ~/bchess && osascript -e 'set f to open for access POSIX file "/Users/mr_donu
 
 En los pasos siguientes, cambiar el nombre de salida (`caballero-blanco.jpeg`) por el de cada imagen.
 
-- [ ] **Paso 3: Caballero blanco a pie**
+- [x] **Paso 3: Caballero blanco a pie**
 
 En una conversación nueva, con `raw/tmp/ref-caballero-blanco.png` adjunta:
 
@@ -124,7 +124,7 @@ En una conversación nueva, con `raw/tmp/ref-caballero-blanco.png` adjunta:
 
 Guardar como `raw/ref/caballero-blanco.jpeg`. Mirarla: el mismo caballero, a pie, con los brazos y las piernas separados del cuerpo.
 
-- [ ] **Paso 4: Caballo blanco sin jinete**
+- [x] **Paso 4: Caballo blanco sin jinete**
 
 En la misma conversación, con `raw/tmp/ref-caballero-blanco.png` adjunta otra vez:
 
@@ -132,7 +132,7 @@ En la misma conversación, con `raw/tmp/ref-caballero-blanco.png` adjunta otra v
 
 Guardar como `raw/ref/caballo-blanco.jpeg`. Mirarla: cuatro patas separadas, silla vacía y la cabeza entera.
 
-- [ ] **Paso 5: Versiones negras**
+- [x] **Paso 5: Versiones negras**
 
 En otra conversación, con `raw/ref/caballero-blanco.jpeg` y `raw/tmp/ref-caballero-negro.png` adjuntas:
 
@@ -144,7 +144,7 @@ Guardar como `raw/ref/caballero-negro.jpeg`. Después, con `raw/ref/caballo-blan
 
 Guardar como `raw/ref/caballo-negro.jpeg`.
 
-- [ ] **Paso 6: Comparar proporciones**
+- [x] **Paso 6: Comparar proporciones**
 
 ```bash
 cd ~/bchess && for f in caballero-blanco caballero-negro caballo-blanco caballo-negro; do node tools/silhouette.mjs raw/ref/$f.jpeg; done
@@ -166,25 +166,25 @@ Nada que añadir a git: `raw/` no se publica.
 - Consumes: `raw/ref/caballero-blanco.jpeg` y `raw/ref/caballero-negro.jpeg` (tarea 1).
 - Produces: caballeros con el esqueleto humano de Tripo (41 huesos, los mismos que el peón: `Hip`, `Pelvis`, `Waist`, `Spine01`, `Spine02`, `NeckTwist01`, `NeckTwist02`, `Head`, `L_Clavicle`, `L_Upperarm`, `L_Forearm`, `L_Hand`, `L_Thigh`, `L_Calf`, `L_Foot`, `L_ToeBase`, los de la derecha con `R_` y los `*Twist*`) y, dentro del modelo, solo las animaciones elegidas. Las claves elegidas van a `rider.moves` del manifiesto (tarea 9).
 
-- [ ] **Paso 1: Malla del caballero blanco**
+- [x] **Paso 1: Malla del caballero blanco**
 
 Nuevo modelo desde `raw/ref/caballero-blanco.jpeg` con «Malla Smart» (el botón debe decir 65 créditos). Revisar la vista previa: armadura entera, yelmo con penacho, y brazos y piernas separados del cuerpo.
 
-- [ ] **Paso 2: Textura**
+- [x] **Paso 2: Textura**
 
 «Texturizar» con la misma imagen (20 créditos).
 
-- [ ] **Paso 3: Esqueleto**
+- [x] **Paso 3: Esqueleto**
 
 Cambiar el desplegable a «v1.0 · humanoides» y después pulsar «Auto Rig» (20 créditos). Revisar que brazos y piernas siguen a sus huesos.
 
-- [ ] **Paso 4: Candidatas de la biblioteca (gratis)**
+- [x] **Paso 4: Candidatas de la biblioteca (gratis)**
 
 Aplicar cada una buscándola por su nombre en castellano en «Buscar» y pulsando la primera tarjeta; esperar a que termine «Retargeting» (unos 30 s) antes del siguiente clic. Apuntar la clave inglesa de cada una (el nombre de su miniatura `.avif`).
 - Ya conocidas: `idle`, `walk`, `jump_down`, `slash`, `chop`, `box_03`, `box_01`, `front_kick_01`, `front_kick_02`, `hit_to_head`, `hit_to_body_01`, `hit_to_stomach`, `fall`, `defeat_03`, `angry_01`, `cheer` y `frightened`.
 - Por buscar, si existen: parar con el escudo («bloquear», «defender», «parar»), levantarse («levantarse»), mareado («mareado», «tambalearse») y saltar a la pata coja («pata coja»).
 
-- [ ] **Paso 5: Exportar las candidatas**
+- [x] **Paso 5: Exportar las candidatas**
 
 «Exportar» en GLB con «Exportar esqueleto» activado y «Animación en el sitio» desactivado. En «Número de animaciones» → «Elegir animaciones», pulsar «Seleccionar todo» y comprobar que el contador dice N/N. Descargar a `raw/tripo/knight-candidatas.glb` y comprobarlo:
 
@@ -194,7 +194,7 @@ cd ~/bchess && node -e 'const b=require("fs").readFileSync(process.argv[1]); con
 
 Expected: `completo`, los 41 huesos de arriba y una animación por candidata aplicada.
 
-- [ ] **Paso 6: Elegir en la galería**
+- [x] **Paso 6: Elegir en la galería**
 
 Abrir `http://localhost:8741/tools/anim-gallery.html`, escribir la ruta `../raw/tripo/knight-candidatas.glb` y pulsar «Cargar». En las hojas de frente y de perfil, elegir y apuntar, con los segundos a los que conviene cortar las que sigan después del gesto:
 - `idle`, `walk` y `jump_down` (para bajar del caballo; que caiga en el sitio);
@@ -206,7 +206,7 @@ Abrir `http://localhost:8741/tools/anim-gallery.html`, escribir la ruta `../raw/
 - `taunt`: `angry_01`; `victory`: `cheer`, cortada a 3,2 s; `fidget`: `frightened`;
 - `getup`, `dizzy` y `hop` no existen en la biblioteca.
 
-- [ ] **Paso 7: Dejar solo las elegidas y aligerar**
+- [x] **Paso 7: Dejar solo las elegidas y aligerar**
 
 Las 16 claves elegidas en el paso 6:
 
@@ -217,7 +217,7 @@ bash tools/optimize-model.sh raw/tripo/knight.glb knight
 
 Expected: `raw/tripo/knight.glb: N animaciones (…)` sin «faltan»; `knight-ordenador.glb` pesa menos de 3 MB y `knight-movil.glb`, menos de 1,5 MB.
 
-- [ ] **Paso 8: Caballero negro**
+- [x] **Paso 8: Caballero negro**
 
 Sobre la misma malla blanca, «Texturizar» con `raw/ref/caballero-negro.jpeg` (20 créditos). La retextura conserva el esqueleto: no pulsar «Auto Rig». Aplicar exactamente las claves elegidas, exportar como en el paso 5 a `raw/tripo/black-knight-candidatas.glb` y comprobarlo con la orden del paso 5. Después:
 
@@ -228,7 +228,7 @@ bash tools/optimize-model.sh raw/tripo/black-knight.glb black-knight
 
 Expected: las mismas animaciones que el blanco y pesos parecidos.
 
-- [ ] **Paso 9: Commit**
+- [x] **Paso 9: Commit**
 
 ```bash
 git add assets/models/knight-ordenador.glb assets/models/knight-movil.glb assets/models/black-knight-ordenador.glb assets/models/black-knight-movil.glb
@@ -247,33 +247,33 @@ git commit -m "Modelos de los caballeros blanco y negro con sus animaciones" -m 
 - Consumes: `raw/ref/caballo-blanco.jpeg` y `raw/ref/caballo-negro.jpeg` (tarea 1).
 - Produces: caballos con esqueleto de cuadrúpedo y la animación `walk` dentro. Los nombres de sus huesos no hacen falta: `findHorseBones` (tarea 6) encuentra las patas, la silla y hacia dónde mira por la posición de los huesos, y `pickDriftTrack` (tarea 6), el hueso que avanza al andar.
 
-- [ ] **Paso 1: Malla del caballo blanco**
+- [x] **Paso 1: Malla del caballo blanco**
 
 Nuevo modelo desde `raw/ref/caballo-blanco.jpeg` con «Malla Smart» (65 créditos). Revisar la vista previa: cuatro patas separadas, cabeza, cola y silla.
 
-- [ ] **Paso 2: Textura**
+- [x] **Paso 2: Textura**
 
 «Texturizar» con la misma imagen (20 créditos).
 
-- [ ] **Paso 3: Esqueleto de cuadrúpedo**
+- [x] **Paso 3: Esqueleto de cuadrúpedo**
 
 Dejar el desplegable en «v2.5 · animales» y pulsar «Auto Rig» (20 créditos). Revisar que cada pata sigue a sus huesos.
 
-- [ ] **Paso 4: Movimientos**
+- [x] **Paso 4: Movimientos**
 
 En la biblioteca de cuadrúpedos, aplicar «caminar» (`walk`) y, si aparecen, «reposo» (`idle`) y «correr» (`run`). La documentación de Tripo solo lista `walk` para este esqueleto (https://developers.tripo3d.ai/en/docs/animations-retarget). Revisar el paseo en el visor: las patas no se cruzan y los cascos tocan el suelo.
 
-- [ ] **Paso 5: Exportar y comprobar**
+- [x] **Paso 5: Exportar y comprobar**
 
 Exportar como en la tarea 2, paso 5, a `raw/tripo/horse.glb`, y comprobarlo con su orden cambiando el fichero.
 
 Expected: `completo`, un esqueleto con cuatro cadenas de huesos para las patas y la animación `walk`.
 
-- [ ] **Paso 6: Caballo negro**
+- [x] **Paso 6: Caballo negro**
 
 Sobre la misma malla blanca, «Texturizar» con `raw/ref/caballo-negro.jpeg` (20 créditos), sin volver a pulsar «Auto Rig». Aplicar los mismos movimientos, exportar a `raw/tripo/black-horse.glb` y comprobarlo igual.
 
-- [ ] **Paso 7: Aligerar**
+- [x] **Paso 7: Aligerar**
 
 ```bash
 cd ~/bchess && bash tools/optimize-model.sh raw/tripo/horse.glb horse
@@ -282,7 +282,7 @@ bash tools/optimize-model.sh raw/tripo/black-horse.glb black-horse
 
 Expected: los cuatro ficheros; los de ordenador pesan menos de 3 MB y los de móvil, menos de 1,5 MB.
 
-- [ ] **Paso 8: Commit**
+- [x] **Paso 8: Commit**
 
 ```bash
 git add assets/models/horse-ordenador.glb assets/models/horse-movil.glb assets/models/black-horse-ordenador.glb assets/models/black-horse-movil.glb
