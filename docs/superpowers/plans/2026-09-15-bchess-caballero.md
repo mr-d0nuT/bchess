@@ -222,7 +222,7 @@ Expected: `raw/tripo/knight.glb: N animaciones (…)` sin «faltan»; `knight-or
 Sobre la misma malla blanca, «Texturizar» con `raw/ref/caballero-negro.jpeg` (20 créditos). La retextura conserva el esqueleto: no pulsar «Auto Rig». Aplicar exactamente las claves elegidas, exportar como en el paso 5 a `raw/tripo/black-knight-candidatas.glb` y comprobarlo con la orden del paso 5. Después:
 
 ```bash
-cd ~/bchess && node tools/keep-anims.mjs raw/tripo/black-knight-candidatas.glb raw/tripo/black-knight.glb <claves>
+cd ~/bchess && node tools/keep-anims.mjs raw/tripo/black-knight-candidatas.glb raw/tripo/black-knight.glb idle,walk,jump_down,slash,box_03,box_01,front_kick_01,front_kick_02,hit_to_head,hit_to_body_01,hit_to_stomach,fall,defeat_03,angry_01,cheer,frightened
 bash tools/optimize-model.sh raw/tripo/black-knight.glb black-knight
 ```
 
@@ -958,6 +958,12 @@ git commit -m "Triángulos por hueso, patas del caballo y pista de avance" -m "C
   - `gripSlideToTarget({ spear, spot, facing, distance, target, torso }) → number` (antes `gripSlideToGiant`);
   - `slowToImpact(clock, seconds)`, `afterImpact(clock)` y `knockBack({ clock, figure, ux, uz, distance? }) → Promise`.
 - `smash.js` sigue exportando `canSmash` y `runSmash` sin cambios de comportamiento.
+- **Ojo:** el `smash.js` publicado ya trae el puñetazo de arriba abajo del gigante (constantes
+  `FIST_HALF = 0.02`, `SQUASH = 0.55` y `OVERHEAD_CHANCE = 0.5`, las funciones `planOverhead` y
+  `squash`, y la elección del golpe, el giro y el impacto dentro de `giantSmash`; commits 71ad707 y
+  3664d97, ya en `main`). Al sustituir el fichero hay que conservarlo tal cual, importando
+  `standing` y `targetsOf` de `fight.js`, y `measureStrikes` (`strikes.js`) sigue guardando
+  `overhead` con `highestHand`. Las comprobaciones del paso 4 incluyen un golpe de arriba abajo.
 
 - [ ] **Paso 1: `fight.js`**
 
@@ -3898,4 +3904,1397 @@ git commit -m "Trozos de armadura que salen volando y bocadillos de cómic" -m "
 
 ---
 
-<!-- SIGUE -->
+### Tarea 12: El director de batallas y lo que comparten
+
+**Files:**
+- Create: `src/combat/knight/common.js`, `src/combat/knight/battle.js`
+- Modify: `src/main.js`
+
+**Interfaces:**
+- Consumes: de la tarea 7, `stanceOf`, `overlapOf`, `punchDistance`, `slowToImpact` y `afterImpact`; de la
+  tarea 9, la pieza (`rider`, `horse`, `body`, `height`) y su mover; de la tarea 10, `dismount`, `walkTo`,
+  `defeated`, `horseFlee` y `mount`; de la tarea 11, `debris` y `bubbles`; `roomClearance` (`room.js`);
+  `fx.koStars`.
+- Produces:
+  - de `common.js`: `KO_SECONDS`, `COMBAT_RAISE`, `PAWN_BODY`, `BODY_GAP`, `fighterOf(entry)`,
+    `postOf(entry, at, facing, parts?)`, `facingTo(from, to)`, `bladeStrikes(fighter, { thrust? }) → key[]`,
+    `kickOf(fighter) → key | null`, `bladeBody(blade)`, `swordTip(fighter)`, `bonePosition(fighter, name)`,
+    `dismountMode(random)`, `shout(bubbles, text, anchor)`, `windUp({ clock, fighter, key }) → acción en pausa`,
+    `topple({ clock, figure, forward?, seconds? })`, `lyingBody({ at, angle, length, radius? })`,
+    `fallDirection({ at, around, spread, length, rival, overlap }) → ángulo`,
+    `knockOut({ clock, fx, fighter, seconds? })` y `celebrate(entry)`;
+  - de `battle.js`: `canKnightBattle(attacker, defender) → boolean` y `runKnightBattle({ attacker, defender,
+    board, clock, fx, cinema, hud, crowd, dust, debris, bubbles, obstacles, random }) → Promise`. Cada batalla
+    de las tareas 13 a 17 es un objeto `{ matches(attacker, defender), can(attacker, defender), run(escena) }`
+    que se añade a la lista `BATTLES` de este fichero.
+
+- [ ] **Paso 1: `common.js`**
+
+`src/combat/knight/common.js`:
+
+```js
+import * as THREE from 'three';
+import { roomClearance } from '../../moves/room.js';
+
+// Lo que comparten las batallas del caballero (diseño en docs/superpowers/specs/
+// 2026-09-15-bchess-caballero-design.md, sección 7).
+
+export const KO_SECONDS = 1;
+export const COMBAT_RAISE = 0.3; // como en el duelo: la lanza del peón, algo subida en la mano
+export const PAWN_BODY = 0.25; // del centro de un peón, ya sin peana, a su costado
+export const BODY_GAP = 0.05; // hueco entre los cuerpos de los dos luchadores
+const TOPPLE_SECONDS = 0.45;
+const SHOUT_SECONDS = 0.8;
+const WIND_UP = 0.45; // parte del camino hasta el golpe en la que se queda con el arma en alto
+
+// La pieza con esqueleto que pelea: el peón, el jinete del caballero o el gigante de la torre.
+export function fighterOf(entry) {
+  if (entry.kind === 'knight') return entry.piece.rider;
+  if (entry.kind === 'rook') return entry.piece.giant;
+  return entry.piece;
+}
+
+// Puesto de un caballero o una torre para pedir sitio (`fight.js`): su luchador en `at`, mirando a
+// `facing`, con las partes de lo que hará allí.
+export function postOf(entry, at, facing, parts = []) {
+  const { body } = entry.piece;
+  return { entry, fans: body.fans, margin: body.margin, at, facing, parts };
+}
+
+// Hacia dónde mira quien está en `from` para ver `to` ({x, z}).
+export const facingTo = (from, to) => Math.atan2(to.x - from.x, to.z - from.z);
+
+// Claves de los golpes con espada de un luchador (con la punta de la espada medida). Con `thrust`, solo
+// las estocadas (true) o solo los tajos (false).
+export function bladeStrikes(fighter, { thrust } = {}) {
+  return fighter.attacks
+    .filter((attack) => fighter.strikes[attack.key]?.blade && (thrust === undefined || Boolean(attack.thrust) === thrust))
+    .map((attack) => attack.key);
+}
+
+// Clave del ataque con el pie que más alcanza, o null.
+export function kickOf(fighter) {
+  let best = null;
+  for (const { key } of fighter.attacks) {
+    const body = fighter.strikes[key]?.body;
+    if (body?.bone.includes('Toe') && (!best || body.reach > fighter.strikes[best].body.reach)) best = key;
+  }
+  return best;
+}
+
+// La punta de la espada como la cara de un golpe, para `punchDistance`: un solo rayo, por la punta.
+export function bladeBody(blade) {
+  return { reach: blade.reach, side: blade.side, height: blade.height, faces: [{ dx: 0, dy: 0, face: blade.reach }] };
+}
+
+// Dónde está ahora la punta de la espada de un luchador.
+export function swordTip(fighter) {
+  return fighter.props.sword.localToWorld(new THREE.Vector3(0, fighter.swordEnds.top, 0));
+}
+
+// Dónde está ahora un hueso.
+export function bonePosition(fighter, name) {
+  return fighter.object.getObjectByName(name).getWorldPosition(new THREE.Vector3());
+}
+
+// Al azar y con la misma probabilidad: desmonta o su caballo lo tira.
+export function dismountMode(random) {
+  return random() < 0.5 ? 'dismount' : 'thrown';
+}
+
+// Onomatopeya de cómic («¡CLANC!») sobre `anchor` (un objeto de la escena o un punto).
+export function shout(bubbles, text, anchor) {
+  const point = anchor.isVector3 ? anchor.clone() : null;
+  return bubbles.say(text, point ? () => point : anchor, { seconds: SHOUT_SECONDS, shout: true, lift: 0.3 });
+}
+
+// Empieza el golpe `key` y lo deja con el arma en alto, a WIND_UP del momento del golpe. Devuelve la
+// acción, en pausa.
+export async function windUp({ clock, fighter, key }) {
+  const measure = fighter.strikes[key];
+  const action = fighter.play('attack', { loop: false, fade: 0.15, clip: key });
+  await clock.wait((measure.blade ?? measure.body).t * WIND_UP);
+  if (action) action.paused = true;
+  return action;
+}
+
+// Cae rígido como un tablón, girando sobre sus pies: de bruces (`forward`) o de espaldas, hacia donde
+// mira la figura.
+export async function topple({ clock, figure, forward = true, seconds = TOPPLE_SECONDS }) {
+  figure.rotation.order = 'YXZ';
+  const start = figure.rotation.x;
+  const end = forward ? Math.PI / 2 : -Math.PI / 2;
+  await clock.tween(seconds, (t) => {
+    figure.rotation.x = start + (end - start) * t * t;
+  });
+}
+
+// Cuerpo tendido en el suelo, para pedir sitio: de los pies (`at`) a la cabeza, hacia `angle`. El `length`
+// que le pasan las batallas es el `height` del luchador, que en un peón incluye su peana: así pide un palmo
+// de más, que es el lado seguro (pedir de menos dejaría a alguien encima del caído).
+export function lyingBody({ at, angle, length, radius = 0.25 }) {
+  return { from: { x: at.x, z: at.z }, to: { x: at.x + Math.sin(angle) * length, z: at.z + Math.cos(angle) * length }, radius };
+}
+
+// Hacia dónde cae un luchador tendido de `length` desde `at`: de `around` + `spread`, `around` - `spread`
+// y `around`, la que deja más hueco a las piezas de alrededor (`overlap(body)`) sin caer sobre el rival
+// (`rival`: { x, z, radius }).
+export function fallDirection({ at, around, spread, length, rival, overlap }) {
+  let best = null;
+  for (const angle of [around + spread, around - spread, around]) {
+    const body = lyingBody({ at, angle, length });
+    if (rival && roomClearance(rival.x, rival.z, rival.radius, [body]) < 0) continue;
+    const missing = overlap(body);
+    if (!best || missing < best.missing - 1e-6) best = { angle, missing };
+  }
+  return best?.angle ?? around + spread;
+}
+
+// Estrellitas sobre la cabeza durante `seconds`.
+export async function knockOut({ clock, fx, fighter, seconds = KO_SECONDS }) {
+  fx.koStars(fighter.object.getObjectByName('Head') ?? fighter.figure, { seconds });
+  await clock.wait(seconds);
+}
+
+// Celebra la victoria: su animación o, si no la tiene, unos saltitos.
+export async function celebrate(entry) {
+  const fighter = fighterOf(entry);
+  if (fighter.has('victory')) {
+    await fighter.playOnce('victory');
+    fighter.play('idle', { fade: 0.3 });
+  } else if (entry.mover.hop) {
+    await entry.mover.hop(2);
+  }
+}
+```
+
+- [ ] **Paso 2: `battle.js`**
+
+La lista `BATTLES` empieza vacía: cada tarea de la 13 a la 17 añade su batalla (import arriba y entrada en la
+lista). Con la lista vacía, `canKnightBattle` devuelve false y las capturas del caballero salen como las
+capturas sin combate, que es justo lo que pide el diseño cuando falta una batalla.
+
+`src/combat/knight/battle.js`:
+
+```js
+// Batallas del caballero (diseño en docs/superpowers/specs/2026-09-15-bchess-caballero-design.md,
+// sección 7): cada captura en la que participa un caballero es un gag, con su fichero. Aquí se elige cuál
+// toca y se prepara lo que comparten: el sitio que piden los luchadores (sus abanicos, los cuerpos
+// tendidos y los trozos que salen volando) y la limpieza al terminar, pase lo que pase.
+
+const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas
+const BATTLES = []; // una batalla por fichero; las tareas 13 a 17 las van añadiendo
+
+const battleFor = (attacker, defender) => BATTLES.find((battle) => battle.matches(attacker, defender)) ?? null;
+
+export function canKnightBattle(attacker, defender) {
+  const battle = battleFor(attacker, defender);
+  return Boolean(battle?.can(attacker, defender));
+}
+
+// `obstacles` son los centros {x, z} de las demás piezas, para que la cámara no quede tapada.
+export async function runKnightBattle({ attacker, defender, board, clock, fx, cinema, hud, crowd, dust, debris, bubbles, obstacles = [], random = Math.random }) {
+  const stances = new Map(); // luchador → abanico de lo que hará en su puesto (`stanceOf`)
+  const bodies = []; // cuerpos tendidos en el suelo
+  const release = crowd.claim({
+    owners: [attacker, defender],
+    bodies: () => [
+      ...[attacker, defender].flatMap((entry) => entry.mover.room?.({ stance: stances.get(entry) }) ?? []),
+      ...bodies,
+      ...debris.bodies(),
+    ],
+  });
+  try {
+    await battleFor(attacker, defender).run({
+      attacker, defender, board, clock, fx, cinema, hud, crowd, dust, debris, bubbles, obstacles, random, stances, bodies,
+      target: defender.mover.square,
+      home: board.squareToWorld(attacker.mover.square),
+      center: board.squareToWorld(defender.mover.square),
+    });
+  } finally {
+    release();
+    debris.clear();
+    bubbles.clear();
+  }
+  await Promise.race([crowd.settle(), clock.wait(SETTLE_LIMIT)]);
+}
+```
+
+- [ ] **Paso 3: Conectar en `main.js`**
+
+En `src/main.js`, después de la línea de `smash.js`, añadir el import:
+
+```js
+import { canSmash, runSmash } from './combat/smash.js';
+import { canKnightBattle, runKnightBattle } from './combat/knight/battle.js';
+```
+
+Y en `capture`, delante de la rama de la torre (las batallas del caballero mandan sobre la captura corta
+cuando participan los dos), sustituir:
+
+```js
+      } else if (canSmash(attacker, defender)) {
+        await runSmash({ attacker, defender, board, clock, fx, cinema, hud, crowd, obstacles });
+      } else {
+```
+
+por:
+
+```js
+      } else if (canKnightBattle(attacker, defender)) {
+        await runKnightBattle({ attacker, defender, board, clock, fx, cinema, hud, crowd, dust, debris, bubbles, obstacles });
+      } else if (canSmash(attacker, defender)) {
+        await runSmash({ attacker, defender, board, clock, fx, cinema, hud, crowd, obstacles });
+      } else {
+```
+
+`dust` y `crowd` ya están declarados en `main.js`; `debris` y `bubbles` llegan en la tarea 11.
+
+- [ ] **Paso 4: Sintaxis y pruebas**
+
+Run: `cd ~/bchess && node --check src/combat/knight/common.js && node --check src/combat/knight/battle.js && node --check src/main.js && npm test`
+
+Expected: sin errores y las pruebas en verde (siguen siendo las de siempre: estos módulos usan three y no
+se prueban en Node).
+
+En la vista previa, con la lista vacía: un caballero que se come a un peón hace la captura sin combate de
+siempre, sin errores en la consola.
+
+- [ ] **Paso 5: Commit**
+
+```bash
+git add src/combat/knight/common.js src/combat/knight/battle.js src/main.js
+git commit -m "Director de las batallas del caballero" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Tarea 13: Batalla 1 — el peón le da la patada al caballero
+
+**Files:**
+- Create: `src/combat/knight/pawn-kicks-knight.js`, `raw/tmp/verificar-batalla.js` (no se publica)
+- Modify: `src/combat/knight/battle.js`
+
+**Interfaces:**
+- Consumes: de la tarea 7, `afterImpact`, `punchDistance`, `slowToImpact` y `stanceOf`; `strikeSpot` (`plan.js`);
+  de la tarea 12, todo lo de `common.js`; de la tarea 10, `dismount`, `descend`, `walkTo`, `turnTo`,
+  `defeated` y `walkOnto`; de la tarea 11, `debris.throwPiece`.
+- Produces: `pawnKicksKnight`, con `matches` (peón contra caballero), `can` (el peón tiene patada y el
+  caballero, tajo) y `run`; y, en `raw/tmp/verificar-batalla.js`, `pelear(nombre)`, que prepara la posición,
+  lanza la captura y mide el golpe, la caída y la limpieza.
+
+- [ ] **Paso 1: La batalla**
+
+`src/combat/knight/pawn-kicks-knight.js`:
+
+```js
+import * as THREE from 'three';
+import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js';
+import { strikeSpot } from '../plan.js';
+import {
+  BODY_GAP, COMBAT_RAISE, PAWN_BODY, bladeStrikes, bonePosition, celebrate, dismountMode, facingTo, fallDirection, kickOf, knockOut,
+  lyingBody, postOf, shout, topple, windUp,
+} from './common.js';
+
+// Peón come caballero: patada en la entrepierna (diseño, sección 7). El caballero desmonta o su caballo lo
+// tira, y se pone en guardia. El peón baja de su peana y se acerca, y el caballero levanta la espada. A
+// cámara lenta, el peón le da la patada: suena a metal, al caballero se le juntan las rodillas, suelta la
+// espada y cae de bruces, hacia un lado para no aplastar al peón, con estrellitas. Desaparece en polvo, su
+// caballo huye si seguía allí y el peón ocupa la casilla y lo celebra.
+
+const KNEES = 25; // grados que se juntan las rodillas
+const KNEES_SECONDS = 0.15;
+const FALL_SPREAD = Math.PI / 3; // de bruces, hacia un lado de donde está el peón
+const DUST_Y = 0.05;
+
+export const pawnKicksKnight = {
+  matches: (attacker, defender) => attacker.kind === 'pawn' && defender.kind === 'knight',
+  can: (attacker, defender) => Boolean(kickOf(attacker.piece)) && bladeStrikes(defender.piece.rider).length > 0,
+
+  async run({ attacker, defender, home, center, target, clock, fx, cinema, hud, crowd, dust, debris, bubbles, stances, bodies, obstacles, random }) {
+    const pawn = attacker.piece;
+    const knight = defender.piece;
+    const { rider } = knight;
+    const kick = kickOf(pawn);
+    const slash = bladeStrikes(rider, { thrust: false })[0] ?? bladeStrikes(rider)[0];
+    const facing = facingTo(center, home);
+    pawn.setSpearDefault('upright');
+    pawn.setGripSlide(-COMBAT_RAISE);
+    stances.set(defender, stanceOf(postOf(defender, center, facing, [{ action: 'attack', key: slash }])));
+
+    // 1. La cámara encuadra; el caballero desmonta (o su caballo lo tira) y se pone en guardia.
+    await Promise.all([
+      cinema.frame(clock, home, center, obstacles),
+      attacker.mover.turnTo(facingTo(home, center), 0.3),
+      defender.mover.dismount({ at: center, facing, mode: dismountMode(random) }),
+    ]);
+
+    // 2. El peón baja de su peana y se acerca hasta donde su patada llega; el caballero levanta la espada.
+    const distance = Math.max(
+      knight.body.torso + PAWN_BODY + BODY_GAP,
+      punchDistance({ body: pawn.strikes[kick].body, from: home, center, target: rider, torso: knight.body.torso }),
+    );
+    const spots = strikeSpot(home, center, { reach: distance, torso: 0 });
+    await attacker.mover.descend(home);
+    await attacker.mover.walkTo(spots.attacker);
+    await attacker.mover.turnTo(spots.attackerFacing, 0.2);
+    const swing = await windUp({ clock, fighter: rider, key: slash });
+
+    // 3. La patada, a cámara lenta: suena a metal, se le juntan las rodillas, suelta la espada y cae de
+    //    bruces a un lado.
+    const kicking = pawn.playOnce('attack', { clip: kick, fade: 0.15 });
+    await slowToImpact(clock, pawn.strikes[kick].body.t);
+    const toe = bonePosition(pawn, pawn.strikes[kick].body.bone);
+    fx.burst(toe, { size: 1, sparks: 24 });
+    hud.flash();
+    cinema.shake(0.15);
+    shout(bubbles, '¡CLONC!', toe);
+    if (swing) swing.paused = false;
+    rider.play('idle', { fade: 0.2 });
+    const knees = clock.tween(KNEES_SECONDS, (t) => {
+      rider.turnBone('L_Thigh', { z: -KNEES * t });
+      rider.turnBone('R_Thigh', { z: KNEES * t });
+    });
+    if (rider.props.sword?.visible) {
+      debris.throwPiece(rider.props.sword, {
+        velocity: { x: Math.cos(facing) * 0.6, y: 1.8, z: -Math.sin(facing) * 0.6 },
+        obstacles: () => crowd.obstacles([attacker, defender]),
+      });
+    }
+    await Promise.all([afterImpact(clock), knees]);
+    const angle = fallDirection({
+      at: center,
+      around: facing,
+      spread: FALL_SPREAD,
+      length: rider.height,
+      rival: { x: spots.attacker.x, z: spots.attacker.z, radius: PAWN_BODY },
+      overlap: (body) => crowd.overlap({ owners: [attacker, defender], bodies: [body] }),
+    });
+    stances.delete(defender);
+    bodies.push(lyingBody({ at: center, angle, length: rider.height }));
+    await defender.mover.turnTo(angle, 0.12);
+    await topple({ clock, figure: rider.figure, forward: true });
+    const head = bonePosition(rider, 'Head');
+    dust.puff(new THREE.Vector3(head.x, DUST_Y, head.z), { count: 12, radius: 0.6, duration: 0.5 });
+    cinema.shake(0.1);
+    await kicking;
+    pawn.play('idle', { fade: 0.3 });
+    await knockOut({ clock, fx, fighter: rider });
+
+    // 4. Desaparece en polvo, su caballo huye si seguía allí y el peón ocupa la casilla y lo celebra.
+    debris.clear();
+    await defender.mover.defeated({ avoid: center });
+    bodies.length = 0;
+    pawn.setSpearDefault(null);
+    pawn.setGripSlide(0);
+    await Promise.all([cinema.restore(clock), attacker.mover.walkOnto(target)]);
+    await celebrate(attacker);
+  },
+};
+```
+
+- [ ] **Paso 2: Apuntarla en el director**
+
+En `src/combat/knight/battle.js`, añadir arriba el import y meterla en la lista:
+
+```js
+import { pawnKicksKnight } from './pawn-kicks-knight.js';
+```
+
+```js
+const BATTLES = [pawnKicksKnight]; // una batalla por fichero; las tareas 14 a 17 las van añadiendo
+```
+
+- [ ] **Paso 3: El módulo de comprobación**
+
+`raw/tmp/verificar-batalla.js` (no se publica; las tareas siguientes le añaden preparaciones):
+
+```js
+// Comprobación por código de las batallas del caballero (solo desarrollo; raw/ no se publica).
+// Prepara la posición, lanza la captura y mide: lo que se hunde el golpe en el rival, dónde acaba el
+// vencido, si queda algún trozo o bocadillo por el tablero y si la cámara y los controles vuelven.
+import * as THREE from 'three';
+import { final, listo, medidor } from './verificar-torre.js';
+
+const PREPARACIONES = {
+  // El peón blanco, llevado a d4, se come al caballero negro, llevado a e5; alrededor, peones en e4 y d5.
+  'peon-come-caballero': (at) => {
+    at('d2').mover.placeOn('d4');
+    at('g8').mover.placeOn('e5');
+    at('e2').mover.placeOn('e4');
+    at('d7').mover.placeOn('d5');
+    return ['d4', 'e5'];
+  },
+};
+
+const CADA = 5; // tras el impacto, se mide uno de cada CADA fotogramas
+const FOTOGRAMAS = 120;
+
+// Mallas con esqueleto de una pieza (sin peana, escudo, lanza ni zona de toque).
+function mallasDe(pieza) {
+  const mallas = [];
+  pieza.object.updateMatrixWorld(true);
+  pieza.object.traverse((o) => { if (o.isSkinnedMesh) mallas.push(o); });
+  for (const malla of mallas) malla.computeBoundingSphere();
+  return mallas;
+}
+
+// Distancia de `desde` a la superficie de `mallas` en la dirección `eje`: negativa si ya está dentro.
+function hastaSuperficie(desde, eje, mallas) {
+  const atras = 0.8;
+  const toque = new THREE.Raycaster(desde.clone().addScaledVector(eje, -atras), eje, 0, 3).intersectObjects(mallas, false)[0];
+  return toque ? toque.distance - atras : null;
+}
+
+export async function pelear(nombre) {
+  const b = await listo();
+  const at = (square) => b.pieces.find((p) => p.mover.square === square);
+  const [desde, hasta] = PREPARACIONES[nombre](at);
+  await b.advance(0.1);
+  const atacante = at(desde);
+  const defensor = at(hasta);
+  const camara = b.stage.camera.position.clone();
+  const m = medidor(b, [atacante, defensor]);
+  const acciones = [];
+  for (const p of [atacante, defensor]) {
+    const pieza = p.kind === 'knight' ? p.piece.rider : (p.piece.giant ?? p.piece);
+    const original = pieza.playOnce;
+    pieza.playOnce = (action, opts = {}) => {
+      acciones.push(`${p.kind}:${action}${opts.clip ? `:${opts.clip}` : ''}`);
+      return original.call(pieza, action, opts);
+    };
+  }
+  // Desde el destello del impacto, lo que se hunde el golpe en el rival.
+  let tras = null;
+  const golpes = [];
+  const flash = b.hud.flash;
+  b.hud.flash = (...args) => { tras = 0; return flash.apply(b.hud, args); };
+  const rival = defensor.kind === 'knight' ? defensor.piece.rider : (defensor.piece.giant ?? defensor.piece);
+  const luchador = atacante.kind === 'knight' ? atacante.piece.rider : (atacante.piece.giant ?? atacante.piece);
+  function medirGolpe() {
+    if (!rival.object.visible) return null;
+    const punta = luchador.props.sword?.visible
+      ? luchador.props.sword.localToWorld(new THREE.Vector3(0, luchador.swordEnds.top, 0))
+      : null;
+    const hueso = punta ?? luchador.object.getObjectByName(luchador.strikes[Object.keys(luchador.strikes)[0]].body.bone).getWorldPosition(new THREE.Vector3());
+    const giro = luchador.figure.rotation.y;
+    const eje = new THREE.Vector3(Math.sin(giro), 0, Math.cos(giro));
+    const hasta2 = hastaSuperficie(hueso, eje, mallasDe(rival));
+    return hasta2 === null ? null : -hasta2;
+  }
+  await b.tap({ owner: atacante });
+  const captura = b.tap({ owner: defensor });
+  let frames = 0;
+  while (b.state.fighting && frames < 8000) {
+    await b.advance(1 / 60);
+    m.muestra();
+    if (tras !== null && tras < FOTOGRAMAS) {
+      if (tras % CADA === 0) golpes.push([tras, medirGolpe()]);
+      tras++;
+    }
+    frames++;
+  }
+  await captura;
+  await b.advance(2);
+  b.hud.flash = flash;
+  const medidas = golpes.filter(([, g]) => g !== null);
+  const peor = medidas.reduce((a, c) => (!a || c[1] > a[1] ? c : a), null);
+  const redondea = (x) => (x === null || x === undefined ? null : +x.toFixed(3));
+  return JSON.stringify({
+    nombre, frames, ...m.peor,
+    hundidoAlGolpear: redondea(golpes[0]?.[1]), hundidoMaximo: redondea(peor?.[1]),
+    acciones, ganador: atacante.mover.square,
+    trozos: b.debris.count, bocadillos: document.querySelectorAll('.bocadillo').length,
+    caballos: b.pieces.filter((p) => p.kind === 'knight').map((p) => p.piece.mounted),
+    ...final(b, camara),
+  });
+}
+```
+
+- [ ] **Paso 4: Comprobarlo**
+
+Recargar la vista previa y, en su consola:
+
+```js
+const m = await import('/raw/tmp/verificar-batalla.js?v=' + Date.now());
+await m.pelear('peon-come-caballero');
+```
+
+Expected: `acciones` con `knight:attack` (el tajo que levanta), `pawn:attack` (la patada) y `pawn:victory`
+o los saltitos; `hundidoAlGolpear` entre 0 y 0,06 (el pie toca la armadura sin atravesarla);
+`hueco` ≥ 0 y `holgura` ≥ 0 (nadie se queda sin sitio, ni con el caballero tendido);
+`trozos: 0` y `bocadillos: 0` al terminar; `caballos` sin el caballero vencido; `ganador: 'e5'`;
+`camara: 0` y `controles: true`; ningún error en la consola. Mirarlo también con los ojos: la patada
+suena con su «¡CLONC!», las rodillas se juntan, la espada sale volando y el caballero cae de bruces sin
+pisar al peón.
+
+- [ ] **Paso 5: Commit**
+
+```bash
+git add src/combat/knight/pawn-kicks-knight.js src/combat/knight/battle.js
+git commit -m "Batalla: el peón le da la patada al caballero" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Tarea 14: Batalla 2 — el caballero atraviesa al peón con la espada
+
+**Files:**
+- Create: `src/combat/knight/knight-runs-through-pawn.js`
+- Modify: `src/combat/knight/battle.js`, `raw/tmp/verificar-batalla.js`
+
+**Interfaces:**
+- Consumes: de la tarea 7, `afterImpact`, `punchDistance`, `slowToImpact` y `stanceOf`; `strikeSpot` y
+  `usableStrikes` (`plan.js`); de la tarea 12, `bladeBody`, `bladeStrikes`, `bonePosition`, `celebrate`,
+  `facingTo`, `fallDirection`, `knockOut`, `lyingBody`, `postOf`, `shout`, `swordTip` y `topple`; de la
+  tarea 9, `leapTo`; de la tarea 10, `dismount` y `mount`; de la tarea 8, `turnBone` y `resetBones`.
+- Produces: `knightRunsThroughPawn`, con `matches` (caballero contra peón), `can` (el jinete tiene estocada
+  y el peón sabe caer) y `run`.
+
+- [ ] **Paso 1: La batalla**
+
+`src/combat/knight/knight-runs-through-pawn.js`:
+
+```js
+import * as THREE from 'three';
+import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js';
+import { strikeSpot, usableStrikes } from '../plan.js';
+import {
+  BODY_GAP, COMBAT_RAISE, PAWN_BODY, bladeBody, bladeStrikes, bonePosition, celebrate, facingTo, fallDirection,
+  knockOut, lyingBody, postOf, shout, swordTip, topple, windUp,
+} from './common.js';
+
+// Caballero come peón: lo atraviesa con la espada (diseño, sección 7). El caballero salta hasta el peón y
+// desmonta; el peón le tira una estocada y él la para con el escudo, entre chispas. Le mete la espada por
+// debajo del brazo hasta que la punta asoma por la espalda; el peón se queda tieso, se mira la hoja y, al
+// sacarla, cae de espaldas con estrellitas. El caballero ocupa la casilla y vuelve a montar.
+
+const THROUGH = 0.18; // lo que asoma la punta por la espalda del peón
+const GUARD = 70; // grados que sube el brazo del escudo cuando no hay animación de parada
+const GUARD_SECONDS = 0.25;
+const STIFF_SECONDS = 0.9; // lo que se queda tieso mirándose la hoja
+const HEAD_TURN = 30; // grados que baja la cabeza para mirársela
+const PULL_SECONDS = 0.5; // lo que tarda en sacar la espada, andando hacia atrás
+const FALL_SPREAD = Math.PI / 4;
+const DUST_Y = 0.05;
+
+export const knightRunsThroughPawn = {
+  matches: (attacker, defender) => attacker.kind === 'knight' && defender.kind === 'pawn',
+  can: (attacker, defender) => bladeStrikes(attacker.piece.rider, { thrust: true }).length > 0
+    && (defender.piece.has('defeat') || defender.piece.has('fall')),
+
+  async run({ attacker, defender, home, center, target, clock, fx, cinema, hud, crowd, dust, debris, bubbles, stances, bodies, obstacles, random }) {
+    const knight = attacker.piece;
+    const { rider } = knight;
+    const pawn = defender.piece;
+    const thrust = bladeStrikes(rider, { thrust: true })[0];
+    const measure = rider.strikes[thrust];
+    const facing = facingTo(center, home); // el peón mira hacia el caballero
+
+    // 1. La cámara encuadra, el peón baja de su peana y se encara, y el caballero salta y desmonta.
+    //    Se para donde la punta, al final de la estocada, le asoma THROUGH por la espalda.
+    const distance = Math.max(
+      knight.body.torso + PAWN_BODY + BODY_GAP,
+      punchDistance({ body: bladeBody(measure.blade), from: home, center, target: pawn, torso: PAWN_BODY }) - THROUGH,
+    );
+    const spots = strikeSpot(home, center, { reach: distance, torso: 0 });
+    stances.set(attacker, stanceOf(postOf(attacker, spots.attacker, spots.attackerFacing, [{ action: 'attack', key: thrust }])));
+    pawn.setSpearDefault('upright');
+    pawn.setGripSlide(-COMBAT_RAISE);
+    await Promise.all([
+      cinema.frame(clock, home, center, obstacles),
+      defender.mover.descend(center),
+      defender.mover.turnTo(facing, 0.3),
+    ]);
+    await attacker.mover.leapTo(spots.attacker);
+    await attacker.mover.dismount({ at: spots.attacker, facing: spots.attackerFacing, mode: 'dismount' });
+
+    // 2. El peón le tira una estocada y el caballero la para con el escudo: chispas y «¡CLANC!». Si no
+    //    tiene animación de parada, sube el brazo del escudo por código.
+    const jab = usableStrikes(pawn.attacks, pawn.strikes, 'duel')[0];
+    if (jab) {
+      pawn.setSpearPose('forward');
+      const jabbing = pawn.playOnce('attack', { clip: jab, fade: 0.15 });
+      const guard = rider.has('block')
+        ? rider.playOnce('block', { fade: 0.1 })
+        : clock.tween(GUARD_SECONDS, (t) => rider.turnBone('L_Upperarm', { x: -GUARD * t }));
+      await slowToImpact(clock, pawn.strikes[jab].spear?.t ?? pawn.strikes[jab].body.t);
+      const shield = rider.props.shield ?? rider.object.getObjectByName('L_Hand');
+      const at = shield.getWorldPosition(new THREE.Vector3());
+      fx.burst(at, { size: 0.9, sparks: 22 });
+      hud.flash();
+      cinema.shake(0.12);
+      shout(bubbles, '¡CLANC!', at);
+      await afterImpact(clock);
+      await Promise.all([jabbing, guard]);
+      pawn.play('idle', { fade: 0.2 });
+    }
+
+    // 3. La estocada del caballero: la punta asoma por la espalda, el peón se queda tieso y se la mira.
+    const running = rider.playOnce('attack', { clip: thrust, fade: 0.15 });
+    await slowToImpact(clock, measure.blade.t);
+    const tip = swordTip(rider);
+    fx.burst(tip, { size: 1, sparks: 26 });
+    hud.flash();
+    cinema.shake(0.18);
+    shout(bubbles, '¡ZAS!', tip);
+    const ux = Math.sin(spots.attackerFacing);
+    const uz = Math.cos(spots.attackerFacing);
+    pawn.throwSpear({ x: ux, z: uz });
+    pawn.play('idle', { fade: 0.1 });
+    pawn.turnBone('Head', { x: HEAD_TURN });
+    await afterImpact(clock);
+    await clock.wait(STIFF_SECONDS);
+
+    // 4. Saca la espada andando hacia atrás y el peón cae de espaldas, con estrellitas.
+    const back = rider.figure.position.clone();
+    await clock.tween(PULL_SECONDS, (t) => {
+      rider.figure.position.set(back.x - ux * THROUGH * t, back.y, back.z - uz * THROUGH * t);
+    });
+    await running;
+    rider.play('idle', { fade: 0.3 });
+    const angle = fallDirection({
+      at: center,
+      around: facing + Math.PI,
+      spread: FALL_SPREAD,
+      length: pawn.height,
+      rival: { x: spots.attacker.x, z: spots.attacker.z, radius: knight.body.torso },
+      overlap: (body) => crowd.overlap({ owners: [attacker, defender], bodies: [body] }),
+    });
+    bodies.push(lyingBody({ at: center, angle, length: pawn.height }));
+    pawn.resetBones();
+    await defender.mover.turnTo(angle + Math.PI, 0.12);
+    await topple({ clock, figure: pawn.figure, forward: false });
+    const head = bonePosition(pawn, 'Head');
+    dust.puff(new THREE.Vector3(head.x, DUST_Y, head.z), { count: 12, radius: 0.6, duration: 0.5 });
+    cinema.shake(0.1);
+    await knockOut({ clock, fx, fighter: pawn });
+    await defender.mover.vanish();
+    bodies.length = 0;
+    stances.delete(attacker);
+
+    // 5. El caballero ocupa la casilla, el caballo se reúne con él y monta.
+    pawn.setSpearDefault(null);
+    await Promise.all([cinema.restore(clock), attacker.mover.mount(target)]);
+    await celebrate(attacker);
+  },
+};
+```
+
+`windUp` no se usa aquí: la estocada va seguida. Se deja fuera del import si el linter se queja.
+
+- [ ] **Paso 2: Apuntarla en el director**
+
+En `src/combat/knight/battle.js`:
+
+```js
+import { knightRunsThroughPawn } from './knight-runs-through-pawn.js';
+import { pawnKicksKnight } from './pawn-kicks-knight.js';
+```
+
+```js
+const BATTLES = [pawnKicksKnight, knightRunsThroughPawn];
+```
+
+- [ ] **Paso 3: Preparación para comprobarla**
+
+En `raw/tmp/verificar-batalla.js`, dentro de `PREPARACIONES`, añadir:
+
+```js
+  // El caballero blanco, llevado a d4, se come al peón negro, llevado a e5; alrededor, peones en e4 y d5.
+  'caballero-come-peon': (at) => {
+    at('b1').mover.placeOn('d4');
+    at('e7').mover.placeOn('e5');
+    at('e2').mover.placeOn('e4');
+    at('d7').mover.placeOn('d5');
+    return ['d4', 'e5'];
+  },
+```
+
+- [ ] **Paso 4: Comprobarlo**
+
+Recargar la vista previa y, en su consola:
+
+```js
+const m = await import('/raw/tmp/verificar-batalla.js?v=' + Date.now());
+await m.pelear('caballero-come-peon');
+```
+
+Expected: `acciones` con `pawn:attack` (la estocada parada), `knight:attack` (la del caballero) y el final
+del peón; `hundidoAlGolpear` entre 0,10 y 0,30 (la punta entra y asoma por la espalda, sin pasarse);
+`hueco` ≥ 0 y `holgura` ≥ 0; `trozos: 0` y `bocadillos: 0`; `caballos: [true]` (el ganador vuelve a estar a
+caballo); `ganador: 'e5'`; `camara: 0` y `controles: true`; ningún error. Y con los ojos: el escudo para la
+estocada con chispas, la punta asoma por la espalda del peón, se la mira y cae de espaldas.
+
+- [ ] **Paso 5: Commit**
+
+```bash
+git add src/combat/knight/knight-runs-through-pawn.js src/combat/knight/battle.js
+git commit -m "Batalla: el caballero atraviesa al peón con la espada" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Tarea 15: Batalla 3 — caballero contra caballero, el Caballero Negro
+
+**Files:**
+- Create: `src/combat/knight/knight-fights-knight.js`
+- Modify: `src/combat/knight/battle.js`, `raw/tmp/verificar-batalla.js`
+
+**Interfaces:**
+- Consumes: de la tarea 7, `afterImpact`, `punchDistance`, `slowToImpact` y `stanceOf`; `strikeSpot`
+  (`plan.js`); `cutLimb` (tarea 11) y `debris.throwPiece`; `bubbles.say`; de la tarea 8, `scaleBone` y
+  `resetBones`; de la tarea 10, `dismount`, `sit`, `defeated` y `mount`; de la tarea 12, el resto.
+- Produces: `knightFightsKnight`, con `matches` (caballero contra caballero), `can` (el atacante tiene tajo
+  y el defensor, brazos y piernas que cortar) y `run`.
+
+- [ ] **Paso 1: La batalla**
+
+`src/combat/knight/knight-fights-knight.js`:
+
+```js
+import * as THREE from 'three';
+import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js';
+import { strikeSpot } from '../plan.js';
+import { cutLimb } from '../../pieces/limbs.js';
+import {
+  BODY_GAP, bladeBody, bladeStrikes, bonePosition, celebrate, dismountMode, facingTo, fallDirection, kickOf,
+  knockOut, lyingBody, postOf, shout, swordTip, topple, windUp,
+} from './common.js';
+
+// Caballero come caballero: el Caballero Negro de los Monty Python (diseño, sección 7). Los dos desmontan y
+// cruzan un par de golpes parados. El atacante le corta el brazo de la espada, que sale volando y rebota;
+// el otro se mira el muñón y sigue peleando con el escudo. Le corta el otro brazo, recibe una patada y le
+// corta las dos piernas. Queda un tronco en el suelo que aún le planta cara: «¡Solo es un rasguño!». Un
+// toquecito en el yelmo y cae; desaparece en polvo con sus trozos y el ganador ocupa la casilla y monta.
+
+const LIMBS = ['R_Upperarm', 'L_Upperarm', 'R_Thigh', 'L_Thigh']; // en este orden: espada, escudo y piernas
+const SHRINK = 0.001; // a lo que encoge el hueso del trozo cortado
+const CLASHES = 2; // golpes parados antes del primer corte
+const CUT_SPEED = { x: 1.1, y: 2.6 }; // con lo que sale volando cada trozo
+const SCRATCH = '¡Solo es un rasguño!';
+const SCRATCH_SECONDS = 1.6;
+const STUMP_SECONDS = 0.5; // lo que se mira el muñón
+const TAP_SECONDS = 0.35;
+const FALL_SPREAD = Math.PI / 4;
+const DUST_Y = 0.05;
+
+export const knightFightsKnight = {
+  matches: (attacker, defender) => attacker.kind === 'knight' && defender.kind === 'knight',
+  can: (attacker, defender) => bladeStrikes(attacker.piece.rider, { thrust: false }).length > 0
+    && LIMBS.every((bone) => defender.piece.rider.object.getObjectByName(bone)),
+
+  async run({ attacker, defender, home, center, target, clock, fx, cinema, hud, crowd, dust, debris, bubbles, stances, bodies, obstacles, random }) {
+    const mine = attacker.piece.rider;
+    const his = defender.piece.rider;
+    const slashes = bladeStrikes(mine, { thrust: false });
+    const hisSlashes = bladeStrikes(his, { thrust: false });
+    const facing = facingTo(center, home);
+    const measure = mine.strikes[slashes[0]];
+
+    // 1. La cámara encuadra y los dos desmontan, cara a cara y a distancia de espada.
+    const distance = Math.max(
+      attacker.piece.body.torso + defender.piece.body.torso + BODY_GAP,
+      punchDistance({ body: bladeBody(measure.blade), from: home, center, target: his, torso: defender.piece.body.torso }),
+    );
+    const spots = strikeSpot(home, center, { reach: distance, torso: 0 });
+    stances.set(attacker, stanceOf(postOf(attacker, spots.attacker, spots.attackerFacing, [{ action: 'attack', key: slashes[0] }])));
+    stances.set(defender, stanceOf(postOf(defender, center, facing, hisSlashes[0] ? [{ action: 'attack', key: hisSlashes[0] }] : [])));
+    await cinema.frame(clock, home, center, obstacles);
+    await Promise.all([
+      attacker.mover.dismount({ at: spots.attacker, facing: spots.attackerFacing, mode: 'dismount' }),
+      defender.mover.dismount({ at: center, facing, mode: dismountMode(random) }),
+    ]);
+
+    // 2. Un par de golpes parados, con chispas donde se cruzan las hojas.
+    for (let i = 0; i < CLASHES; i++) {
+      const mio = mine.playOnce('attack', { clip: slashes[i % slashes.length], fade: 0.15 });
+      const suyo = hisSlashes.length ? his.playOnce('attack', { clip: hisSlashes[i % hisSlashes.length], fade: 0.15 }) : null;
+      await slowToImpact(clock, mine.strikes[slashes[i % slashes.length]].blade.t);
+      const cruce = swordTip(mine).lerp(his.props.sword ? swordTip(his) : swordTip(mine), 0.5);
+      fx.burst(cruce, { size: 0.8, sparks: 18 });
+      hud.flash();
+      cinema.shake(0.1);
+      shout(bubbles, '¡CLANC!', cruce);
+      await afterImpact(clock);
+      await Promise.all([mio, suyo]);
+      mine.play('idle', { fade: 0.2 });
+      his.play('idle', { fade: 0.2 });
+    }
+
+    // 3. Corta brazos y piernas. Cada trozo sale volando de la propia malla y el hueso encoge; entre los
+    //    brazos y las piernas, el atacante recibe una patada del otro (si la tiene) y sigue.
+    const kick = kickOf(his);
+    for (const [n, bone] of LIMBS.entries()) {
+      const key = slashes[n % slashes.length];
+      const cutting = mine.playOnce('attack', { clip: key, fade: 0.15 });
+      await slowToImpact(clock, mine.strikes[key].blade.t);
+      const at = bonePosition(his, bone);
+      fx.burst(at, { size: 1, sparks: 26 });
+      hud.flash();
+      cinema.shake(0.16);
+      shout(bubbles, bone.includes('Thigh') ? '¡ZAS!' : '¡CHAS!', at);
+      const piece = cutLimb(his.object, bone);
+      if (piece) {
+        debris.throwPiece(piece, {
+          velocity: { x: Math.sin(spots.attackerFacing) * CUT_SPEED.x, y: CUT_SPEED.y, z: Math.cos(spots.attackerFacing) * CUT_SPEED.x },
+          obstacles: () => crowd.obstacles([attacker, defender]),
+        });
+      }
+      his.scaleBone(bone, SHRINK);
+      if (n === 0 && his.props.sword) his.props.sword.visible = false;
+      if (n === 1 && his.props.shield) his.props.shield.visible = false;
+      await afterImpact(clock);
+      await cutting;
+      mine.play('idle', { fade: 0.25 });
+      if (n === 0) {
+        his.play('idle', { fade: 0.2 }); // se mira el muñón
+        await clock.wait(STUMP_SECONDS);
+      }
+      if (n === 1 && kick) {
+        const kicking = his.playOnce('attack', { clip: kick, fade: 0.15 });
+        await slowToImpact(clock, his.strikes[kick].body.t);
+        const toe = bonePosition(his, his.strikes[kick].body.bone);
+        fx.burst(toe, { size: 0.8, sparks: 16 });
+        cinema.shake(0.12);
+        shout(bubbles, '¡TOMA!', toe);
+        if (mine.has('hit')) mine.playOnce('hit', { fade: 0.1 });
+        await afterImpact(clock);
+        await kicking;
+        his.play('idle', { fade: 0.2 });
+      }
+      if (n === LIMBS.length - 1) {
+        stances.delete(defender);
+        await defender.mover.sit(true); // ya solo es un tronco en el suelo
+        bodies.push(lyingBody({ at: center, angle: facing, length: his.height * 0.5, radius: 0.3 }));
+      }
+    }
+
+    // 4. El tronco aún le planta cara, con su bocadillo; un toquecito en el yelmo y cae.
+    const head = his.object.getObjectByName('Head');
+    const bocadillo = bubbles.say(SCRATCH, head, { seconds: SCRATCH_SECONDS });
+    await clock.wait(SCRATCH_SECONDS * 0.6);
+    const tap = mine.playOnce('attack', { clip: slashes[0], fade: 0.15 });
+    await clock.wait(TAP_SECONDS);
+    fx.burst(bonePosition(his, 'Head'), { size: 0.7, sparks: 14 });
+    hud.flash();
+    shout(bubbles, '¡TOC!', bonePosition(his, 'Head'));
+    await bocadillo;
+    const angle = fallDirection({
+      at: center,
+      around: facing + Math.PI,
+      spread: FALL_SPREAD,
+      length: his.height * 0.5,
+      rival: { x: spots.attacker.x, z: spots.attacker.z, radius: attacker.piece.body.torso },
+      overlap: (body) => crowd.overlap({ owners: [attacker, defender], bodies: [body] }),
+    });
+    await topple({ clock, figure: his.figure, forward: false });
+    const donde = bonePosition(his, 'Head');
+    dust.puff(new THREE.Vector3(donde.x, DUST_Y, donde.z), { count: 14, radius: 0.7, duration: 0.5 });
+    cinema.shake(0.12);
+    await tap;
+    mine.play('idle', { fade: 0.3 });
+    await knockOut({ clock, fx, fighter: his });
+
+    // 5. Desaparece en polvo con sus trozos; el ganador ocupa la casilla y monta.
+    bodies.length = 0;
+    debris.clear({ seconds: 0.3 });
+    await defender.mover.defeated({ avoid: center });
+    his.resetBones();
+    stances.delete(attacker);
+    await Promise.all([cinema.restore(clock), attacker.mover.mount(target)]);
+    await celebrate(attacker);
+  },
+};
+```
+
+`windUp` no hace falta aquí; se deja fuera del import si el linter se queja. `fallDirection` se usa para el
+ángulo del tronco: si no cabe hacia atrás, cae hacia el lado que deje más sitio.
+
+- [ ] **Paso 2: Apuntarla en el director**
+
+```js
+import { knightFightsKnight } from './knight-fights-knight.js';
+```
+
+```js
+const BATTLES = [pawnKicksKnight, knightRunsThroughPawn, knightFightsKnight];
+```
+
+- [ ] **Paso 3: Preparación para comprobarla**
+
+En `raw/tmp/verificar-batalla.js`, dentro de `PREPARACIONES`:
+
+```js
+  // Caballero blanco en d4 contra caballero negro en e5, con peones alrededor en e4 y d5.
+  'caballero-come-caballero': (at) => {
+    at('b1').mover.placeOn('d4');
+    at('g8').mover.placeOn('e5');
+    at('e2').mover.placeOn('e4');
+    at('d7').mover.placeOn('d5');
+    return ['d4', 'e5'];
+  },
+```
+
+- [ ] **Paso 4: Comprobarlo**
+
+```js
+const m = await import('/raw/tmp/verificar-batalla.js?v=' + Date.now());
+await m.pelear('caballero-come-caballero');
+```
+
+Expected: `acciones` con cuatro `knight:attack` del atacante como mínimo; `trozos: 0` y `bocadillos: 0` al
+terminar (los cuatro trozos vuelan y se limpian con el vencido); `hueco` ≥ 0 y `holgura` ≥ 0 mientras dura;
+`caballos: [true]`; `ganador: 'e5'`; `camara: 0` y `controles: true`; ningún error en la consola. Con los
+ojos: los brazos y las piernas salen enteros y con su textura, el tronco suelta su «¡Solo es un rasguño!» y
+el toquecito en el yelmo lo tumba. Dura unos 15 s.
+
+- [ ] **Paso 5: Commit**
+
+```bash
+git add src/combat/knight/knight-fights-knight.js src/combat/knight/battle.js
+git commit -m "Batalla: caballero contra caballero, el Caballero Negro" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Tarea 16: Batalla 4 — el caballero le barre las piernas al gigante
+
+**Files:**
+- Create: `src/combat/knight/knight-sweeps-giant.js`
+- Modify: `src/combat/knight/battle.js`, `raw/tmp/verificar-batalla.js`
+
+**Interfaces:**
+- Consumes: de la tarea 7, `afterImpact`, `choose`, `overlapOf`, `slowToImpact` y `stanceOf`; `bestStrike` y
+  `strikeSpot` (`plan.js`); de la tarea 12, `bladeStrikes`, `bonePosition`, `celebrate`, `facingTo`,
+  `fighterOf`, `postOf`, `shout` y `swordTip`; de la tarea 9, `leapTo`; de la tarea 10, `dismount` y `mount`;
+  del mover de la torre, `awaken()` y `crumble()`.
+- Produces: `knightSweepsGiant`, con `matches` (caballero contra torre), `can` (el gigante tiene puñetazo y
+  el jinete, tajo) y `run`.
+
+- [ ] **Paso 1: La batalla**
+
+`src/combat/knight/knight-sweeps-giant.js`:
+
+```js
+import * as THREE from 'three';
+import { afterImpact, choose, overlapOf, slowToImpact, stanceOf } from '../fight.js';
+import { bestStrike, strikeSpot } from '../plan.js';
+import {
+  BODY_GAP, bladeStrikes, bonePosition, celebrate, facingTo, fighterOf, postOf, shout, swordTip,
+} from './common.js';
+
+// Caballero come torre: le barre las piernas (diseño, sección 7). El caballero salta hasta la torre y
+// desmonta; la torre se convierte en gigante y lo provoca si cabe. El gigante descarga un puñetazo, el
+// caballero lo esquiva agachándose y le barre las piernas de un tajo. A cámara lenta, el gigante cae de
+// espaldas y se deshace en rocas, con una gran nube de polvo y temblor. El caballero ocupa la casilla y monta.
+
+const DUCK = 0.35; // lo que baja la figura al agacharse
+const DUCK_SECONDS = 0.22;
+const SWEEP_SECONDS = 0.3; // lo que tarda en levantarse después de barrer
+const COLLAPSE_SECONDS = 0.8; // del tajo a deshacerse en rocas
+const LEG_BONES = ['R_Calf', 'L_Calf', 'R_Thigh', 'L_Thigh'];
+const DUST = { count: 26, radius: 1.3, duration: 0.8 };
+const DUST_Y = 0.05;
+
+export const knightSweepsGiant = {
+  matches: (attacker, defender) => attacker.kind === 'knight' && defender.kind === 'rook',
+  can: (attacker, defender) => bladeStrikes(attacker.piece.rider, { thrust: false }).length > 0
+    && Boolean(defender.piece.giant && bestStrike(defender.piece.giant.attacks, defender.piece.giant.strikes)),
+
+  async run({ attacker, defender, home, center, target, clock, fx, cinema, hud, crowd, dust, debris, bubbles, stances, bodies, obstacles, random }) {
+    const rider = attacker.piece.rider;
+    const giant = fighterOf(defender);
+    const sweep = bladeStrikes(rider, { thrust: false })[0];
+    const punch = bestStrike(giant.attacks, giant.strikes);
+    const facing = facingTo(center, home);
+
+    // 1. Puestos: el caballero a distancia de espada del gigante; el gigante, en su casilla, con su
+    //    puñetazo y, si cabe, una provocación.
+    const distance = attacker.piece.body.torso + defender.piece.body.torso + BODY_GAP;
+    const spots = strikeSpot(home, center, { reach: distance, torso: 0 });
+    const post = postOf(defender, center, facing, [{ action: 'attack', key: punch }]);
+    const overlap = () => overlapOf(crowd, [attacker, defender], [post]);
+    const taunt = choose(post, 'taunt', { overlap, random, optional: true });
+    stances.set(defender, stanceOf(post));
+    stances.set(attacker, stanceOf(postOf(attacker, spots.attacker, spots.attackerFacing, [{ action: 'attack', key: sweep }])));
+
+    // 2. La cámara encuadra, la torre despierta y el caballero salta, desmonta y se encara.
+    await Promise.all([
+      cinema.frame(clock, home, center, obstacles),
+      defender.mover.awaken(),
+      attacker.mover.leapTo(spots.attacker),
+    ]);
+    await attacker.mover.dismount({ at: spots.attacker, facing: spots.attackerFacing, mode: 'dismount' });
+    await defender.mover.turnTo(facing, 0.3);
+    if (taunt) await giant.playOnce('taunt', { clip: taunt });
+    giant.play('idle', { fade: 0.25 });
+
+    // 3. El puñetazo pasa por encima: el caballero se agacha justo en el impacto.
+    const punching = giant.playOnce('attack', { clip: punch, fade: 0.15 });
+    const agachado = rider.figure.position.y;
+    await slowToImpact(clock, Math.max(0, giant.strikes[punch].body.t - DUCK_SECONDS));
+    await clock.tween(DUCK_SECONDS, (t) => {
+      rider.figure.position.y = agachado - DUCK * t;
+    });
+    const puño = bonePosition(giant, giant.strikes[punch].body.bone);
+    fx.burst(puño, { size: 0.8, sparks: 14 });
+    cinema.shake(0.1);
+    shout(bubbles, '¡FIUUU!', puño);
+    await afterImpact(clock);
+
+    // 4. El tajo a las piernas, a cámara lenta: chispas en la espinilla y el gigante se desploma.
+    const sweeping = rider.playOnce('attack', { clip: sweep, fade: 0.15 });
+    await slowToImpact(clock, rider.strikes[sweep].blade.t);
+    const pierna = LEG_BONES.map((bone) => giant.object.getObjectByName(bone)).find(Boolean);
+    const at = pierna ? pierna.getWorldPosition(new THREE.Vector3()) : swordTip(rider);
+    fx.burst(at, { size: 1.2, sparks: 30 });
+    hud.flash();
+    cinema.shake(0.25);
+    shout(bubbles, '¡ZAS!', at);
+    giant.playOnce(giant.has('defeat') ? 'defeat' : 'hit', { clip: undefined, fade: 0.1 });
+    const crumbled = clock.wait(COLLAPSE_SECONDS).then(() => defender.mover.crumble());
+    await afterImpact(clock);
+    await clock.tween(SWEEP_SECONDS, (t) => {
+      rider.figure.position.y = agachado - DUCK * (1 - t);
+    });
+    rider.figure.position.y = agachado;
+    await sweeping;
+    rider.play('idle', { fade: 0.3 });
+    dust.puff(new THREE.Vector3(center.x, DUST_Y, center.z), DUST);
+    cinema.shake(0.2);
+    await crumbled;
+
+    // 5. El caballero ocupa la casilla, el caballo se reúne con él y monta.
+    stances.delete(attacker);
+    stances.delete(defender);
+    await Promise.all([cinema.restore(clock), attacker.mover.mount(target)]);
+    await celebrate(attacker);
+  },
+};
+```
+
+- [ ] **Paso 2: Apuntarla en el director**
+
+```js
+import { knightSweepsGiant } from './knight-sweeps-giant.js';
+```
+
+```js
+const BATTLES = [pawnKicksKnight, knightRunsThroughPawn, knightFightsKnight, knightSweepsGiant];
+```
+
+- [ ] **Paso 3: Preparación para comprobarla**
+
+En `raw/tmp/verificar-batalla.js`, dentro de `PREPARACIONES`:
+
+```js
+  // El caballero blanco, llevado a d4, se come a la torre negra, llevada a d6, con peones en la fila 7.
+  'caballero-come-torre': (at) => {
+    at('b1').mover.placeOn('d4');
+    at('a8').mover.placeOn('d6');
+    return ['d4', 'd6'];
+  },
+```
+
+- [ ] **Paso 4: Comprobarlo**
+
+```js
+const m = await import('/raw/tmp/verificar-batalla.js?v=' + Date.now());
+await m.pelear('caballero-come-torre');
+```
+
+Expected: `acciones` con `rook:attack` (el puñetazo que falla), `knight:attack` (el tajo) y el derrumbe del
+gigante; `hueco` ≥ 0 y `holgura` ≥ 0; `trozos: 0` y `bocadillos: 0`; `caballos: [true]`; `ganador: 'd6'`;
+`rocas` a 0 al final (las piedras se limpian); `camara: 0` y `controles: true`; ningún error. Con los ojos:
+el puño pasa por encima del yelmo, el tajo llega a la espinilla y el gigante cae de espaldas con su nube de
+polvo. Dura unos 9 s.
+
+- [ ] **Paso 5: Commit**
+
+```bash
+git add src/combat/knight/knight-sweeps-giant.js src/combat/knight/battle.js
+git commit -m "Batalla: el caballero le barre las piernas al gigante" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Tarea 17: Batalla 5 — el gigante deja al caballero en un casco con pies
+
+**Files:**
+- Create: `src/combat/knight/giant-crushes-knight.js`
+- Modify: `src/combat/knight/battle.js`, `raw/tmp/verificar-batalla.js`
+
+**Interfaces:**
+- Consumes: de la tarea 7, `afterImpact`, `choose`, `overlapOf`, `slowToImpact` y `stanceOf`; `bestStrike` y
+  `strikeSpot` (`plan.js`); de la tarea 12, `bladeStrikes`, `bonePosition`, `dismountMode`, `facingTo`,
+  `fighterOf`, `knockOut`, `postOf` y `shout`; de la tarea 8, `scaleBone` y `resetBones`; de la tarea 10,
+  `dismount`, `horseFlee` y `defeated`; del mover de la torre, `awaken()`, `walkTo` y `walkOnto`.
+- Produces: `giantCrushesKnight`, con `matches` (torre contra caballero), `can` (el gigante tiene golpe y el
+  jinete, huesos de tronco que encoger) y `run`.
+
+- [ ] **Paso 1: La batalla**
+
+`src/combat/knight/giant-crushes-knight.js`:
+
+```js
+import * as THREE from 'three';
+import { afterImpact, choose, overlapOf, slowToImpact, stanceOf } from '../fight.js';
+import { bestStrike, strikeSpot } from '../plan.js';
+import {
+  BODY_GAP, bladeStrikes, bonePosition, dismountMode, facingTo, fighterOf, knockOut, postOf, shout,
+} from './common.js';
+
+// Torre come caballero: un casco con pies (diseño, sección 7). La torre se convierte en gigante y avanza; el
+// caballero desmonta (o su caballo lo tira y huye aterrado) y se pone en guardia, temblando. A cámara lenta
+// el gigante lo machaca: el cuerpo se le mete dentro de las piernas y solo quedan el yelmo, con su penacho,
+// encima de las botas. El casco con pies se tambalea mareado con estrellitas, da unos pasitos y desaparece
+// en polvo. El gigante ocupa la casilla y vuelve a ser torre.
+
+const TORSO_BONES = ['Spine02', 'Spine01', 'Waist', 'Pelvis']; // lo que encoge hasta apoyar el yelmo en las botas
+const ARM_BONES = ['R_Upperarm', 'L_Upperarm'];
+const SQUASH_SECONDS = 0.35;
+const SHRINK = 0.001;
+const TREMBLE = 2; // grados que tiembla en guardia
+const TREMBLE_SECONDS = 0.9;
+const STAGGER_SECONDS = 1.2; // los pasitos mareados
+const STAGGER = 0.14; // lo que se mueve a cada lado
+const DUST = { count: 18, radius: 0.8, duration: 0.6 };
+const DUST_Y = 0.05;
+
+export const giantCrushesKnight = {
+  matches: (attacker, defender) => attacker.kind === 'rook' && defender.kind === 'knight',
+  can: (attacker, defender) => Boolean(attacker.piece.giant && bestStrike(attacker.piece.giant.attacks, attacker.piece.giant.strikes))
+    && TORSO_BONES.some((bone) => defender.piece.rider.object.getObjectByName(bone)),
+
+  async run({ attacker, defender, home, center, target, clock, fx, cinema, hud, crowd, dust, debris, bubbles, stances, bodies, obstacles, random }) {
+    const giant = fighterOf(attacker);
+    const rider = defender.piece.rider;
+    const punch = bestStrike(giant.attacks, giant.strikes);
+    const guard = bladeStrikes(rider, { thrust: false })[0] ?? bladeStrikes(rider)[0];
+    const facing = facingTo(center, home);
+
+    // 1. Puestos y encuadre: el gigante avanza hasta donde su golpe alcanza al caballero.
+    const distance = attacker.piece.body.torso + defender.piece.body.torso + BODY_GAP;
+    const spots = strikeSpot(home, center, { reach: distance, torso: 0 });
+    const post = postOf(attacker, spots.attacker, spots.attackerFacing, [{ action: 'attack', key: punch }]);
+    const overlap = () => overlapOf(crowd, [attacker, defender], [post]);
+    const taunt = choose(post, 'taunt', { overlap, random, optional: true });
+    stances.set(attacker, stanceOf(post));
+    stances.set(defender, stanceOf(postOf(defender, center, facing, guard ? [{ action: 'attack', key: guard }] : [])));
+    await Promise.all([
+      cinema.frame(clock, home, center, obstacles),
+      attacker.mover.awaken(),
+      defender.mover.dismount({ at: center, facing, mode: dismountMode(random) }),
+    ]);
+    await defender.mover.horseFlee({ avoid: spots.attacker });
+
+    // 2. El gigante se acerca y provoca si cabe; el caballero se pone en guardia, temblando.
+    await attacker.mover.walkTo(spots.attacker);
+    await attacker.mover.turnTo(spots.attackerFacing, 0.3);
+    if (taunt) await giant.playOnce('taunt', { clip: taunt });
+    giant.play('idle', { fade: 0.25 });
+    const temblor = clock.tween(TREMBLE_SECONDS, (t) => {
+      rider.figure.rotation.y = facing + THREE.MathUtils.degToRad(TREMBLE) * Math.sin(t * Math.PI * 12);
+    });
+
+    // 3. El golpe, a cámara lenta: el cuerpo se mete dentro de las piernas.
+    const crushing = giant.playOnce('attack', { clip: punch, fade: 0.15 });
+    await slowToImpact(clock, giant.strikes[punch].body.t);
+    const puño = bonePosition(giant, giant.strikes[punch].body.bone);
+    fx.burst(puño, { size: 1.3, sparks: 32 });
+    hud.flash();
+    cinema.shake(0.3);
+    shout(bubbles, '¡CHOF!', puño);
+    await temblor;
+    rider.figure.rotation.y = facing;
+    if (rider.props.sword) rider.props.sword.visible = false;
+    if (rider.props.shield) rider.props.shield.visible = false;
+    await clock.tween(SQUASH_SECONDS, (t) => {
+      const k = 1 - t * (1 - SHRINK);
+      for (const bone of TORSO_BONES) rider.scaleBone(bone, k);
+      for (const bone of ARM_BONES) rider.scaleBone(bone, k);
+    });
+    await afterImpact(clock);
+    await crushing;
+    giant.play('idle', { fade: 0.3 });
+
+    // 4. El casco con pies se tambalea mareado, da unos pasitos y desaparece en polvo.
+    await knockOut({ clock, fx, fighter: rider });
+    const sitio = rider.figure.position.clone();
+    await clock.tween(STAGGER_SECONDS, (t) => {
+      rider.figure.position.x = sitio.x + Math.sin(t * Math.PI * 4) * STAGGER;
+      rider.figure.position.z = sitio.z + Math.sin(t * Math.PI * 2.5) * STAGGER * 0.5;
+    });
+    dust.puff(new THREE.Vector3(sitio.x, DUST_Y, sitio.z), DUST);
+    await defender.mover.defeated({ avoid: spots.attacker });
+    rider.resetBones();
+    stances.delete(defender);
+
+    // 5. El gigante ocupa la casilla y vuelve a ser torre.
+    stances.delete(attacker);
+    await Promise.all([cinema.restore(clock), attacker.mover.walkOnto(target)]);
+  },
+};
+```
+
+- [ ] **Paso 2: Apuntarla en el director**
+
+```js
+import { giantCrushesKnight } from './giant-crushes-knight.js';
+```
+
+```js
+const BATTLES = [pawnKicksKnight, knightRunsThroughPawn, knightFightsKnight, knightSweepsGiant, giantCrushesKnight];
+```
+
+Con las cinco en la lista, `canKnightBattle` cubre todas las capturas en las que participa un caballero.
+
+- [ ] **Paso 3: Preparación para comprobarla**
+
+En `raw/tmp/verificar-batalla.js`, dentro de `PREPARACIONES`:
+
+```js
+  // La torre blanca, llevada a d4, se come al caballero negro, llevado a d6.
+  'torre-come-caballero': (at) => {
+    at('a1').mover.placeOn('d4');
+    at('g8').mover.placeOn('d6');
+    return ['d4', 'd6'];
+  },
+```
+
+- [ ] **Paso 4: Comprobarlo**
+
+```js
+const m = await import('/raw/tmp/verificar-batalla.js?v=' + Date.now());
+await m.pelear('torre-come-caballero');
+```
+
+Expected: `acciones` con `rook:attack` y sin ataque del caballero; `hueco` ≥ 0 y `holgura` ≥ 0 (el caballo
+que huye no deja a nadie sin sitio); `trozos: 0` y `bocadillos: 0`; `caballos: []` (el caballero vencido ya
+no está); `ganador: 'd6'` con la torre otra vez en forma de torre; `camara: 0` y `controles: true`; ningún
+error. Con los ojos: el caballo sale huyendo, el cuerpo se mete dentro de las botas y quedan el yelmo y el
+penacho encima, tambaleándose. Dura unos 9 s.
+
+- [ ] **Paso 5: Commit**
+
+```bash
+git add src/combat/knight/giant-crushes-knight.js src/combat/knight/battle.js
+git commit -m "Batalla: el gigante deja al caballero en un casco con pies" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Tarea 18: Documentación, tanda de comprobaciones y publicación
+
+**Files:**
+- Modify: `README.md`
+
+**Interfaces:**
+- Consumes: todo lo anterior.
+- Produces: el juego publicado con caballeros en https://mr-d0nut.github.io/bchess/ y el README contándolo.
+
+- [ ] **Paso 1: README**
+
+En `README.md`, cambiar la primera frase:
+
+```markdown
+batalla animada. Por ahora hay **peones y torres**: tablero 3D con los ocho peones de cada
+```
+
+por:
+
+```markdown
+batalla animada. Por ahora hay **peones, torres y caballeros**: tablero 3D con los ocho peones de cada
+```
+
+y añadir, después del apartado «Torres», este apartado nuevo:
+
+```markdown
+## Caballeros
+
+Los caballeros salen a caballo, en las casillas b1, g1, b8 y g8. Al elegir uno se marcan sus ocho
+casillas en L y los enemigos que puede comerse; para ir, el caballo salta por encima de lo que haya en
+medio, con el arco más alto cuanto más alta sea la pieza que salta.
+
+Cada captura en la que participa un caballero es un gag distinto:
+
+- **Un peón se lo come:** el caballero desmonta y levanta la espada, y el peón le da una patada en la
+  entrepierna; suena a metal y cae de bruces con estrellitas.
+- **Se come a un peón:** salta hasta él, para su estocada con el escudo y lo atraviesa con la espada,
+  que asoma por la espalda.
+- **Caballero contra caballero:** el homenaje al Caballero Negro de los Monty Python, con brazos y
+  piernas que salen volando y un «¡Solo es un rasguño!».
+- **Se come a una torre:** esquiva el puñetazo del gigante agachándose y le barre las piernas de un tajo.
+- **Una torre se lo come:** el gigante lo machaca de un puñetazo y lo deja en un casco con pies, que se
+  tambalea mareado antes de esfumarse.
+
+Cuando el caballero pelea a pie, su caballo se aparta y espera; si pierde, huye del tablero.
+```
+
+- [ ] **Paso 2: La tanda entera de comprobaciones**
+
+```bash
+cd ~/bchess && npm test && node --check src/main.js && for f in src/combat/knight/*.js src/pieces/knight.js src/pieces/limbs.js src/moves/knight-mover.js src/ui/bubble.js src/rules/knight.js src/moves/leap.js; do node --check "$f" || echo "FALLA $f"; done
+```
+
+Expected: pruebas en verde y ningún «FALLA».
+
+En la vista previa (recargando antes), las ocho comprobaciones por código, una a una:
+
+```js
+const b = await import('/raw/tmp/verificar-batalla.js?v=' + Date.now());
+for (const n of ['peon-come-caballero', 'caballero-come-peon', 'caballero-come-caballero', 'caballero-come-torre', 'torre-come-caballero']) {
+  console.log(await b.pelear(n));
+  location.reload(); // cada pelea parte de un tablero limpio: recargar y repetir a mano
+}
+```
+
+```js
+const t = await import('/raw/tmp/verificar-captura-torre.js?v=' + Date.now());
+await t.capturar('torre-come-peon');
+```
+
+Expected: lo que dice cada tarea. Las tres capturas de la torre (`torre-come-peon`, `peon-come-torre`,
+`torre-come-torre`) siguen igual que antes del caballero.
+
+- [ ] **Paso 3: Móvil**
+
+Abrir `http://localhost:8741/?calidad=movil`, comprobar que carga los modelos ligeros y que una batalla del
+caballero va fluida. El usuario lo prueba en su teléfono con la dirección publicada.
+
+- [ ] **Paso 4: Publicar**
+
+```bash
+cd ~/bchess && git switch main && git merge caballero -m "Caballeros: salto, batallas y modelos" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" && npm test && git push origin main
+```
+
+Comprobar que la página publicada responde y trae los modelos nuevos:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://mr-d0nut.github.io/bchess/ && curl -s https://mr-d0nut.github.io/bchess/assets/models/manifest.json | grep -c white-knight
+```
+
+Expected: `200` y `1`.
+
+- [ ] **Paso 5: Memoria**
+
+Anotar en la memoria del proyecto lo aprendido que valga para la próxima pieza (el alfil): claves de las
+animaciones del caballero, que la retextura borra las animaciones aplicadas y hay que volver a ponerlas, y
+cómo se miden los golpes con la espada.
+
+---
+
+## Repaso
+
+- **Cobertura del diseño.** Secciones del spec y dónde están: 2 (reglas y toques) → tarea 4 y tarea 9,
+  paso 4; 3 (las figuras) → tareas 2, 3 y 9; 4 (el salto) → tareas 5 y 9, paso 3; 5 (desmontar y montar) →
+  tarea 10; 6 (hacer sitio) → tareas 9 y 12; 7 (las cinco batallas) → tareas 13 a 17, con los trozos, el
+  casco con pies y los bocadillos de la tarea 11; 8 (modelos y animaciones) → tareas 1, 2 y 3; 9
+  (arquitectura) → los ficheros de cada tarea; 10 (errores) → tarea 9, paso 4 (guardas de `canSmash` y del
+  salto) y tarea 12 (lista vacía = captura sin combate); 11 (pruebas) → las pruebas de las tareas 4, 5 y 6 y
+  las comprobaciones por código de las tareas 9, 10, 13 a 17 y 18.
+- **Nombres.** `knightMoves`, `planLeap`/`leapAt`, `findHorseBones`, `pickDriftTrack`, `cutLimb`,
+  `createDebris`, `createBubbles`, `canKnightBattle`/`runKnightBattle` y las cinco batallas se llaman igual
+  en la tarea que las define y en las que las usan.
+- **Sin huecos.** Cada paso trae su código entero o la orden exacta, con lo que debe salir.
