@@ -30,3 +30,8 @@ test('desde una esquina no se sale del tablero', () => {
 test('una casilla no válida lanza error', () => {
   assert.throws(() => rookMoves('i9', new Set(), new Set()), /Casilla no válida/);
 });
+
+test('un caballero propio detiene a la torre y uno enemigo se lo come', () => {
+  assert.deepEqual(rookMoves('a1', new Set(['a1', 'a2', 'b1']), new Set()), { moves: [], captures: [] });
+  assert.deepEqual(rookMoves('a1', new Set(['a1', 'a3', 'b1']), new Set(['a3'])), { moves: ['a2'], captures: ['a3'] });
+});

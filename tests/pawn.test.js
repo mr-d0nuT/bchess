@@ -59,3 +59,8 @@ test('las torres bloquean a los peones y se pueden comer en diagonal', () => {
   assert.deepEqual(pawnMoves('a7', new Set(['a7', 'a6']), 'black'), []);
   assert.deepEqual(pawnCaptures('b2', new Set(['a3', 'c3']), 'white'), ['a3', 'c3']);
 });
+
+test('los caballeros bloquean a los peones y se pueden comer en diagonal', () => {
+  assert.deepEqual(pawnMoves('g2', new Set(['g2', 'g3']), 'white'), []);
+  assert.deepEqual(pawnCaptures('a7', new Set(['b6']), 'black'), ['b6']);
+});
