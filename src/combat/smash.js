@@ -25,7 +25,7 @@ const GRIP_SETTLE = 0.35; // lo que tarda la lanza en resbalar en la mano antes 
 const SPEAR_BITE = 0.03; // lo que se hunde la punta de la lanza en la piedra
 const SPEAR_RECOIL = 0.12; // lo que rebota la lanza en la piedra tras el golpe
 const FIST_BITE = 0.03; // lo que se hunde en el rival la cara del puño o del pie del gigante
-const FIST_HALF = 0.1; // del hueso de la mano del gigante a la cara de abajo de su puño cerrado
+const FIST_HALF = 0.02; // del hueso de la mano del gigante a la cara de abajo de su puño cerrado, medido
 const SQUASH = 0.55; // lo que queda de alto el peón al que machaca un puñetazo de arriba abajo
 const OVERHEAD_CHANCE = 0.5; // cada cuánto, si puede, machaca el cráneo en vez de pegar de frente
 const FRONT_ANGLE = Math.PI / 6; // a cada lado de la dirección del rival, lo que cuenta como delante
@@ -210,8 +210,17 @@ function planOverhead({ strike, from, center, defender, closest }) {
   });
   if (!head) return null;
   const top = path.reduce((best, sample, i) => (sample.y > path[best].y ? i : best), 0);
-  const impact = path.slice(top).find((sample) => sample.y <= head.crown + FIST_HALF - FIST_BITE);
-  if (!impact) return null;
+  // El puño baja casi un palmo por fotograma, así que entre la muestra de antes y la de después se
+  // interpola el momento justo en el que su cara de abajo llega a la coronilla.
+  const objetivo = head.crown + FIST_HALF - FIST_BITE;
+  const bajada = path.slice(top);
+  const corte = bajada.findIndex((sample) => sample.y <= objetivo);
+  if (corte < 0) return null;
+  const hasta = bajada[corte];
+  const desde = corte > 0 ? bajada[corte - 1] : null;
+  const k = desde && desde.y > hasta.y ? (desde.y - objetivo) / (desde.y - hasta.y) : 1;
+  const entre = (a, b) => a + (b - a) * k;
+  const impact = desde ? { t: entre(desde.t, hasta.t), x: entre(desde.x, hasta.x), z: entre(desde.z, hasta.z) } : hasta;
   const distance = Math.hypot(impact.x, impact.z);
   if (distance < closest) return null;
   return { head: { x: head.x, z: head.z }, distance, t: impact.t, turn: -Math.atan2(impact.x, impact.z) };

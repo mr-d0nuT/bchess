@@ -91,7 +91,7 @@
           "walk": [{ "clip": "walk" }],
           "jump": [],
           "fall": [],
-          "attack": [{ "clip": "box_03" }, { "clip": "box_01" }, { "clip": "slash", "overhead": true }],
+          "attack": [{ "clip": "box_03" }, { "clip": "box_01" }, { "clip": "slash", "overhead": true, "seconds": 2.4 }],
           "hit": [{ "clip": "hit_to_body_01" }, { "clip": "hit_to_stomach" }],
           "defeat": [{ "clip": "defeat_03", "travel": 0.4 }, { "clip": "fall", "travel": 0.4 }],
           "taunt": [{ "clip": "angry_01", "seconds": 2.6 }, { "clip": "angry_03", "seconds": 2.6 }]
@@ -112,7 +112,7 @@
           "walk": [{ "clip": "walk" }],
           "jump": [],
           "fall": [],
-          "attack": [{ "clip": "box_03" }, { "clip": "box_01" }, { "clip": "slash", "overhead": true }],
+          "attack": [{ "clip": "box_03" }, { "clip": "box_01" }, { "clip": "slash", "overhead": true, "seconds": 2.4 }],
           "hit": [{ "clip": "hit_to_body_01" }, { "clip": "hit_to_stomach" }],
           "defeat": [{ "clip": "defeat_03", "travel": 0.4 }, { "clip": "fall", "travel": 0.4 }],
           "taunt": [{ "clip": "angry_01", "seconds": 2.6 }, { "clip": "angry_03", "seconds": 2.6 }]
