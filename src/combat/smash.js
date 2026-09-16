@@ -25,6 +25,9 @@ const GRIP_SETTLE = 0.35; // lo que tarda la lanza en resbalar en la mano antes 
 const SPEAR_BITE = 0.03; // lo que se hunde la punta de la lanza en la piedra
 const SPEAR_RECOIL = 0.12; // lo que rebota la lanza en la piedra tras el golpe
 const FIST_BITE = 0.03; // lo que se hunde en el rival la cara del puño o del pie del gigante
+const FIST_HALF = 0.1; // del hueso de la mano del gigante a la cara de abajo de su puño cerrado
+const SQUASH = 0.55; // lo que queda de alto el peón al que machaca un puñetazo de arriba abajo
+const OVERHEAD_CHANCE = 0.5; // cada cuánto, si puede, machaca el cráneo en vez de pegar de frente
 const FRONT_ANGLE = Math.PI / 6; // a cada lado de la dirección del rival, lo que cuenta como delante
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas
 const IDLE_SECONDS = 4; // lo más que dura seguido el reposo de un gigante en una captura
@@ -189,6 +192,40 @@ function planPunch({ giant, from, center, defender, torso, closest }) {
   return shortest;
 }
 
+// Puñetazo de arriba abajo: a qué distancia entre los centros se para el gigante para que su puño, que
+// baja por `strike.overhead.path` (medido con la pieza de prueba mirando hacia +Z), se hunda FIST_BITE
+// en la coronilla del rival, y en qué momento del golpe la toca. `turn` es lo que gira el gigante sobre
+// la línea hacia la cabeza, para que el puño, que baja por un lado, caiga justo encima. Devuelve null
+// si el puño no llega a bajar hasta la cabeza o si el gigante tendría que acercarse más de `closest`.
+function planOverhead({ strike, from, center, defender, closest }) {
+  const { path } = strike.overhead;
+  const facing = Math.atan2(center.x - from.x, center.z - from.z);
+  const head = standing(defender, facing + Math.PI, () => {
+    const bone = (giantOf(defender) ?? defender.piece).object.getObjectByName('Head');
+    if (!bone) return null;
+    const at = bone.getWorldPosition(new THREE.Vector3());
+    const down = new THREE.Vector3(0, -1, 0);
+    const hit = new THREE.Raycaster(new THREE.Vector3(at.x, at.y + RAY_FAR, at.z), down, 0, 2 * RAY_FAR).intersectObjects(targetsOf(defender), false)[0];
+    return hit ? { x: at.x, z: at.z, crown: hit.point.y } : null;
+  });
+  if (!head) return null;
+  const top = path.reduce((best, sample, i) => (sample.y > path[best].y ? i : best), 0);
+  const impact = path.slice(top).find((sample) => sample.y <= head.crown + FIST_HALF - FIST_BITE);
+  if (!impact) return null;
+  const distance = Math.hypot(impact.x, impact.z);
+  if (distance < closest) return null;
+  return { head: { x: head.x, z: head.z }, distance, t: impact.t, turn: -Math.atan2(impact.x, impact.z) };
+}
+
+// El puñetazo de arriba abajo aplasta al peón como un acordeón, y rebota.
+function squash(clock, figure) {
+  return clock.tween(0.5, (t) => {
+    const k = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+    const wide = 1 + (1 - SQUASH) * 0.5 * k;
+    figure.scale.set(wide, 1 - (1 - SQUASH) * k, wide);
+  });
+}
+
 // Llama a `measure` con el gigante como estará dentro de `seconds` de juego si sigue en reposo, y lo
 // deja como estaba. `idle` es su acción de reposo, que ya se ve del todo.
 function poseAhead(giant, idle, seconds, measure) {
@@ -238,17 +275,25 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   const giant = rook.giant;
   const rival = giantOf(defender);
   const d = rival ?? defender.piece;
-  const { key, distance } = planPunch({
+  const closest = rook.body.torso + (rival ? defender.piece.body.torso : PAWN_BODY) + BODY_GAP;
+  // La mitad de las veces, si tiene un golpe de arriba abajo y el puño llega a la coronilla del rival,
+  // le machaca el cráneo; si no, o si el puño se queda corto, un puñetazo de frente.
+  const overheads = giant.attacks.filter((attack) => attack.overhead && giant.strikes[attack.key]?.overhead);
+  const pick = overheads.length && random() < OVERHEAD_CHANCE ? overheads[Math.floor(random() * overheads.length)].key : null;
+  const down = pick ? planOverhead({ strike: giant.strikes[pick], from: home, center, defender, closest }) : null;
+  const { key, distance } = down ? { key: pick, distance: down.distance } : planPunch({
     giant, from: home, center, defender,
     torso: rival ? defender.piece.body.torso : TORSO,
-    closest: rook.body.torso + (rival ? defender.piece.body.torso : PAWN_BODY) + BODY_GAP,
+    closest,
   });
   const measure = giant.strikes[key];
-  const spots = strikeSpot(home, center, { reach: distance, torso: 0 });
+  const spots = strikeSpot(home, down ? down.head : center, { reach: distance, torso: 0 });
+  const facing = spots.attackerFacing + (down?.turn ?? 0); // el puño baja por un lado: gira para que caiga encima
+  const impact = down ? { t: down.t, bone: measure.overhead.bone } : { t: measure.body.t, bone: measure.body.bone };
 
   // 0. Qué hará cada gigante en su puesto: el atacante, su golpe y, si cabe, una provocación; el
   //    vencido, un derrumbe.
-  const posts = [{ entry: attacker, at: spots.attacker, facing: spots.attackerFacing, parts: [{ action: 'attack', key }] }];
+  const posts = [{ entry: attacker, at: spots.attacker, facing, parts: [{ action: 'attack', key }] }];
   if (rival) posts.push({ entry: defender, at: center, facing: spots.defenderFacing, parts: [] });
   const overlap = () => overlapOf(crowd, [attacker, defender], posts);
   const collapse = rival ? chooseCollapse(posts[1], { overlap, random }) : null;
@@ -268,7 +313,7 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   // 2. El gigante avanza hasta que su golpe alcanza al rival, se encaran y, si cabe, lo provoca.
   await attacker.mover.walkTo(spots.attacker);
   await Promise.all([
-    attacker.mover.turnTo(spots.attackerFacing, 0.3),
+    attacker.mover.turnTo(facing, 0.3),
     defender.mover.turnTo(spots.defenderFacing, 0.3),
   ]);
   const taunts = [];
@@ -284,8 +329,8 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   // 3. Golpe a cámara lenta, con destello, chispas y temblor. Un gigante vencido se tambalea y, poco
   //    después, se deshace en rocas.
   const attack = giant.playOnce('attack', { clip: key, fade: 0.15 });
-  await slowToImpact(clock, measure.body.t);
-  fx.burst(giant.object.getObjectByName(measure.body.bone).getWorldPosition(new THREE.Vector3()), { size: 1.2, sparks: 30 });
+  await slowToImpact(clock, impact.t);
+  fx.burst(giant.object.getObjectByName(impact.bone).getWorldPosition(new THREE.Vector3()), { size: 1.2, sparks: 30 });
   hud.flash();
   cinema.shake(0.25);
   const ux = Math.sin(spots.attackerFacing);
@@ -298,11 +343,15 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   } else {
     fall = d.playOnce(d.has('defeat') ? 'defeat' : 'fall', { fade: 0.1 });
     d.throwSpear({ x: ux, z: uz });
-    const start = d.figure.position.clone();
-    clock.tween(0.3, (t) => {
-      const k = 1 - (1 - t) ** 2;
-      d.figure.position.set(start.x + ux * KNOCKBACK * k, start.y, start.z + uz * KNOCKBACK * k);
-    });
+    if (down) {
+      squash(clock, d.figure); // machacado desde arriba: se aplasta en el sitio en vez de salir despedido
+    } else {
+      const start = d.figure.position.clone();
+      clock.tween(0.3, (t) => {
+        const k = 1 - (1 - t) ** 2;
+        d.figure.position.set(start.x + ux * KNOCKBACK * k, start.y, start.z + uz * KNOCKBACK * k);
+      });
+    }
   }
   await afterImpact(clock);
   await attack;
