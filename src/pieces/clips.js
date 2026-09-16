@@ -83,6 +83,24 @@ export function pickRootPositionTrack(trackNames) {
   return find(/(hips?|pelvis)\.position$/i) ?? find(/root\.position$/i);
 }
 
+// Pista de posición que más se desplaza del primer al último fotograma: la del hueso que lleva el
+// avance en un esqueleto con nombres desconocidos (el caballo de Tripo). `tracks` son { name, times,
+// values }; null si ninguna se mueve.
+export function pickDriftTrack(tracks) {
+  let best = null;
+  for (const track of tracks) {
+    const n = track.times.length;
+    if (!track.name.endsWith('.position') || n < 2) continue;
+    const moved = Math.hypot(
+      track.values[(n - 1) * 3] - track.values[0],
+      track.values[(n - 1) * 3 + 1] - track.values[1],
+      track.values[(n - 1) * 3 + 2] - track.values[2],
+    );
+    if (moved > 1e-6 && (!best || moved > best.moved)) best = { name: track.name, moved };
+  }
+  return best?.name ?? null;
+}
+
 // Eje vertical de un esqueleto (0 = x, 1 = y, 2 = z): el componente más largo de la
 // posición de la cadera, que está a la altura de la cintura. Mixamo usa Y; Tripo, Z.
 export function pickUpAxis(hipPosition) {

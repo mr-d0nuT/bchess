@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ACTIONS, findClipName, mapClips, pickRootPositionTrack, pickUpAxis, pickVariant, removeLinearDrift, resolveMoves, scaleHorizontalMotion,
+  ACTIONS, findClipName, mapClips, pickDriftTrack, pickRootPositionTrack, pickUpAxis, pickVariant, removeLinearDrift, resolveMoves, scaleHorizontalMotion,
 } from '../src/pieces/clips.js';
 
 test('las acciones del juego', () => {
@@ -98,4 +98,18 @@ test('scaleHorizontalMotion acorta el desplazamiento sin tocar la altura', () =>
 test('pickUpAxis elige el eje más largo de la cadera', () => {
   assert.equal(pickUpAxis([0.0045, -0.0166, 0.5176]), 2);
   assert.equal(pickUpAxis([0.01, 1.02, -0.03]), 1);
+});
+
+test('pickDriftTrack elige la pista de posición que más avanza', () => {
+  const tracks = [
+    { name: 'Lomo.position', times: [0, 1], values: [0, 0, 1, 0, 0.02, 1.01] },
+    { name: 'Raiz.position', times: [0, 0.5, 1], values: [0, 0, 0.9, 0, -0.6, 0.92, 0, -1.2, 0.9] },
+    { name: 'Pata.quaternion', times: [0, 1], values: [0, 0, 0, 1, 0, 0.7, 0, 0.7] },
+  ];
+  assert.equal(pickDriftTrack(tracks), 'Raiz.position');
+});
+
+test('pickDriftTrack devuelve null si ninguna pista de posición se mueve', () => {
+  assert.equal(pickDriftTrack([{ name: 'Raiz.position', times: [0, 1], values: [0, 1, 0, 0, 1, 0] }]), null);
+  assert.equal(pickDriftTrack([]), null);
 });
