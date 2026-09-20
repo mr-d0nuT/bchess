@@ -3,9 +3,9 @@ import { FAN_SECTORS, FAN_STEP } from '../moves/room.js';
 
 // Mide, una vez por tipo de pieza y con una pieza de prueba fuera de la escena, cada versión
 // de ataque. Guarda cuándo y hasta dónde llegan por delante la punta de la lanza (`spear`, con
-// dónde está la punta y hacia dónde apunta la lanza en ese momento) y la mano o el pie que más
-// avanzan (`body`), y cuánto se abren los pies a los lados (`sideStep`). Son distancias desde el
-// centro de la figura, que mira hacia +Z, en casillas.
+// dónde está la punta y hacia dónde apunta la lanza en ese momento), la punta de la espada (`blade`)
+// y la mano o el pie que más avanzan (`body`), y cuánto se abren los pies a los lados (`sideStep`).
+// Son distancias desde el centro de la figura, que mira hacia +Z, en casillas.
 
 const FPS = 60;
 const LIMBS = ['L_Hand', 'R_Hand', 'L_ToeBase', 'R_ToeBase'];
@@ -53,6 +53,7 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
     if (!action) continue;
     const duration = action.getClip().duration;
     let spear = null;
+    let blade = null;
     let body = null;
     let sideStep = 0;
     const paths = {}; // en un golpe de arriba abajo (`overhead` en el manifiesto), por dónde pasa cada mano
@@ -66,6 +67,10 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
           const axis = piece.props.spear.localToWorld(new THREE.Vector3(0, piece.spearEnds.bottom, 0)).sub(tip).negate().normalize();
           spear = { t, reach: tip.z, side: tip.x, height: tip.y, axis: [axis.x, axis.y, axis.z] };
         }
+      }
+      if (piece.props.sword && piece.swordEnds) {
+        const tip = piece.props.sword.localToWorld(point.set(0, piece.swordEnds.top, 0));
+        if (!blade || tip.z > blade.reach) blade = { t, reach: tip.z, side: tip.x, height: tip.y };
       }
       for (const limb of limbs) {
         const at = limb.getWorldPosition(point);
@@ -87,7 +92,7 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
         return { dx, dy, face: hit ? limb.z + 1 - hit.distance : null };
       });
     }
-    strikes[attack.key] = { duration, spear, body, sideStep, overhead: highestHand(paths) };
+    strikes[attack.key] = { duration, spear, blade, body, sideStep, overhead: highestHand(paths) };
   }
   return strikes;
 }
@@ -135,12 +140,12 @@ function measureFans(kit, spawnPiece, actions) {
   return fans;
 }
 
-// Medidas del cuerpo de un gigante, una vez por tipo de pieza:
+// Medidas del cuerpo de una pieza que pelea sin peana (el gigante, el jinete), una vez por tipo:
 // - `margin` compara la malla con los huesos en la postura de reposo del esqueleto;
 // - `torso` es donde un rayo horizontal a media altura toca su pecho;
 // - `walk`, hasta dónde llegan los huesos en reposo y al andar, más el margen;
-// - `fans`, el alcance en abanico de cada versión de sus acciones (`measureFans`).
-export function measureBody(kit, spawnPiece) {
+// - `fans`, el alcance en abanico de cada versión de `actions` (`measureFans`).
+export function measureBody(kit, spawnPiece, { actions = ['idle', 'walk', 'attack', 'hit', 'taunt', 'defeat'] } = {}) {
   kit.model.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(kit.model);
   const point = new THREE.Vector3();
@@ -154,8 +159,8 @@ export function measureBody(kit, spawnPiece) {
   const margin = Math.max(MIN_MARGIN, meshRadius - boneRadius);
   const chest = new THREE.Raycaster(new THREE.Vector3(0, kit.spec.height * 0.55, 5), new THREE.Vector3(0, 0, -1));
   const hit = chest.intersectObject(kit.model, true)[0];
-  const fans = measureFans(kit, spawnPiece, ['idle', 'walk', 'attack', 'hit', 'taunt', 'defeat']);
-  const farthest = (versions) => Math.max(0, ...Object.values(versions).map(({ profile }) => Math.max(...profile[profile.length - 1])));
+  const fans = measureFans(kit, spawnPiece, actions);
+  const farthest = (versions = {}) => Math.max(0, ...Object.values(versions).map(({ profile }) => Math.max(...profile[profile.length - 1])));
   return {
     walk: Math.max(farthest(fans.idle), farthest(fans.walk)) + margin,
     margin,

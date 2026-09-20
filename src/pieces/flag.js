@@ -2,7 +2,8 @@ import * as THREE from 'three';
 
 // Banderín de dos puntas que ondea en lo alto de la torre: un mástil dorado y una tela plana que
 // se ondula en cada fotograma, fija al mástil por su borde. La tela es la imagen del emblema de su
-// bando, recortada con la forma del banderín.
+// bando, recortada con la forma del banderín. Sin mástil (`pole: false`), la tela sola, para atarla a
+// la lanza del caballero.
 
 const POLE_RADIUS = 0.012;
 const CLOTH_WIDTH = 0.36;
@@ -40,15 +41,18 @@ export function flagTexture(image) {
   return texture;
 }
 
-export function createFlag({ texture, poleHeight = 0.5 }) {
+export function createFlag({ texture, poleHeight = 0.5, pole = true }) {
   const object = new THREE.Group();
   object.name = 'banderin';
-  const metal = new THREE.MeshStandardMaterial({ color: 0xd9b44a, metalness: 0.8, roughness: 0.35 });
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(POLE_RADIUS, POLE_RADIUS, poleHeight, 8), metal);
-  pole.position.y = poleHeight / 2;
-  pole.castShadow = true;
-  const knob = new THREE.Mesh(new THREE.SphereGeometry(POLE_RADIUS * 2.2, 12, 8), metal);
-  knob.position.y = poleHeight;
+  if (pole) {
+    const metal = new THREE.MeshStandardMaterial({ color: 0xd9b44a, metalness: 0.8, roughness: 0.35 });
+    const staff = new THREE.Mesh(new THREE.CylinderGeometry(POLE_RADIUS, POLE_RADIUS, poleHeight, 8), metal);
+    staff.position.y = poleHeight / 2;
+    staff.castShadow = true;
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(POLE_RADIUS * 2.2, 12, 8), metal);
+    knob.position.y = poleHeight;
+    object.add(staff, knob);
+  }
 
   const geometry = new THREE.PlaneGeometry(CLOTH_WIDTH, CLOTH_HEIGHT, 12, 3);
   geometry.translate(CLOTH_WIDTH / 2, 0, 0); // el borde izquierdo, en el mástil
@@ -59,8 +63,8 @@ export function createFlag({ texture, poleHeight = 0.5 }) {
     side: THREE.DoubleSide,
     roughness: 0.85,
   }));
-  cloth.position.set(POLE_RADIUS, poleHeight - CLOTH_HEIGHT / 2 - 0.03, 0);
-  object.add(pole, knob, cloth);
+  cloth.position.set(pole ? POLE_RADIUS : 0, poleHeight - CLOTH_HEIGHT / 2 - 0.03, 0);
+  object.add(cloth);
 
   const phase = Math.random() * Math.PI * 2;
   let time = 0;

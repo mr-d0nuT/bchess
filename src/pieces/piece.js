@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { pickRootPositionTrack, pickUpAxis, pickVariant, removeLinearDrift, resolveMoves, scaleHorizontalMotion } from './clips.js';
+import { pickDriftTrack, pickRootPositionTrack, pickUpAxis, pickVariant, removeLinearDrift, resolveMoves, scaleHorizontalMotion } from './clips.js';
 import { pickHandBone } from './bones.js';
 import { createSpear } from './spear.js';
+import { createSword } from './sword.js';
 import { strideSpeed } from '../moves/walk.js';
 import { slideAboveFloor } from './grip.js';
 
@@ -28,6 +29,8 @@ const SPEAR_FLOOR_MARGIN = 0.02; // lo que queda su extremo más bajo por encima
 const GRIP_SPEED = 4; // casillas por segundo que resbala la lanza cuando lo pide el combate
 const SPEAR_FLIGHT = 0.8; // segundos que tarda en desvanecerse la lanza que sale volando
 const SPEAR_GRAVITY = 6;
+const SPEAR_PLANT_DEPTH = 0.12; // lo que se clava en el tablero la lanza que se deja en el suelo
+const DEGREES = Math.PI / 180;
 
 export async function loadManifest() {
   const response = await fetch(`${MODELS}manifest.json`);
@@ -79,12 +82,12 @@ export function withShadows(object) {
   return object;
 }
 
-// Pista de posición de la cadera de un clip, con su eje vertical, o null.
+// Pista de posición del hueso raíz de un clip (tras `loadPieceKit`, la única que le queda), con su eje
+// vertical, o null.
 function rootTrack(clip) {
-  const name = pickRootPositionTrack(clip.tracks.map((t) => t.name));
-  const track = name ? clip.tracks.find((t) => t.name === name) : null;
+  const track = clip.tracks.find((t) => t.name.endsWith('.position'));
   if (!track) return null;
-  return { name, track, upAxis: pickUpAxis([track.values[0], track.values[1], track.values[2]]) };
+  return { name: track.name, track, upAxis: pickUpAxis([track.values[0], track.values[1], track.values[2]]) };
 }
 
 export async function loadPieceKit(spec, quality) {
@@ -101,9 +104,10 @@ export async function loadPieceKit(spec, quality) {
   ]);
   const clips = [...pieceGltf.animations, ...animationGltfs.flatMap((g) => g.animations)];
   // Solo la cadera conserva su pista de posición: así las animaciones de un esqueleto sirven
-  // a otro de proporciones algo distintas (cada hueso mantiene su propia longitud).
+  // a otro de proporciones algo distintas (cada hueso mantiene su propia longitud). En un esqueleto de
+  // nombres desconocidos (el caballo), la cadera es el hueso que más avanza.
   for (const clip of clips) {
-    const rootName = pickRootPositionTrack(clip.tracks.map((t) => t.name));
+    const rootName = pickRootPositionTrack(clip.tracks.map((t) => t.name)) ?? pickDriftTrack(clip.tracks);
     clip.tracks = clip.tracks.filter((t) => !t.name.endsWith('.position') || t.name === rootName);
   }
   const clipNames = clips.map((c) => c.name);
@@ -128,10 +132,11 @@ export async function loadPieceKit(spec, quality) {
 
   const { moves, missing } = resolveMoves(clipNames, spec.moves ?? {});
   if (missing.length) console.warn(`[BChess] El manifiesto pide clips que no están en el GLB: ${missing.join(', ')}. Clips: ${clipNames.join(', ')}`);
-  for (const action of ['idle', 'walk', 'attack', 'hit']) {
-    if (!moves[action].length) console.warn(`[BChess] La pieza no tiene animación «${action}». Clips: ${clipNames.join(', ') || '(ninguno)'}`);
+  // Las piezas que pelean avisan de lo que les falta; las demás (el caballo) dicen qué necesitan en `required`.
+  for (const action of spec.required ?? ['idle', 'walk', 'attack', 'hit']) {
+    if (!moves[action]?.length) console.warn(`[BChess] La pieza no tiene animación «${action}». Clips: ${clipNames.join(', ') || '(ninguno)'}`);
   }
-  if (!moves.fall.length && !moves.defeat?.length) console.warn(`[BChess] La pieza no tiene animación para caer. Clips: ${clipNames.join(', ') || '(ninguno)'}`);
+  if (!spec.required && !moves.fall.length && !moves.defeat?.length) console.warn(`[BChess] La pieza no tiene animación para caer. Clips: ${clipNames.join(', ') || '(ninguno)'}`);
 
   // Las pistas se cambian ANTES de crear acciones, porque cada acción las copia al crearse.
   // Paseo: se quita su avance y de él sale la velocidad. Resto: `travel` acorta el
@@ -163,7 +168,7 @@ export async function loadPieceKit(spec, quality) {
     right: spec.hands?.right ?? pickHandBone(bones, 'right'),
     left: spec.hands?.left ?? pickHandBone(bones, 'left'),
   };
-  if (!hands.right || !hands.left) console.warn(`[BChess] No encuentro las manos de la pieza. Huesos: ${bones.join(', ')}`);
+  if ((spec.spear || spec.shield || spec.sword) && (!hands.right || !hands.left)) console.warn(`[BChess] No encuentro las manos de la pieza. Huesos: ${bones.join(', ')}`);
 
   return {
     spec,
@@ -226,6 +231,12 @@ export function spawnPiece(kit) {
   let grip = 0;
   let flying = null; // lanza que ha salido volando: { velocity, axis, age }
   const cuts = []; // acciones de `playOnce` que acaban antes, por `seconds`: { action, at, resolve }
+  let planted = false; // lanza clavada en el tablero
+  // Giros y escalas que el código impone a algunos huesos encima de la animación (sentarse en la silla,
+  // juntar las rodillas, encoger un brazo cortado…): nombre → { bone, turn, scale, base, baseScale,
+  // depth, applied }.
+  const bonePoses = new Map();
+  let posedBones = []; // los de `bonePoses`, de padres a hijos
 
   function applySpearPose() {
     const pose = SPEAR_POSES[spearOverride ?? currentVariant?.spear ?? spearDefault];
@@ -313,8 +324,18 @@ export function spawnPiece(kit) {
   if (shieldBone && kit.shield) {
     props.shield = attachInWorld(new THREE.Group().add(kit.shield.clone()), shieldBone, spec.shield);
   }
+  const swordBone = spec.sword ? boneFor(spec.sword.hand ?? 'right') : null;
+  let swordEnds = null; // alturas del pomo y de la punta respecto al agarre
+  if (swordBone) {
+    const sword = createSword({ length: spec.sword.length });
+    sword.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(sword);
+    swordEnds = { bottom: box.min.y, top: box.max.y };
+    props.sword = attachInWorld(sword, swordBone, spec.sword);
+  }
   const spearHold = props.spear ? props.spear.quaternion.clone() : null;
   const spearGripAt = props.spear ? props.spear.position.clone() : null;
+  const spearScale = props.spear ? props.spear.scale.clone() : null;
 
   // Cada pieza respira a su ritmo: si todas empezaran a la vez parecerían soldaditos de cuerda.
   const idleAction = variants.idle?.[0]?.action;
@@ -347,6 +368,86 @@ export function spawnPiece(kit) {
     };
   }
 
+  // Clava la lanza erguida en el tablero, en `at` ({x, z}), y deja de seguir a la mano.
+  function plantSpear(at) {
+    const spear = props.spear;
+    if (!spear) return;
+    flying = null;
+    object.attach(spear);
+    spear.quaternion.identity();
+    spear.position.copy(object.worldToLocal(new THREE.Vector3(at.x, -spearEnds.bottom * spear.scale.y - SPEAR_PLANT_DEPTH, at.z)));
+    planted = true;
+  }
+
+  // Vuelve a poner la lanza en la mano, como al crear la pieza, aunque estuviera clavada o hubiera
+  // salido volando.
+  function holdSpear() {
+    const spear = props.spear;
+    if (!spear) return;
+    flying = null;
+    planted = false;
+    spearBone.add(spear);
+    spear.position.copy(spearGripAt);
+    spear.quaternion.copy(spearHold);
+    spear.scale.copy(spearScale);
+    spear.visible = true;
+    spear.traverse((o) => {
+      if (!o.isMesh || !o.material.transparent) return;
+      o.material.opacity = 1;
+      o.material.transparent = false;
+    });
+    grip = 0;
+    gripTarget = 0;
+    spearBlend = 0;
+  }
+
+  function poseOf(name) {
+    let pose = bonePoses.get(name);
+    if (pose) return pose;
+    const bone = model.getObjectByName(name);
+    if (!bone?.isBone) return null;
+    let depth = 0;
+    for (let at = bone.parent; at; at = at.parent) depth++;
+    pose = { bone, turn: null, scale: null, base: new THREE.Quaternion(), baseScale: new THREE.Vector3(1, 1, 1), depth, applied: false };
+    bonePoses.set(name, pose);
+    posedBones = [...bonePoses.values()].sort((a, b) => a.depth - b.depth);
+    return pose;
+  }
+
+  // Deja los huesos impuestos como los dejó la animación en el fotograma anterior.
+  function restoreBones() {
+    for (const pose of posedBones) {
+      if (!pose.applied) continue;
+      pose.bone.quaternion.copy(pose.base);
+      pose.bone.scale.copy(pose.baseScale);
+    }
+  }
+
+  const figureTurn = new THREE.Quaternion();
+  const figureTurnInverse = new THREE.Quaternion();
+  const parentTurn = new THREE.Quaternion();
+  const parentTurnInverse = new THREE.Quaternion();
+  const worldTurn = new THREE.Quaternion();
+
+  // Encima de la animación, cada hueso impuesto se escala y gira en el espacio de la figura. Los padres
+  // van antes que los hijos, para que el giro de un hijo cuente con el de su padre.
+  function applyBones() {
+    if (!posedBones.length) return;
+    figure.getWorldQuaternion(figureTurn);
+    figureTurnInverse.copy(figureTurn).invert();
+    for (const pose of posedBones) {
+      pose.base.copy(pose.bone.quaternion);
+      pose.baseScale.copy(pose.bone.scale);
+      pose.applied = true;
+      if (pose.scale !== null) pose.bone.scale.setScalar(pose.scale);
+      if (!pose.turn) continue;
+      pose.bone.parent.getWorldQuaternion(parentTurn);
+      parentTurnInverse.copy(parentTurn).invert();
+      worldTurn.copy(figureTurn).multiply(pose.turn).multiply(figureTurnInverse);
+      pose.bone.quaternion.copy(parentTurnInverse).multiply(worldTurn).multiply(parentTurn).multiply(pose.base);
+    }
+  }
+
   const spin = new THREE.Quaternion();
 
   function flySpear(spear, dt) {
@@ -367,7 +468,9 @@ export function spawnPiece(kit) {
   const POSE_TURN_SPEED = 7; // radianes por segundo: de erguida a en estocada tarda ~0,25 s
 
   function update(dt) {
+    restoreBones();
     mixer.update(dt);
+    applyBones();
     for (const cut of [...cuts]) {
       if (cut.action.time < cut.at && cut.action === current) continue;
       cuts.splice(cuts.indexOf(cut), 1);
@@ -379,6 +482,7 @@ export function spawnPiece(kit) {
       flySpear(spear, dt);
       return;
     }
+    if (planted) return;
     // Con la lanza en la mano, la postura no se ve: la próxima empieza ya en su sitio.
     if (spearBlend <= 0.0001) poseNow.copy(spearPose);
     const step = SPEAR_TURN_SPEED * dt;
@@ -444,10 +548,48 @@ export function spawnPiece(kit) {
       gripTarget = Math.max(-1, amount);
     },
     throwSpear,
+    plantSpear,
+    holdSpear,
+    // Gira un hueso `turn` grados ({ x, y, z }, en el espacio de la figura: +X a su izquierda, +Y arriba
+    // y +Z delante) encima de lo que haga la animación; con null deja de girarlo.
+    turnBone(name, turn) {
+      const pose = poseOf(name);
+      if (!pose) return false;
+      if (!turn) {
+        pose.turn = null;
+        return true;
+      }
+      pose.turn ??= new THREE.Quaternion();
+      pose.turn.setFromEuler(new THREE.Euler((turn.x ?? 0) * DEGREES, (turn.y ?? 0) * DEGREES, (turn.z ?? 0) * DEGREES));
+      return true;
+    },
+    // Escala un hueso, y todo lo que cuelga de él, encima de la animación; con null deja de escalarlo.
+    scaleBone(name, scale) {
+      const pose = poseOf(name);
+      if (!pose) return false;
+      pose.scale = scale ?? null;
+      return true;
+    },
+    // Quita todos los giros y escalas impuestos.
+    resetBones() {
+      restoreBones();
+      bonePoses.clear();
+      posedBones = [];
+    },
+    // Sin ninguna animación: el esqueleto vuelve a la postura de reposo del modelo (el caballo quieto,
+    // si no tiene animación de reposo).
+    rest() {
+      mixer.stopAllAction();
+      current = null;
+      currentVariant = null;
+      model.traverse((o) => { if (o.isSkinnedMesh) o.skeleton.pose(); });
+      applySpearPose();
+    },
     hasClip(action, key) {
       return Boolean(variants[action]?.some((variant) => variant.key === key));
     },
     spearEnds,
+    swordEnds,
     get attacks() {
       return kit.moves.attack ?? [];
     },
