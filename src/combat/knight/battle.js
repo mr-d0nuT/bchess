@@ -3,8 +3,10 @@
 // toca y se prepara lo que comparten: el sitio que piden los luchadores (sus abanicos, los cuerpos
 // tendidos y los trozos que salen volando) y la limpieza al terminar, pase lo que pase.
 
+import { pawnKicksKnight } from './pawn-kicks-knight.js';
+
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas
-const BATTLES = []; // una batalla por fichero; las tareas 13 a 17 las van añadiendo
+const BATTLES = [pawnKicksKnight]; // una batalla por fichero; las tareas 14 a 17 las van añadiendo
 
 const battleFor = (attacker, defender) => BATTLES.find((battle) => battle.matches(attacker, defender)) ?? null;
 
