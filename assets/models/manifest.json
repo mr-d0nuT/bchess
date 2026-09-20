@@ -133,7 +133,7 @@
       },
       "rider": {
         "files": { "movil": "knight-movil.glb", "ordenador": "knight-ordenador.glb" },
-        "height": 1.35,
+        "height": 1.5,
         "yaw": 0,
         "moves": {
           "idle": [{ "clip": "idle" }],
@@ -175,7 +175,7 @@
       },
       "rider": {
         "files": { "movil": "black-knight-movil.glb", "ordenador": "black-knight-ordenador.glb" },
-        "height": 1.35,
+        "height": 1.5,
         "yaw": 0,
         "moves": {
           "idle": [{ "clip": "idle" }],

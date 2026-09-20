@@ -13,7 +13,7 @@ import { measureBody, measureStrikes } from '../combat/strikes.js';
 // caballo, el jinete va de pie sobre la peana, como un peón.
 
 const MODELS = 'assets/models/';
-const SEAT_LIFT = 0.04; // de la silla a la cadera del jinete sentado
+const SEAT_LIFT = 0.06; // de la silla a la cadera del jinete sentado
 const HITBOX_RADIUS = 0.45;
 const PENNANT_SCALE = 0.7;
 const PENNANT_BELOW_TIP = 0.3; // del extremo de la lanza al banderín
@@ -24,6 +24,8 @@ const MIN_HALF_WIDTH = 0.3; // el jinete, con el escudo y la lanza, es más anch
 // toman las más bajas (`band`), que son la suela; las demás son pliegues de la gualdrapa.
 const STIRRUP_SCAN = { x: [0.18, 0.46], z: [-0.2, 0.45], step: 0.015, from: 1.25, reach: 1.1, plate: 0.05, low: 0.8, band: 0.04 };
 const FOOT_ROUNDS = 14; // vueltas de la cinemática inversa de cada pierna del jinete
+const KNEE_FORWARD = 0.45; // cuánto pesa que la rodilla vaya adelante frente a que vaya hacia fuera
+const KNEE_STEP = 5; // grados entre cada posición de rodilla que se prueba
 const FOOT_BONES = { 1: ['L_Thigh', 'L_Calf'], '-1': ['R_Thigh', 'R_Calf'] };
 const FOOT_TIP = { 1: 'L_Foot', '-1': 'R_Foot' };
 // Reposo vivo del caballo: este caballo no tiene animación de reposo (solo el paseo), así que quieto
@@ -81,11 +83,13 @@ const IK_BONES = 3; // huesos de cada pata que se giran: los de arriba, que los 
 // Baja un hueso (`tip`) hasta `target` (un punto del mundo) girando los huesos de `chain`, por
 // aproximaciones sucesivas y encima de lo que haga la animación. Devuelve los giros impuestos, para
 // poder repetirlos en otra pieza igual.
-function reachTo(piece, chain, tipName, target, { rounds = IK_ROUNDS } = {}) {
+function reachTo(piece, chain, tipName, target, { rounds = IK_ROUNDS, start = null } = {}) {
   const tip = piece.figure.getObjectByName(tipName);
   const bones = chain.map((name) => ({ name, object: piece.figure.getObjectByName(name) })).filter((b) => b.object);
   if (!tip || !bones.length) return [];
-  const turns = bones.map(() => new THREE.Quaternion());
+  // Se parte de la postura que ya tuviera (la de sentado): así el resultado se le parece y no sale la
+  // pierna recta, que es el camino más corto del muslo al estribo… y pasa por dentro del caballo.
+  const turns = bones.map((bone, i) => (start?.[i] ? start[i].clone() : new THREE.Quaternion()));
   const figureTurn = new THREE.Quaternion();
   const swing = new THREE.Quaternion();
   const at = new THREE.Vector3();
@@ -426,26 +430,109 @@ export function spawnKnight(kit) {
       for (const side of [1, -1]) stirrups[side] = findStirrup(meshes, horse.figure, side);
     }
     const target = new THREE.Vector3();
-    const figureTurn = new THREE.Quaternion();
     for (const side of [1, -1]) {
       const stirrup = stirrups[side];
       if (!stirrup) continue;
       target.copy(stirrup);
       target.y += kit.ankleHeight ?? 0;
       horse.figure.localToWorld(target);
-      reachTo(rider, FOOT_BONES[side], FOOT_TIP[side], target, { rounds: FOOT_ROUNDS });
-      // La bota, como de pie: horizontal sobre el estribo.
-      const boot = rider.figure.getObjectByName(FOOT_TIP[side]);
-      if (!boot || !bootStanding[side]) continue;
-      rider.update(0);
-      object.updateMatrixWorld(true);
-      rider.figure.getWorldQuaternion(figureTurn);
-      const want = figureTurn.clone().multiply(bootStanding[side]);
-      const turn = figureTurn.clone().invert()
-        .multiply(want).multiply(boot.getWorldQuaternion(new THREE.Quaternion()).invert())
-        .multiply(figureTurn);
-      rider.turnBone(FOOT_TIP[side], turn);
+      legToStirrup(side, target);
+      levelBoot(side);
     }
+  }
+
+  // La postura de sentado del manifiesto, como giros, de la que se parte.
+  function seatTurns(side) {
+    const { thigh, calf } = spec.rider.seat;
+    const degrees = Math.PI / 180;
+    return [
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(thigh.x * degrees, 0, side * thigh.z * degrees)),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(calf.x * degrees, 0, 0)),
+    ];
+  }
+
+  // Pierna del jinete hasta el estribo, con la rodilla abierta por fuera de la barriga: muslo y
+  // pantorrilla son dos segmentos de largo conocido, así que se resuelve de una vez. La rodilla se pone
+  // del lado que marca el «polo» (hacia fuera y algo adelante), que es lo que hace que la pierna abrace
+  // al caballo en vez de atravesarlo.
+  function legToStirrup(side, target) {
+    const thighBone = rider.figure.getObjectByName(FOOT_BONES[side][0]);
+    const calfBone = rider.figure.getObjectByName(FOOT_BONES[side][1]);
+    const footBone = rider.figure.getObjectByName(FOOT_TIP[side]);
+    if (!thighBone || !calfBone || !footBone) return;
+    const turns = seatTurns(side);
+    rider.turnBone(FOOT_BONES[side][0], turns[0]);
+    rider.turnBone(FOOT_BONES[side][1], turns[1]);
+    rider.update(0);
+    object.updateMatrixWorld(true);
+
+    const hip = thighBone.getWorldPosition(new THREE.Vector3());
+    const knee = calfBone.getWorldPosition(new THREE.Vector3());
+    const ankle = footBone.getWorldPosition(new THREE.Vector3());
+    const thighLength = hip.distanceTo(knee);
+    const calfLength = knee.distanceTo(ankle);
+    const reach = target.clone().sub(hip);
+    const span = Math.min(
+      Math.max(reach.length(), Math.abs(thighLength - calfLength) + 1e-3),
+      thighLength + calfLength - 1e-3,
+    );
+    const direction = reach.clone().normalize();
+
+    // Con el pie en el estribo, la rodilla puede estar en cualquier punto de una circunferencia. Se
+    // recorre entera y se queda con la que más se aparta del caballo (y, a igualdad, la más adelantada):
+    // esa es la pierna que abraza la barriga en vez de atravesarla.
+    const centre = horse.figure.getWorldPosition(new THREE.Vector3());
+    const outward = horse.figure.localToWorld(new THREE.Vector3(side, 0, 0)).sub(centre).normalize();
+    const forward = horse.figure.localToWorld(new THREE.Vector3(0, 0, 1)).sub(centre).normalize();
+    const cosine = (thighLength * thighLength + span * span - calfLength * calfLength) / (2 * thighLength * span);
+    const angle = Math.acos(Math.min(1, Math.max(-1, cosine)));
+    const along = hip.clone().addScaledVector(direction, thighLength * Math.cos(angle));
+    const radius = thighLength * Math.sin(angle);
+    const u = new THREE.Vector3().crossVectors(direction, outward);
+    if (u.lengthSq() < 1e-6) return;
+    u.normalize();
+    const w = new THREE.Vector3().crossVectors(direction, u).normalize();
+    let wanted = null;
+    let bestScore = -Infinity;
+    const point = new THREE.Vector3();
+    for (let degrees = 0; degrees < 360; degrees += KNEE_STEP) {
+      const t = (degrees * Math.PI) / 180;
+      point.copy(along).addScaledVector(u, radius * Math.cos(t)).addScaledVector(w, radius * Math.sin(t));
+      const offset = point.clone().sub(hip);
+      const score = offset.dot(outward) + KNEE_FORWARD * offset.dot(forward);
+      if (score > bestScore) {
+        bestScore = score;
+        wanted = point.clone();
+      }
+    }
+    if (!wanted) return;
+
+    const figureTurn = rider.figure.getWorldQuaternion(new THREE.Quaternion());
+    const inFigure = (turn) => figureTurn.clone().invert().multiply(turn).multiply(figureTurn);
+
+    // 1. El muslo apunta a donde ha de ir la rodilla; la pantorrilla va con él (giro por delante y por
+    // detrás, que es lo que deja su postura igual respecto al muslo).
+    const swingThigh = inFigure(new THREE.Quaternion().setFromUnitVectors(
+      knee.clone().sub(hip).normalize(),
+      wanted.clone().sub(hip).normalize(),
+    ));
+    turns[0].premultiply(swingThigh);
+    turns[1].premultiply(swingThigh).multiply(swingThigh.clone().invert());
+    rider.turnBone(FOOT_BONES[side][0], turns[0]);
+    rider.turnBone(FOOT_BONES[side][1], turns[1]);
+    rider.update(0);
+    object.updateMatrixWorld(true);
+
+    // 2. La pantorrilla baja hasta el estribo.
+    const kneeNow = calfBone.getWorldPosition(new THREE.Vector3());
+    const ankleNow = footBone.getWorldPosition(new THREE.Vector3());
+    turns[1].premultiply(inFigure(new THREE.Quaternion().setFromUnitVectors(
+      ankleNow.clone().sub(kneeNow).normalize(),
+      target.clone().sub(kneeNow).normalize(),
+    )));
+    rider.turnBone(FOOT_BONES[side][1], turns[1]);
+    rider.update(0);
+    object.updateMatrixWorld(true);
   }
 
   // Deja el escudo tan recto como cuando el caballero va a pie, esté como esté el brazo, girándolo
@@ -459,6 +546,20 @@ export function spawnKnight(kit) {
     const grip = shieldInHand.position.clone().negate().applyQuaternion(shieldInHand.quaternion.clone().invert());
     shield.quaternion.copy(turn);
     shield.position.copy(grip.applyQuaternion(turn).negate());
+  }
+
+  // Deja la bota como cuando el caballero va de pie: horizontal sobre el estribo.
+  function levelBoot(side) {
+    const boot = rider.figure.getObjectByName(FOOT_TIP[side]);
+    if (!boot || !bootStanding[side]) return;
+    rider.update(0);
+    object.updateMatrixWorld(true);
+    const figureTurn = rider.figure.getWorldQuaternion(new THREE.Quaternion());
+    const want = figureTurn.clone().multiply(bootStanding[side]);
+    const turn = figureTurn.clone().invert()
+      .multiply(want).multiply(boot.getWorldQuaternion(new THREE.Quaternion()).invert())
+      .multiply(figureTurn);
+    rider.turnBone(FOOT_TIP[side], turn);
   }
 
   // Respiración y meneo del caballo quieto: el cuerpo sube y baja un pelo, el cuello se mueve con otro
