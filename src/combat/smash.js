@@ -3,6 +3,7 @@ import { TORSO, bestStrike, fightSpots, strikeSpot, usableStrikes } from './plan
 import {
   afterImpact, choose, gripSlideToTarget, knockBack, overlapOf, planPunch, poseAhead, slowToImpact, stanceOf, standing, targetsOf, towardRival,
 } from './fight.js';
+import { skinnedMeshes } from './strikes.js';
 import { CRUMBLE_SECONDS } from '../moves/rook-mover.js';
 
 // Capturas cortas y brutales en las que participa una torre (diseño en docs/superpowers/specs/
@@ -23,10 +24,14 @@ const GRIP_SETTLE = 0.35; // lo que tarda la lanza en resbalar en la mano antes 
 const SPEAR_RECOIL = 0.12; // lo que rebota la lanza en la piedra tras el golpe
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas
 const FIST_BITE = 0.03; // lo que se hunde en el rival la cara del puño
-const FIST_HALF = 0.02; // del hueso de la mano del gigante a la cara de abajo de su puño cerrado, medido
+const FIST_REACH = 1; // hasta dónde se busca, por debajo del hueso de la mano, la cara de abajo del puño
 const SQUASH = 0.55; // lo que queda de alto el peón al que machaca un puñetazo de arriba abajo
 const OVERHEAD_CHANCE = 0.5; // cada cuánto, si puede, machaca el cráneo en vez de pegar de frente
 const RAY_FAR = 3; // desde dónde se lanza el rayo que busca la coronilla del rival
+const CROWN_PHASES = 4; // momentos del reposo del rival en los que se mira su coronilla
+// Cruz de rayos alrededor del hueso de la cabeza: la corona del gigante es almenada y por el centro
+// está hundida, así que el puño tiene que pararse encima de lo más alto, no entre las almenas.
+const CROWN_RAYS = [[0, 0], [0.12, 0], [-0.12, 0], [0, 0.12], [0, -0.12]];
 
 const giantOf = (entry) => (entry.kind === 'rook' ? entry.piece.giant : null);
 const collapseOf = (giant) => (giant.has('defeat') ? 'defeat' : 'hit');
@@ -44,36 +49,104 @@ export function canSmash(attacker, defender) {
     && usableStrikes(attacker.piece.attacks, attacker.piece.strikes, 'duel').length > 0;
 }
 
+// Cuánto sobresale el puño por debajo del hueso de la mano en el instante `t` del golpe `key`: un rayo
+// hacia arriba contra la propia malla del que pega, con el clip puesto en ese momento. Devuelve 0 si por
+// debajo del hueso no hay puño (a mitad de la bajada el puño va por delante, no debajo). Hace falta
+// medirlo y no darlo por sabido: en el gigante pasa de 0 a 38 cm según el momento del tajo.
+function fistBelow(fighter, key, bone, t) {
+  const action = fighter.play('attack', { loop: false, fade: 0, clip: key });
+  if (!action) return 0;
+  const now = action.time;
+  const up = new THREE.Vector3(0, 1, 0);
+  try {
+    action.time = t;
+    fighter.update(0);
+    fighter.object.updateMatrixWorld(true);
+    const at = fighter.object.getObjectByName(bone)?.getWorldPosition(new THREE.Vector3());
+    if (!at) return 0;
+    const hit = new THREE.Raycaster(at.clone().addScaledVector(up, -FIST_REACH), up, 0, FIST_REACH)
+      .intersectObjects(skinnedMeshes(fighter.object), false)[0];
+    return hit ? FIST_REACH - hit.distance : 0;
+  } finally {
+    action.time = now;
+    fighter.play('idle', { fade: 0 });
+    fighter.update(0);
+  }
+}
+
 // Puñetazo de arriba abajo: a qué distancia entre los centros se para el gigante para que su puño, que
 // baja por `strike.overhead.path` (medido con la pieza de prueba mirando hacia +Z), se hunda FIST_BITE
 // en la coronilla del rival (`target`, plantado en `center` y mirando hacia `from`), y en qué momento del
 // golpe la toca. `turn` es lo que gira el gigante sobre la línea hacia la cabeza, para que el puño, que
-// baja por un lado, caiga justo encima. Devuelve null si el puño no llega a bajar hasta la cabeza o si el
-// gigante tendría que acercarse más de `closest`.
-function planOverhead({ strike, from, center, target, closest, rest = false }) {
+// baja por un lado, caiga justo encima. Se resuelve en dos pasadas: la primera coloca el hueso en la
+// coronilla, y con ese instante se mide cuánto puño cuelga por debajo (`fistBelow`) para volver a
+// resolver con esa medida. Devuelve null si el puño no llega a la cabeza, si con el puño de verdad no
+// puede caerle encima sin metérsele dentro, o si el gigante tendría que acercarse más de `closest`; en
+// esos casos pega de frente.
+function planOverhead({ strike, from, center, target, closest, rest = false, fighter, key }) {
   const { path } = strike.overhead;
   const facing = Math.atan2(center.x - from.x, center.z - from.z);
   const head = standing(target, facing + Math.PI, () => {
     const bone = target.object.getObjectByName('Head');
     if (!bone) return null;
-    const at = bone.getWorldPosition(new THREE.Vector3());
     const down = new THREE.Vector3(0, -1, 0);
-    const hit = new THREE.Raycaster(new THREE.Vector3(at.x, at.y + RAY_FAR, at.z), down, 0, 2 * RAY_FAR).intersectObjects(targetsOf(target), false)[0];
-    return hit ? { x: at.x, z: at.z, crown: hit.point.y } : null;
+    const targets = targetsOf(target);
+    // El reposo de un gigante sube y baja la cabeza un palmo, y el golpe llega vaya a saber en qué
+    // momento de ese vaivén: se mira la coronilla a lo largo de todo su reposo y manda la más alta, así
+    // el puño nunca se le mete dentro (como mucho se queda un pelo corto).
+    const idle = rest ? target.play('idle', { fade: 0 }) : null;
+    const duration = idle?.getClip().duration ?? 0;
+    const now = idle?.time ?? 0;
+    const phases = idle && duration > 0 ? CROWN_PHASES : 1;
+    let best = null;
+    try {
+      for (let i = 0; i < phases; i++) {
+        if (idle && duration > 0) {
+          idle.time = (duration * i) / phases;
+          target.update(0);
+          target.object.updateMatrixWorld(true);
+        }
+        const at = bone.getWorldPosition(new THREE.Vector3());
+        for (const [dx, dz] of CROWN_RAYS) {
+          const from2 = new THREE.Vector3(at.x + dx, at.y + RAY_FAR, at.z + dz);
+          const hit = new THREE.Raycaster(from2, down, 0, 2 * RAY_FAR).intersectObjects(targets, false)[0];
+          if (hit && (!best || hit.point.y > best.crown)) best = { x: at.x, z: at.z, crown: hit.point.y };
+        }
+      }
+    } finally {
+      if (idle) {
+        idle.time = now;
+        target.update(0);
+      }
+    }
+    return best;
   }, { rest });
   if (!head) return null;
   const top = path.reduce((best, sample, i) => (sample.y > path[best].y ? i : best), 0);
-  // El puño baja casi un palmo por fotograma, así que entre la muestra de antes y la de después se
-  // interpola el momento justo en el que su cara de abajo llega a la coronilla.
-  const objetivo = head.crown + FIST_HALF - FIST_BITE;
   const bajada = path.slice(top);
-  const corte = bajada.findIndex((sample) => sample.y <= objetivo);
-  if (corte < 0) return null;
-  const hasta = bajada[corte];
-  const desde = corte > 0 ? bajada[corte - 1] : null;
-  const k = desde && desde.y > hasta.y ? (desde.y - objetivo) / (desde.y - hasta.y) : 1;
-  const entre = (a, b) => a + (b - a) * k;
-  const impact = desde ? { t: entre(desde.t, hasta.t), x: entre(desde.x, hasta.x), z: entre(desde.z, hasta.z) } : hasta;
+  // El puño baja casi un palmo por fotograma, así que entre la muestra de antes y la de después se
+  // interpola el momento justo en el que su cara de abajo llega a la coronilla. `below` es lo que cuelga
+  // el puño por debajo del hueso de la mano en ese momento.
+  const resolver = (below) => {
+    const objetivo = head.crown + below - FIST_BITE;
+    // Si en lo más alto del golpe el puño ya está por debajo de esa altura, nunca le cae encima: no hay
+    // bajada que cruce la coronilla, solo un puño que pasa por dentro de la cabeza.
+    if (!bajada.length || bajada[0].y <= objetivo) return null;
+    const corte = bajada.findIndex((sample) => sample.y <= objetivo);
+    if (corte < 0) return null;
+    const hasta = bajada[corte];
+    const desde = corte > 0 ? bajada[corte - 1] : null;
+    const k = desde && desde.y > hasta.y ? (desde.y - objetivo) / (desde.y - hasta.y) : 1;
+    const entre = (a, b) => a + (b - a) * k;
+    return desde ? { t: entre(desde.t, hasta.t), x: entre(desde.x, hasta.x), z: entre(desde.z, hasta.z) } : hasta;
+  };
+  let impact = resolver(0); // primera pasada: el hueso justo en la coronilla
+  if (!impact) return null;
+  const below = fistBelow(fighter, key, strike.overhead.bone, impact.t);
+  if (below > 0) {
+    impact = resolver(below);
+    if (!impact) return null; // con el puño de verdad no le cae encima sin metérsele dentro: de frente
+  }
   const distance = Math.hypot(impact.x, impact.z);
   if (distance < closest) return null;
   return { head: { x: head.x, z: head.z }, distance, t: impact.t, turn: -Math.atan2(impact.x, impact.z) };
@@ -108,7 +181,7 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   // le machaca el cráneo; si no, o si el puño se queda corto, un puñetazo de frente.
   const overheads = giant.attacks.filter((attack) => attack.overhead && giant.strikes[attack.key]?.overhead);
   const pick = overheads.length && random() < OVERHEAD_CHANCE ? overheads[Math.floor(random() * overheads.length)].key : null;
-  const down = pick ? planOverhead({ strike: giant.strikes[pick], from: home, center, target: d, closest, rest }) : null;
+  const down = pick ? planOverhead({ strike: giant.strikes[pick], from: home, center, target: d, closest, rest, fighter: giant, key: pick }) : null;
   const { key, distance } = down ? { key: pick, distance: down.distance } : planPunch({
     attacks: giant.attacks, strikes: giant.strikes, from: home, center, target: d, rest,
     torso: rival ? defender.piece.body.torso : TORSO,
