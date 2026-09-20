@@ -6,15 +6,18 @@ import { createHighlights } from './scene/highlights.js';
 import { createHud } from './ui/hud.js';
 import { loadManifest, loadPieceKit, spawnPiece } from './pieces/piece.js';
 import { loadRookKit, spawnRook } from './pieces/rook.js';
+import { loadKnightKit, spawnKnight } from './pieces/knight.js';
 import { createDust } from './fx/dust.js';
 import { createRubble } from './fx/rubble.js';
 import { createMover } from './moves/sequence.js';
 import { createRookMover } from './moves/rook-mover.js';
+import { createKnightMover } from './moves/knight-mover.js';
 import { createCrowd } from './moves/crowd.js';
 import { restFacingFor } from './moves/walk.js';
 import { onBoardTap } from './input.js';
 import { pawnCaptures, pawnMoves } from './rules/pawn.js';
 import { rookMoves } from './rules/rook.js';
+import { knightMoves } from './rules/knight.js';
 import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
 import { createClock } from './combat/clock.js';
 import { measureStrikes } from './combat/strikes.js';
@@ -24,17 +27,19 @@ import { pickStyle } from './combat/plan.js';
 import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
 
-// Arranque: peones blancos en la fila 2 y negros en la 7, y torres en las esquinas (las piezas
-// que traiga el manifiesto). Tocas una pieza y se marcan sus casillas posibles (puntos dorados) y
+// Arranque: peones blancos en la fila 2 y negros en la 7, torres en las esquinas y caballeros en las
+// columnas b y g (las piezas que traiga el manifiesto). Tocas una pieza y se marcan sus casillas
+// posibles (puntos dorados) y
 // los enemigos que puede comerse (aros rojos). Al tocar una casilla va hasta ella; al tocar un
 // enemigo marcado, se lo come. Los botones actúan sobre el peón elegido.
 
 const SIDES = [
-  { color: 'white', pawn: 'white-pawn', rook: 'white-rook', pawnRank: 2, backRank: 1 },
-  { color: 'black', pawn: 'black-pawn', rook: 'black-rook', pawnRank: 7, backRank: 8 },
+  { color: 'white', pawn: 'white-pawn', rook: 'white-rook', knight: 'white-knight', pawnRank: 2, backRank: 1 },
+  { color: 'black', pawn: 'black-pawn', rook: 'black-rook', knight: 'black-knight', pawnRank: 7, backRank: 8 },
 ];
 const FILES = 'abcdefgh';
 const ROOK_FILES = 'ah';
+const KNIGHT_FILES = 'bg';
 const BUTTON_ACTIONS = ['attack', 'hit', 'fall'];
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
 const hud = createHud();
@@ -71,10 +76,11 @@ async function start() {
   const fx = createImpactFx(stage.scene);
   const cinema = createCinema(stage);
   const rubble = createRubble(stage.scene);
-  const pieces = []; // { kind: 'pawn' | 'rook', color, piece, mover }
+  const pieces = []; // { kind: 'pawn' | 'rook' | 'knight', color, piece, mover }
   const crowd = createCrowd({ board, entries: () => pieces });
   const state = { selected: null, busy: false, fighting: false, lastStyle: null };
-  // De tanto en tanto, un solo peón del tablero hace un gesto especial; nunca dos a la vez.
+  // De tanto en tanto, una sola pieza del tablero hace un gesto especial (un peón, o el caballo de un
+  // caballero encabritándose); nunca dos a la vez.
   const gesture = { performer: null, last: null, lastVariant: -1, at: performance.now() + nextGestureDelay() };
 
   function directGestures(now) {
@@ -84,14 +90,16 @@ async function start() {
       gesture.at = now + nextGestureDelay();
     }
     if (now < gesture.at) return;
-    const candidates = state.busy || state.fighting ? [] : pieces.filter((entry) => entry.kind === 'pawn' && entry !== state.selected);
-    const pawn = pickPerformer(candidates, gesture.last);
-    const variant = pawn ? pawn.mover.fidget({ avoid: gesture.lastVariant }) : null;
+    const candidates = state.busy || state.fighting
+      ? []
+      : pieces.filter((entry) => (entry.kind === 'pawn' || entry.kind === 'knight') && entry !== state.selected);
+    const actor = pickPerformer(candidates, gesture.last);
+    const variant = actor ? actor.mover.fidget({ avoid: gesture.lastVariant }) : null;
     if (variant === null) {
       gesture.at = now + GESTURE_RETRY_MS;
       return;
     }
-    Object.assign(gesture, { performer: pawn, last: pawn, lastVariant: variant });
+    Object.assign(gesture, { performer: actor, last: actor, lastVariant: variant });
   }
 
   // Un fotograma de juego: reloj, sitio para los gigantes, animaciones, gestos y efectos.
@@ -142,12 +150,12 @@ async function start() {
   const occupied = () => new Set(pieces.map((entry) => entry.mover.square));
   const enemiesOf = (entry) => new Set(pieces.filter((other) => other.color !== entry.color).map((other) => other.mover.square));
   const pieceAt = (square) => pieces.find((entry) => entry.mover.square === square) ?? null;
-  const movesOf = (entry) => (entry.kind === 'rook'
-    ? rookMoves(entry.mover.square, occupied(), enemiesOf(entry)).moves
-    : pawnMoves(entry.mover.square, occupied(), entry.color));
-  const capturesOf = (entry) => (entry.kind === 'rook'
-    ? rookMoves(entry.mover.square, occupied(), enemiesOf(entry)).captures
-    : pawnCaptures(entry.mover.square, enemiesOf(entry), entry.color));
+  // La torre y el caballero se mueven y comen igual; el peón come de otra forma que avanza.
+  const reach = (entry) => (entry.kind === 'rook'
+    ? rookMoves(entry.mover.square, occupied(), enemiesOf(entry))
+    : knightMoves(entry.mover.square, occupied(), enemiesOf(entry)));
+  const movesOf = (entry) => (entry.kind === 'pawn' ? pawnMoves(entry.mover.square, occupied(), entry.color) : reach(entry).moves);
+  const capturesOf = (entry) => (entry.kind === 'pawn' ? pawnCaptures(entry.mover.square, enemiesOf(entry), entry.color) : reach(entry).captures);
   // Atacar, Golpe y Caer solo actúan sobre peones.
   const refreshButtons = () => hud.setBusy(state.busy || state.fighting || state.selected?.kind !== 'pawn');
 
@@ -193,7 +201,7 @@ async function start() {
       if (attacker.kind === 'pawn' && defender.kind === 'pawn' && canFight(attacker, defender, style)) {
         state.lastStyle = style;
         await runCombat({ attacker, defender, board, clock, fx, cinema, hud, style, obstacles });
-      } else if (canSmash(attacker, defender)) {
+      } else if (attacker.kind !== 'knight' && defender.kind !== 'knight' && canSmash(attacker, defender)) {
         await runSmash({ attacker, defender, board, clock, fx, cinema, hud, crowd, obstacles });
       } else {
         await plainCapture(attacker, defender, target);
@@ -295,6 +303,27 @@ async function start() {
     }
   }
 
+  // Los caballeros también van aparte.
+  async function loadKnights(manifest) {
+    try {
+      const sides = SIDES.filter((side) => manifest.pieces?.[side.knight]);
+      const kits = await Promise.all(sides.map((side) => loadKnightKit(manifest.pieces[side.knight], quality)));
+      sides.forEach((side, i) => {
+        for (const file of KNIGHT_FILES) {
+          const piece = spawnKnight(kits[i]);
+          const entry = { kind: 'knight', color: side.color, piece };
+          entry.mover = createKnightMover({
+            knight: piece, owner: entry, pieces: () => pieces, board, dust, fx, clock, cinema, crowd, onBusy, restFacing: restFacingFor(side.color),
+          });
+          addPiece(entry, file + side.backRank);
+        }
+      });
+    } catch (err) {
+      console.error('[BChess] No se pudieron cargar los caballeros:', err);
+      hud.showMessage('No se pudieron cargar los caballeros', { retry: () => loadKnights(manifest) });
+    }
+  }
+
   async function loadPieces() {
     let manifest;
     try {
@@ -304,7 +333,7 @@ async function start() {
       hud.showMessage('No se pudieron cargar las piezas', { retry: loadPieces });
       return;
     }
-    await Promise.all([loadPawns(manifest), loadRooks(manifest)]);
+    await Promise.all([loadPawns(manifest), loadRooks(manifest), loadKnights(manifest)]);
   }
 
   await addLighting(stage, quality);
@@ -317,6 +346,9 @@ async function start() {
     },
     get rooks() {
       return pieces.filter((entry) => entry.kind === 'rook');
+    },
+    get knights() {
+      return pieces.filter((entry) => entry.kind === 'knight');
     },
   };
 }

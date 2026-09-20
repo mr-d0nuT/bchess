@@ -10,6 +10,7 @@ const MIN_DISTANCE = 3.4;
 const ELEVATION = 0.65; // altura de la cámara por cada casilla de distancia: mira por encima
 const PIECE_TOP = 1.75; // altura de una pieza sobre su peana, para saber si tapa el encuadre
 const ANGLE_STEP = Math.PI / 6; // se prueban direcciones cada 30° alrededor de la de lado
+const TARGET_HEIGHT = 0.75; // a qué altura de la pieza mira la cámara
 const smooth = (t) => t * t * (3 - 2 * t);
 
 export function createCinema(stage) {
@@ -17,7 +18,10 @@ export function createCinema(stage) {
   let saved = null;
   let shakeLeft = 0;
   let shakeSize = 0;
+  let tracked = null; // pieza a la que sigue la cámara, mientras se mueve
   const offset = new THREE.Vector3();
+  const behind = new THREE.Vector3(); // lo que la cámara se queda por detrás de a quien sigue
+  const aim = new THREE.Vector3();
 
   // Si la ventana cambia de tamaño mientras encuadra, la cámara sigue donde está y, al terminar,
   // vuelve al encuadre de reposo del tamaño nuevo.
@@ -48,9 +52,10 @@ export function createCinema(stage) {
     // piezas (`obstacles`, {x, z}) meten entre la cámara y el combate. Penaliza un poco alejarse
     // de lado y el lado contrario al de la cámara del usuario.
     frame(clock, a, b, obstacles = []) {
+      tracked = null;
       if (!saved) saved = { position: camera.position.clone(), target: controls.target.clone() };
       controls.enabled = false;
-      const mid = new THREE.Vector3((a.x + b.x) / 2, 0.75, (a.z + b.z) / 2);
+      const mid = new THREE.Vector3((a.x + b.x) / 2, TARGET_HEIGHT, (a.z + b.z) / 2);
       const gap = Math.hypot(b.x - a.x, b.z - a.z);
       const halfWidth = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * Math.min(camera.aspect, 1.6);
       const distance = Math.max(MIN_DISTANCE, (gap + 1.4) / (2 * halfWidth));
@@ -74,6 +79,21 @@ export function createCinema(stage) {
       return glide(clock, position, mid);
     },
 
+    // Sigue a una pieza que se mueve: la cámara mantiene el encuadre de ahora y viaja con ella, que
+    // se queda en el centro. `at` devuelve dónde está ({x, z}); con null, deja de seguirla. Solo
+    // mientras la cámara es del cine: si es la del usuario, no se la toca.
+    follow(at) {
+      if (!at || !saved) {
+        tracked = null;
+        return false;
+      }
+      const point = at();
+      aim.set(point.x, TARGET_HEIGHT, point.z);
+      behind.copy(camera.position).sub(offset).sub(aim);
+      tracked = at;
+      return true;
+    },
+
     shake(size) {
       shakeLeft = SHAKE_SECONDS;
       shakeSize = size;
@@ -88,6 +108,13 @@ export function createCinema(stage) {
 
     // Cada fotograma, en tiempo real, después de mover la cámara: pone el temblor de este.
     update(dt) {
+      if (tracked) {
+        const point = tracked();
+        aim.set(point.x, TARGET_HEIGHT, point.z);
+        camera.position.copy(aim).add(behind);
+        controls.target.copy(aim);
+        camera.lookAt(aim);
+      }
       if (shakeLeft > 0) {
         shakeLeft = Math.max(0, shakeLeft - dt);
         const k = shakeSize * (shakeLeft / SHAKE_SECONDS);
@@ -100,6 +127,7 @@ export function createCinema(stage) {
 
     // Vuelve a la cámara del usuario y le devuelve los controles.
     async restore(clock) {
+      tracked = null;
       if (!saved) return;
       await glide(clock, saved.position, saved.target);
       camera.position.sub(offset);
@@ -111,6 +139,7 @@ export function createCinema(stage) {
 
     // Vuelta inmediata, para errores.
     reset() {
+      tracked = null;
       if (!saved) return;
       camera.position.copy(saved.position);
       controls.target.copy(saved.target);

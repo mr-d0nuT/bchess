@@ -110,6 +110,13 @@ export async function loadPieceKit(spec, quality) {
     const rootName = pickRootPositionTrack(clip.tracks.map((t) => t.name)) ?? pickDriftTrack(clip.tracks);
     clip.tracks = clip.tracks.filter((t) => !t.name.endsWith('.position') || t.name === rootName);
   }
+  // La cadera, el hueso raíz: el único que conserva su pista de posición. Con `holdRoot` se le puede
+  // pedir a una pieza que no se mueva del sitio (el jinete sentado en la silla).
+  const rootBone = clips.reduce((found, clip) => {
+    if (found) return found;
+    const name = pickRootPositionTrack(clip.tracks.map((t) => t.name)) ?? pickDriftTrack(clip.tracks);
+    return name ? name.slice(0, -'.position'.length) : null;
+  }, null);
   const clipNames = clips.map((c) => c.name);
   const clipByName = (name) => clips.find((c) => c.name === name);
 
@@ -180,6 +187,7 @@ export async function loadPieceKit(spec, quality) {
     clips,
     moves,
     walkSpeed,
+    rootBone,
     hands,
     has: (action) => Boolean(moves[action]?.length),
   };
@@ -414,6 +422,18 @@ export function spawnPiece(kit) {
     return pose;
   }
 
+  // Mientras la pieza está sujeta (el jinete, sentado en la silla), su cadera se queda en la postura de
+  // enlace del esqueleto: el balanceo del reposo lo llevaría de lado sin que el caballo lo siguiera, y el
+  // escudo se hundiría en él. En la de enlace y no en un fotograma cualquiera, que dejaría al jinete
+  // torcido para siempre en el sitio donde le pilló el vaivén.
+  const rootBone = kit.rootBone ? model.getObjectByName(kit.rootBone) : null;
+  const rootBind = rootBone ? rootBone.position.clone() : null;
+  let heldRoot = null;
+  function holdRoot(on = true) {
+    heldRoot = on && rootBone ? { bone: rootBone, position: rootBind } : null;
+    return Boolean(heldRoot);
+  }
+
   // Deja los huesos impuestos como los dejó la animación en el fotograma anterior.
   function restoreBones() {
     for (const pose of posedBones) {
@@ -470,6 +490,7 @@ export function spawnPiece(kit) {
   function update(dt) {
     restoreBones();
     mixer.update(dt);
+    if (heldRoot) heldRoot.bone.position.copy(heldRoot.position);
     applyBones();
     for (const cut of [...cuts]) {
       if (cut.action.time < cut.at && cut.action === current) continue;
@@ -534,6 +555,7 @@ export function spawnPiece(kit) {
     play,
     playOnce,
     fidget,
+    holdRoot,
     // Para el combate.
     setSpearPose(name) {
       spearOverride = name ?? null;
@@ -560,7 +582,9 @@ export function spawnPiece(kit) {
         return true;
       }
       pose.turn ??= new THREE.Quaternion();
-      pose.turn.setFromEuler(new THREE.Euler((turn.x ?? 0) * DEGREES, (turn.y ?? 0) * DEGREES, (turn.z ?? 0) * DEGREES));
+      // En grados ({x, y, z}) o ya como giro hecho (lo que sale de la cinemática inversa).
+      if (turn.isQuaternion) pose.turn.copy(turn);
+      else pose.turn.setFromEuler(new THREE.Euler((turn.x ?? 0) * DEGREES, (turn.y ?? 0) * DEGREES, (turn.z ?? 0) * DEGREES));
       return true;
     },
     // Escala un hueso, y todo lo que cuelga de él, encima de la animación; con null deja de escalarlo.

@@ -22,15 +22,15 @@ function overshoot(t) {
 
 // `obstacles()` devuelve las piezas en las que rebotan las rocas.
 export async function towerToGiant({ rook, clock, dust, rubble, cinema, obstacles }) {
-  const { tower, giant } = rook;
-  const at = tower.position.clone();
+  const { tower, giant, pedestal } = rook;
+  const at = tower.position.clone(); // en alto: la torre se asienta sobre su peana
   const floor = new THREE.Vector3(at.x, DUST_Y, at.z);
 
   // 1. Tiembla, cada vez más, con polvo en la base.
   dust.puff(floor, { count: 6, radius: 0.5, duration: 0.4 });
   await clock.tween(SHAKE_SECONDS, (t) => {
     const k = SHAKE_SIZE * t;
-    tower.position.set(at.x + (Math.random() - 0.5) * k, 0, at.z + (Math.random() - 0.5) * k);
+    tower.position.set(at.x + (Math.random() - 0.5) * k, at.y, at.z + (Math.random() - 0.5) * k);
     tower.rotation.z = (Math.random() - 0.5) * k;
   });
   tower.position.copy(at);
@@ -49,13 +49,15 @@ export async function towerToGiant({ rook, clock, dust, rubble, cinema, obstacle
   giant.play('idle', { fade: 0 });
   await clock.tween(RISE_SECONDS, (t) => {
     giant.figure.scale.setScalar(0.2 + 0.8 * overshoot(t));
+    pedestal.scale.setScalar(Math.max(0.001, 1 - t)); // la peana se queda esperando, encogida
   });
   giant.figure.scale.setScalar(1);
+  pedestal.visible = false;
   await clock.wait(SETTLE_SECONDS);
 }
 
 export async function giantToTower({ rook, clock, dust, rubble, restFacing }) {
-  const { tower, giant } = rook;
+  const { tower, giant, pedestal } = rook;
   const at = giant.figure.position.clone();
   const floor = new THREE.Vector3(at.x, DUST_Y, at.z);
 
@@ -68,15 +70,22 @@ export async function giantToTower({ rook, clock, dust, rubble, restFacing }) {
   giant.object.visible = false;
   giant.figure.scale.setScalar(1);
 
-  // 2. La torre sube del suelo con un rebote y se asienta, mirando al oponente.
-  tower.position.set(at.x, 0, at.z);
+  // 2. La peana y la torre suben del suelo con un rebote y se asientan, mirando al oponente.
+  pedestal.position.set(at.x, 0, at.z);
+  pedestal.rotation.set(0, restFacing, 0);
+  pedestal.scale.setScalar(0.001);
+  pedestal.visible = true;
+  tower.position.set(at.x, rook.pedestalHeight, at.z);
   tower.rotation.set(0, restFacing, 0);
   tower.scale.setScalar(0.001);
   tower.visible = true;
   dust.puff(floor, { count: 10, radius: 0.6, duration: 0.5 });
   await clock.tween(REBUILD_SECONDS, (t) => {
-    tower.scale.setScalar(Math.max(0.001, overshoot(t)));
+    const k = Math.max(0.001, overshoot(t));
+    tower.scale.setScalar(k);
+    pedestal.scale.setScalar(k);
   });
   tower.scale.setScalar(1);
+  pedestal.scale.setScalar(1);
   await clock.wait(REST_SECONDS);
 }

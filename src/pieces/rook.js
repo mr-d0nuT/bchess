@@ -5,9 +5,9 @@ import { fitToHeight, loadPieceKit, spawnPiece, withShadows } from './piece.js';
 import { createFlag, flagTexture } from './flag.js';
 import { measureBody, measureStrikes } from '../combat/strikes.js';
 
-// La torre: una pieza con dos formas en el mismo objeto. En reposo, la torre estática con su base
-// de piedra y un banderín que ondea; para moverse y pelear, el gigante de piedra, una pieza con
-// esqueleto y sin peana. `figure` es el gigante (o la torre, si no hay gigante).
+// La torre: una pieza con dos formas en el mismo objeto. En reposo, la torre estática sobre su peana,
+// con un banderín que ondea; para moverse y pelear, el gigante de piedra, una pieza con esqueleto que
+// pisa el tablero. `figure` es el gigante (o la torre, si no hay gigante).
 
 const MODELS = 'assets/models/';
 const DEFAULT_STONE = '#cfc4ae';
@@ -15,7 +15,7 @@ const DEFAULT_STONE = '#cfc4ae';
 export async function loadRookKit(spec, quality) {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
-  const [towerGltf, giant, emblem] = await Promise.all([
+  const [towerGltf, giant, emblem, pedestalGltf] = await Promise.all([
     loader.loadAsync(MODELS + spec.tower.files[quality.name]),
     spec.giant
       ? loadPieceKit({ ...spec.giant, pedestal: false }, quality).catch((err) => {
@@ -24,6 +24,7 @@ export async function loadRookKit(spec, quality) {
       })
       : null,
     spec.flag ? new THREE.ImageLoader().loadAsync(spec.flag.texture).catch(() => null) : null,
+    spec.pedestalModel ? loader.loadAsync(MODELS + spec.pedestalModel.files[quality.name]) : null,
   ]);
   const tower = withShadows(towerGltf.scene);
   fitToHeight(tower, spec.tower.height);
@@ -36,10 +37,29 @@ export async function loadRookKit(spec, quality) {
     giant.strikes = measureStrikes(giant, spawnPiece, { faces: true });
     giant.body = measureBody(giant, spawnPiece);
   }
+  // La peana de los peones, ensanchada para que la torre se asiente en ella.
+  const pedestalHeight = spec.pedestalModel?.height ?? 0;
+  let pedestal = null;
+  let pedestalRadius = 0;
+  if (pedestalGltf) {
+    pedestal = withShadows(pedestalGltf.scene);
+    fitToHeight(pedestal, pedestalHeight);
+    const width = spec.pedestalModel.width ?? 1;
+    pedestal.scale.x *= width;
+    pedestal.scale.z *= width;
+    pedestal.position.x *= width;
+    pedestal.position.z *= width;
+    pedestal.updateMatrixWorld(true);
+    const footprint = new THREE.Box3().setFromObject(pedestal);
+    pedestalRadius = Math.max(footprint.max.x - footprint.min.x, footprint.max.z - footprint.min.z) / 2;
+  }
+
   return {
     spec,
     tower,
-    radius: Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2,
+    pedestal,
+    pedestalHeight,
+    radius: Math.max(box.max.x - box.min.x, box.max.z - box.min.z, pedestalRadius * 2) / 2,
     roof,
     giant,
     flagTexture: spec.flag ? flagTexture(emblem) : null,
@@ -50,6 +70,12 @@ export function spawnRook(kit) {
   const { spec } = kit;
   const object = new THREE.Group();
   object.name = 'torre';
+
+  // La peana va aparte de la torre: la torre estalla y vuelve a crecer, y la peana la espera encogida.
+  const pedestal = new THREE.Group();
+  pedestal.name = 'peana';
+  if (kit.pedestal) pedestal.add(kit.pedestal.clone());
+  object.add(pedestal);
 
   const tower = new THREE.Group();
   tower.name = 'torre-de-piedra';
@@ -77,20 +103,24 @@ export function spawnRook(kit) {
   return {
     object,
     tower,
+    pedestal,
+    pedestalHeight: kit.pedestalHeight,
     giant,
     hitbox,
     radius: kit.radius,
-    height: spec.tower.height,
+    height: kit.pedestalHeight + spec.tower.height,
     stone: spec.stone ?? DEFAULT_STONE,
     body: kit.giant?.body ?? null,
     get figure() {
       return giant ? giant.figure : tower;
     },
     placeAt(position) {
-      tower.position.set(position.x, 0, position.z);
-      giant?.placeAt(position);
+      pedestal.position.set(position.x, 0, position.z);
+      tower.position.set(position.x, kit.pedestalHeight, position.z);
+      giant?.placeAt(position); // el gigante pisa el tablero, sin peana
     },
     face(angle) {
+      pedestal.rotation.set(0, angle, 0);
       tower.rotation.set(0, angle, 0);
       giant?.face(angle);
     },

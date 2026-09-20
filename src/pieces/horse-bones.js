@@ -8,6 +8,8 @@
 //   delanteras son las de mayor z y las izquierdas, las de mayor x.
 // - `seatZ` es dónde va la silla a lo largo del lomo, en ese mismo giro: algo más cerca de las patas
 //   delanteras que de las traseras.
+// - `neck` son los huesos que van del tronco a la cabeza y `tail`, los de la cola: con ellos el caballo
+//   se mueve un poco cuando está quieto, que si no parece una estatua.
 
 const SEAT_FROM_BACK = 0.6; // fracción del lomo, de las patas traseras a las delanteras
 
@@ -51,5 +53,16 @@ export function findHorseBones(bones) {
   const topZ = (legs) => legs.reduce((sum, leg) => sum + turned(byName.get(leg[0])).z, 0) / legs.length;
   const front = topZ([frontLeft, frontRight]);
   const back = topZ([backLeft, backRight]);
-  return { yaw, legs: { frontLeft, frontRight, backLeft, backRight }, seatZ: back + SEAT_FROM_BACK * (front - back) };
+
+  // Tronco: lo que sostiene las cuatro patas. El cuello y la cola son lo que sale de él, no él: si se
+  // les cuela un hueso del tronco, moverlos movería el caballo entero por debajo del jinete.
+  const trunk = new Set([frontLeft, frontRight, backLeft, backRight].flatMap((leg) => ancestors(byName.get(leg[0])).slice(1)));
+  // Cuello: de la cabeza hacia dentro hasta el tronco, de dentro afuera.
+  const neck = ancestors(head).filter((name) => !trunk.has(name)).reverse();
+  // Cola: la punta que queda más atrás sin ser un casco, y lo que de ella cuelga fuera del tronco.
+  const isHoof = new Set(hooves.map((hoof) => hoof.name));
+  const tip = leaves.filter((bone) => !isHoof.has(bone.name) && turned(bone).z < back).sort((a, b) => turned(a).z - turned(b).z)[0];
+  const tail = tip ? ancestors(tip).filter((name) => !trunk.has(name)).reverse() : [];
+
+  return { yaw, legs: { frontLeft, frontRight, backLeft, backRight }, seatZ: back + SEAT_FROM_BACK * (front - back), neck, tail };
 }

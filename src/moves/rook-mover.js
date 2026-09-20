@@ -47,6 +47,8 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
     rook.face(restFacing);
     rook.tower.visible = true;
     rook.tower.scale.setScalar(1);
+    rook.pedestal.visible = true;
+    rook.pedestal.scale.setScalar(1);
     if (giant) {
       giant.object.visible = false;
       giant.figure.scale.setScalar(1);
@@ -124,7 +126,8 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
     dust.puff(new THREE.Vector3(from.x, DUST_Y, from.z));
     await clock.tween(from.distanceTo(to) * SLIDE_SECONDS, (t) => {
       const p = pointAlong(from, to, smooth(t));
-      rook.tower.position.set(p.x, 0, p.z);
+      rook.tower.position.set(p.x, rook.pedestalHeight, p.z);
+      rook.pedestal.position.set(p.x, 0, p.z);
     });
     dust.puff(new THREE.Vector3(to.x, DUST_Y, to.z));
     placeOn(target);
@@ -138,14 +141,23 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
         return;
       }
       const release = crowd.claim({ owners: [owner], bodies: () => room() });
+      // Lo pidió el usuario: la cámara se acerca a la torre para verla convertirse en gigante, se abre
+      // para enseñar el camino y lo sigue mientras anda. Al acabar, vuelve a donde la tenía el usuario.
+      const from = board.squareToWorld(square);
+      const to = board.squareToWorld(target);
       try {
+        await cinema.frame(clock, from, from, others());
         await awaken();
+        await cinema.frame(clock, from, to, others());
+        cinema.follow(() => giant.figure.position);
         await walkOnto(target);
       } catch (err) {
         console.error('[BChess] La torre no pudo moverse:', err);
         placeOn(target);
       } finally {
+        cinema.follow(null);
         release();
+        await cinema.restore(clock);
       }
       await Promise.race([crowd.settle(), clock.wait(SETTLE_LIMIT)]);
     });
@@ -166,11 +178,14 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
 
   // Desaparece del tablero encogiendo dentro de una nube de polvo (capturas sin combate).
   async function vanish() {
-    const form = giant?.object.visible ? giant.figure : rook.tower;
+    const enPie = giant?.object.visible;
+    const form = enPie ? giant.figure : rook.tower;
     const at = form.position.clone();
     dust.puff(new THREE.Vector3(at.x, DUST_Y, at.z), { count: 18, radius: 0.8, duration: 0.7 });
     await clock.tween(0.5, (t) => {
-      form.scale.setScalar(Math.max(0.001, 1 - t * t));
+      const k = Math.max(0.001, 1 - t * t);
+      form.scale.setScalar(k);
+      if (!enPie) rook.pedestal.scale.setScalar(k); // la torre se va con su peana
     });
     rook.object.visible = false;
   }

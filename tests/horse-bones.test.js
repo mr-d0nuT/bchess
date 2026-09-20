@@ -43,3 +43,15 @@ test('la silla va en el lomo, más cerca de las patas delanteras', () => {
 test('sin cuatro puntas, lanza error', () => {
   assert.throws(() => findHorseBones(HORSE.slice(0, 6)), /cuatro patas/);
 });
+
+test('el cuello va de la cruz a la cabeza, de dentro afuera', () => {
+  assert.deepEqual(findHorseBones(HORSE).neck, ['Cuello', 'Cabeza']);
+});
+
+test('la cola es lo que cuelga por detrás de la grupa', () => {
+  assert.deepEqual(findHorseBones(HORSE).tail, ['Cola']);
+});
+
+test('un caballo sin cola no se inventa una', () => {
+  assert.deepEqual(findHorseBones(HORSE.filter((bone) => bone.name !== 'Cola')).tail, []);
+});

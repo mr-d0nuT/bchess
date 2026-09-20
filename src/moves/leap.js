@@ -30,7 +30,10 @@ export function planLeap({ from, to, points = [], halfLength, halfWidth, clearan
   for (const p of points) {
     const along = (p.x - from.x) * ux + (p.z - from.z) * uz;
     const aside = Math.abs((p.x - from.x) * uz - (p.z - from.z) * ux);
-    if (aside <= halfWidth && along >= -halfLength && along <= distance + halfLength) under.push({ along, y: p.y });
+    // Solo cuenta lo que hay de verdad bajo el vuelo. Lo que se queda en la casilla de salida o en la de
+    // llegada no hay que librarlo (ahí el caballo está en el suelo) y, contándolo, el arco se dispara:
+    // como al despegar el arco vale cero, cualquier cosa ahí pediría una altura infinita.
+    if (aside <= halfWidth && along >= halfLength && along <= distance - halfLength) under.push({ along, y: p.y });
   }
   // Entre dos muestras, un punto puede entrar en la huella: se cuenta desde una muestra antes y hasta
   // una después. Como el arco es cóncavo, basta con cumplir en las muestras.
