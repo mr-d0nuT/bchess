@@ -9,6 +9,8 @@ import { loadRookKit, spawnRook } from './pieces/rook.js';
 import { loadKnightKit, spawnKnight } from './pieces/knight.js';
 import { createDust } from './fx/dust.js';
 import { createRubble } from './fx/rubble.js';
+import { createDebris } from './pieces/limbs.js';
+import { createBubbles } from './ui/bubble.js';
 import { createMover } from './moves/sequence.js';
 import { createRookMover } from './moves/rook-mover.js';
 import { createKnightMover } from './moves/knight-mover.js';
@@ -76,6 +78,8 @@ async function start() {
   const fx = createImpactFx(stage.scene);
   const cinema = createCinema(stage);
   const rubble = createRubble(stage.scene);
+  const debris = createDebris(stage.scene);
+  const bubbles = createBubbles({ camera: stage.camera, canvas: stage.renderer.domElement, clock });
   const pieces = []; // { kind: 'pawn' | 'rook' | 'knight', color, piece, mover }
   const crowd = createCrowd({ board, entries: () => pieces });
   const state = { selected: null, busy: false, fighting: false, lastStyle: null };
@@ -110,11 +114,13 @@ async function start() {
     directGestures(now);
     dust.update(step);
     rubble.update(step);
+    debris.update(step);
     fx.update(step);
     highlights.pulse(now / 1000);
     cinema.settle();
     if (!cinema.active) stage.controls.update();
     cinema.update(dt);
+    bubbles.update();
   }
 
   let previous = performance.now();
@@ -340,7 +346,7 @@ async function start() {
   await loadPieces();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
-    stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, hud, advance, tap: handleTap, capture, crowd, rubble,
+    stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles,
     get pawns() {
       return pieces.filter((entry) => entry.kind === 'pawn');
     },

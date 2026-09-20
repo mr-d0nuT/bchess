@@ -92,6 +92,46 @@ html, body {
 #destello.encendido { animation: destello 0.4s ease-out forwards; }
 @keyframes destello { from { opacity: 0.85; } to { opacity: 0; } }
 
+.bocadillo, .onomatopeya {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.bocadillo {
+  margin-top: -14px;
+  padding: 8px 12px;
+  border: 2px solid #1a120b;
+  border-radius: 16px;
+  background: #fffdf5;
+  color: #1a120b;
+  font: 700 16px/1.2 "Comic Sans MS", "Chalkboard SE", "Marker Felt", system-ui, sans-serif;
+}
+.bocadillo::after {
+  content: "";
+  position: absolute;
+  left: calc(50% - 7px);
+  bottom: -8px;
+  width: 12px;
+  height: 12px;
+  border-right: 2px solid #1a120b;
+  border-bottom: 2px solid #1a120b;
+  background: #fffdf5;
+  transform: rotate(45deg);
+}
+.onomatopeya {
+  color: #ffd93b;
+  font: 900 30px/1 Impact, "Arial Black", system-ui, sans-serif;
+  letter-spacing: 1px;
+  text-shadow: 3px 3px 0 #7a2a00, -1px -1px 0 #7a2a00;
+  transform: translate(-50%, -100%) rotate(-6deg);
+  animation: onomatopeya 0.35s ease-out;
+}
+@keyframes onomatopeya {
+  from { transform: translate(-50%, -100%) scale(0.3) rotate(-14deg); }
+  to { transform: translate(-50%, -100%) rotate(-6deg); }
+}
+
 @media (max-width: 520px) {
   #acciones button { min-width: 0; padding: 10px 14px; }
   #creditos { max-width: 60vw; font-size: 10px; }
