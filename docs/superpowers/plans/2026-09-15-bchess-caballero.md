@@ -4611,13 +4611,14 @@ const BATTLES = [pawnKicksKnight, knightRunsThroughPawn];
 En `raw/tmp/verificar-batalla.js`, dentro de `PREPARACIONES`, añadir:
 
 ```js
-  // El caballero blanco, llevado a d4, se come al peón negro, llevado a e5; alrededor, peones en e4 y d5.
+  // El caballero blanco, llevado a d4, se come al peón negro, llevado a e6 (un salto en L); alrededor,
+  // peones en e5 y d5.
   'caballero-come-peon': (at) => {
     at('b1').mover.placeOn('d4');
-    at('e7').mover.placeOn('e5');
-    at('e2').mover.placeOn('e4');
+    at('e7').mover.placeOn('e6');
+    at('f7').mover.placeOn('e5');
     at('d7').mover.placeOn('d5');
-    return ['d4', 'e5'];
+    return ['d4', 'e6'];
   },
 ```
 
@@ -4633,7 +4634,7 @@ await m.pelear('caballero-come-peon');
 Expected: `acciones` con `pawn:attack` (la estocada parada), `knight:attack` (la del caballero) y el final
 del peón; `hundidoAlGolpear` entre 0,10 y 0,30 (la punta entra y asoma por la espalda, sin pasarse);
 `hueco` ≥ 0 y `holgura` ≥ 0; `trozos: 0` y `bocadillos: 0`; `caballos: [true]` (el ganador vuelve a estar a
-caballo); `ganador: 'e5'`; `camara: 0` y `controles: true`; ningún error. Y con los ojos: el escudo para la
+caballo); `ganador: 'e6'`; `camara: 0` y `controles: true`; ningún error. Y con los ojos: el escudo para la
 estocada con chispas, la punta asoma por la espalda del peón, se la mira y cae de espaldas.
 
 - [ ] **Paso 5: Commit**
