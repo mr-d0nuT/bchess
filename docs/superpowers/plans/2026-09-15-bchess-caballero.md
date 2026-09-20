@@ -928,7 +928,17 @@ gltf.scene.traverse((o) => { if (o.isBone) { const p = o.getWorldPosition(new (o
 JSON.stringify({ ...findHorseBones(bones), avance: gltf.animations.map((clip) => [clip.name, pickDriftTrack(clip.tracks)]) });
 ```
 
-Expected: cuatro patas con al menos dos huesos cada una, un `yaw` que al aplicarlo deja la cabeza delante (en la tarea 9 se ve), `seatZ` entre las patas traseras y las delanteras, y para `walk` el nombre de la pista del hueso que avanza.
+Expected: cuatro patas con al menos dos huesos cada una, un `yaw` que al aplicarlo deja la cabeza delante (en la tarea 9 se ve) y `seatZ` entre las patas traseras y las delanteras.
+
+Medido con el caballo de la tarea 3: 35 huesos, `yaw` de 90,11°, patas de 6, 6, 4 y 4 huesos, `seatZ` 0,01
+y, en `walk`, `pickDriftTrack` devuelve **null**: el paseo del cuadrúpedo de Tripo anda en el sitio, sin
+avance en ninguna pista de posición (comprobado también en el GLB sin aligerar). Es lo correcto: el caballo
+avanza por código, con la velocidad que saca `strideSpeed` de su altura, igual que los peones. `pickDriftTrack`
+queda para un modelo que sí traiga avance.
+
+Ojo al comprobarlo por fuera del navegador: los GLB ya aligerados vienen cuantizados y comprimidos con
+meshopt, así que leer sus accesores como float32 da números absurdos (10³⁸). Para mirar sus animaciones, o se
+carga con `GLTFLoader` y `MeshoptDecoder`, o se mira el GLB de `raw/tripo/`.
 
 - [ ] **Paso 6: Commit**
 
