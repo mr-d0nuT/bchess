@@ -3,11 +3,12 @@
 // toca y se prepara lo que comparten: el sitio que piden los luchadores (sus abanicos, los cuerpos
 // tendidos y los trozos que salen volando) y la limpieza al terminar, pase lo que pase.
 
+import { knightFightsKnight } from './knight-fights-knight.js';
 import { knightRunsThroughPawn } from './knight-runs-through-pawn.js';
 import { pawnKicksKnight } from './pawn-kicks-knight.js';
 
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas
-const BATTLES = [pawnKicksKnight, knightRunsThroughPawn]; // una batalla por fichero
+const BATTLES = [pawnKicksKnight, knightRunsThroughPawn, knightFightsKnight]; // una batalla por fichero
 
 const battleFor = (attacker, defender) => BATTLES.find((battle) => battle.matches(attacker, defender)) ?? null;
 

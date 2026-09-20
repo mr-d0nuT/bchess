@@ -57,9 +57,14 @@ export function swordTip(fighter) {
   return fighter.props.sword.localToWorld(new THREE.Vector3(0, fighter.swordEnds.top, 0));
 }
 
+// Un hueso del luchador, esté donde esté su figura: a caballo cuelga de la del caballo, no de su pieza.
+export function boneOf(fighter, name) {
+  return fighter.figure.getObjectByName(name) ?? fighter.object.getObjectByName(name) ?? null;
+}
+
 // Dónde está ahora un hueso.
 export function bonePosition(fighter, name) {
-  return fighter.object.getObjectByName(name).getWorldPosition(new THREE.Vector3());
+  return boneOf(fighter, name).getWorldPosition(new THREE.Vector3());
 }
 
 // Al azar y con la misma probabilidad: desmonta o su caballo lo tira.
