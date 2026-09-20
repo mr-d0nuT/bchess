@@ -463,6 +463,287 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     });
   }
 
+  // Si está sobre la peana, la peana encoge entre polvo mientras la figura baja al tablero.
+  async function leavePedestal() {
+    if (!knight.pedestal.visible) return;
+    const figure = knight.figure;
+    const startY = figure.position.y;
+    dust.puff(new THREE.Vector3(figure.position.x, DUST_Y, figure.position.z));
+    await clock.tween(0.35, (t) => {
+      knight.pedestal.scale.setScalar(Math.max(0.001, 1 - t));
+      figure.position.y = startY * (1 - t * t);
+    });
+    knight.pedestal.visible = false;
+  }
+
+  // Salto en arco de una figura de `from` a `to` (puntos del tablero), sin girarla.
+  function jumpArc(figure, from, to, seconds, height) {
+    return clock.tween(seconds, (t) => {
+      figure.position.lerpVectors(from, to, t);
+      figure.position.y += Math.sin(Math.PI * t) * height;
+    });
+  }
+
+  // De los dos lados de `at`, a `distance` y con la figura mirando a `facing`, el que queda más lejos de
+  // las demás piezas.
+  function clearestSide(at, facing, distance) {
+    const v = new THREE.Vector3();
+    const others = pieces()
+      .filter((entry) => entry !== owner && entry.piece.object.visible)
+      .map((entry) => entry.piece.figure.getWorldPosition(v).clone());
+    const spots = [1, -1].map((side) => ({ x: at.x + Math.cos(facing) * distance * side, z: at.z - Math.sin(facing) * distance * side }));
+    const space = (spot) => Math.min(Infinity, ...others.map((o) => Math.hypot(o.x - spot.x, o.z - spot.z)));
+    return space(spots[0]) >= space(spots[1]) ? spots[0] : spots[1];
+  }
+
+  // El jinete anda, ya sin peana ni caballo, desde donde está hasta `to` ({x, z}).
+  async function walkTo(to) {
+    const figure = rider.figure;
+    const from = { x: figure.position.x, z: figure.position.z };
+    const walk = planWalk(from, to, rider.walkSpeed);
+    if (walk.distance < 1e-3) return;
+    await turnFigure(figure, walk.heading, 0.2);
+    rider.play('walk', { fade: 0.15 });
+    await clock.tween(walk.duration, (t) => {
+      const p = pointAlong(from, to, t);
+      figure.position.set(p.x, 0, p.z);
+    });
+    rider.play('idle', { fade: 0.25 });
+  }
+
+  // El caballo, sin jinete, anda hasta `to` pidiendo sitio por delante. Con `backwards`, retrocede sin
+  // girarse.
+  async function horseWalk(to, { speed = 1, backwards = false } = {}) {
+    const figure = horse.figure;
+    const from = { x: figure.position.x, z: figure.position.z };
+    const walk = planWalk(from, to, horse.walkSpeed * speed);
+    if (walk.distance < 1e-3) return;
+    looseLegs();
+    if (!backwards) await turnFigure(figure, walk.heading, 0.3);
+    heading = { x: to.x, z: to.z };
+    const action = horse.play('walk', { fade: 0.2 });
+    if (action) {
+      action.paused = false;
+      action.timeScale = backwards ? -speed : speed;
+    }
+    try {
+      await clock.tween(walk.duration, (t) => {
+        const p = pointAlong(from, to, t);
+        figure.position.set(p.x, 0, p.z);
+      });
+    } finally {
+      heading = null;
+      if (action) action.timeScale = 1;
+    }
+    stillHorse();
+  }
+
+  // Desenvaina: la espada aparece en la mano, creciendo.
+  async function drawSword() {
+    const sword = rider.props.sword;
+    if (!sword || sword.visible) return;
+    sword.scale.setScalar(0.001);
+    sword.visible = true;
+    await clock.tween(SWORD_SECONDS, (t) => sword.scale.setScalar(Math.max(0.001, swordScale * t)));
+  }
+
+  // Envaina: la espada encoge hasta desaparecer.
+  async function sheathSword() {
+    const sword = rider.props.sword;
+    if (!sword?.visible) return;
+    await clock.tween(SWORD_SECONDS, (t) => sword.scale.setScalar(Math.max(0.001, swordScale * (1 - t))));
+    sword.visible = false;
+    sword.scale.setScalar(swordScale);
+  }
+
+  // Borde del tablero más cercano por el que puede huir el caballo desde `point` sin cruzar la pelea
+  // (`avoid`, {x, z}).
+  function exitAwayFrom(point, avoid) {
+    const exits = [
+      { x: BOARD_EDGE, z: point.z }, { x: -BOARD_EDGE, z: point.z },
+      { x: point.x, z: BOARD_EDGE }, { x: point.x, z: -BOARD_EDGE },
+    ].sort((a, b) => Math.hypot(a.x - point.x, a.z - point.z) - Math.hypot(b.x - point.x, b.z - point.z));
+    return exits.find((exit) => !avoid || segmentDistance(avoid, point, exit) > AVOID) ?? nearestEdgeExit(point);
+  }
+
+  // El caballo sin jinete huye andando deprisa hasta el borde del tablero y desaparece tras él.
+  function horseFlee({ avoid = null } = {}) {
+    if (!horse?.object.visible || knight.mounted) return leaving ?? Promise.resolve();
+    leaving = (async () => {
+      const figure = horse.figure;
+      const exit = exitAwayFrom({ x: figure.position.x, z: figure.position.z }, avoid);
+      fled = exit;
+      await horseWalk(exit, { speed: FLEE_SPEED });
+      dust.puff(new THREE.Vector3(exit.x, DUST_Y, exit.z), { count: 10, radius: 0.5, duration: 0.5 });
+      await clock.tween(0.4, (t) => {
+        figure.position.y = -DROP * t;
+        figure.scale.setScalar(Math.max(0.001, 1 - t));
+      });
+      horse.object.visible = false;
+      figure.position.y = 0;
+      leaving = null;
+    })();
+    return leaving;
+  }
+
+  // Sentado en el suelo, con las piernas estiradas hacia delante; con `false`, las piernas sueltas.
+  function sit(sitting) {
+    for (const bone of ['L_Thigh', 'R_Thigh']) rider.turnBone(bone, sitting ? { x: -90 } : null);
+  }
+
+  // Se levanta del suelo: con su animación, si la tiene; si no, con un saltito.
+  async function standUp() {
+    const figure = rider.figure;
+    const startY = figure.position.y;
+    if (rider.has('getup')) {
+      sit(false);
+      figure.position.y = 0;
+      await rider.playOnce('getup', { fade: 0.1 });
+      rider.play('idle', { fade: 0.2 });
+      return;
+    }
+    await clock.tween(GETUP_SECONDS, (t) => {
+      for (const bone of ['L_Thigh', 'R_Thigh']) rider.turnBone(bone, { x: -90 * (1 - t) });
+      figure.position.y = startY * (1 - t) + Math.sin(Math.PI * t) * 0.15;
+    });
+    sit(false);
+    figure.position.y = 0;
+  }
+
+  // Salta de la silla a un lado, clava la lanza junto a él, el caballo retrocede y espera, y el jinete va
+  // a su puesto.
+  async function jumpOff(at, facing) {
+    const side = clearestSide(at, facing, JUMP_OFF_SIDE);
+    const from = rider.figure.getWorldPosition(new THREE.Vector3());
+    knight.unseatRider();
+    rider.play(rider.has('jump') ? 'jump' : 'idle', { loop: false, fade: 0.1 });
+    await jumpArc(rider.figure, from, new THREE.Vector3(side.x, 0, side.z), 0.5, 0.25);
+    dust.puff(new THREE.Vector3(side.x, DUST_Y, side.z), { count: 6, radius: 0.35, duration: 0.3 });
+    rider.play('idle', { fade: 0.25 });
+    const out = Math.hypot(side.x - at.x, side.z - at.z) || 1;
+    rider.plantSpear({ x: side.x + ((side.x - at.x) / out) * SPEAR_BESIDE, z: side.z + ((side.z - at.z) / out) * SPEAR_BESIDE });
+    await horseWalk(clampToBoard({ x: at.x - Math.sin(facing) * BACK_OFF, z: at.z - Math.cos(facing) * BACK_OFF }), { backwards: true });
+    await walkTo(at);
+  }
+
+  // El caballo se encabrita y lo tira: cae sentado entre polvo y estrellitas, la lanza sale volando, el
+  // caballo huye y el jinete se levanta y va a su puesto.
+  async function thrownOff(at, facing) {
+    const figure = horse.figure;
+    looseLegs();
+    const rearUp = (k) => {
+      figure.rotation.x = -THROW_REAR * k;
+      figure.position.y = knight.mount.hoofBack * Math.sin(THROW_REAR * k);
+    };
+    await clock.tween(REAR_SECONDS, (t) => rearUp(Math.sin((Math.PI / 2) * t)));
+    const from = rider.figure.getWorldPosition(new THREE.Vector3());
+    knight.unseatRider();
+    spearThrown = true;
+    rider.throwSpear({ x: -Math.sin(facing), z: -Math.cos(facing) });
+    const side = clearestSide(at, facing, JUMP_OFF_SIDE);
+    const ground = new THREE.Vector3(side.x - Math.sin(facing) * 0.3, 0, side.z - Math.cos(facing) * 0.3);
+    sit(true);
+    await Promise.all([
+      jumpArc(rider.figure, from, new THREE.Vector3(ground.x, SIT_HEIGHT - knight.hipHeight, ground.z), THROW_SECONDS, 0.4),
+      clock.tween(REAR_SECONDS, (t) => rearUp(1 - t)),
+    ]);
+    figure.rotation.x = 0;
+    figure.position.y = 0;
+    stillHorse();
+    dust.puff(ground.setY(DUST_Y), { count: 14, radius: 0.6, duration: 0.6 });
+    cinema.shake(0.08);
+    fx.koStars(rider.object.getObjectByName('Head') ?? rider.figure, { seconds: DAZE_SECONDS });
+    horseFlee({ avoid: at });
+    await clock.wait(DAZE_SECONDS);
+    await standUp();
+    await walkTo(at);
+  }
+
+  // Baja del caballo para pelear en `at` ({x, z}), mirando a `facing`, y desenvaina. `mode` es 'dismount'
+  // (salta de la silla y el caballo espera apartado) o 'thrown' (el caballo lo tira y huye; la huida
+  // sigue sola, en `horseLeaving`). Sin caballo, baja de la peana y va andando.
+  async function dismount({ at, facing, mode = 'dismount' }) {
+    knight.resting = false;
+    await stopGesture();
+    await leavePedestal();
+    if (!knight.mounted) {
+      await walkTo(at);
+    } else {
+      await turnTo(facing, 0.25);
+      if (mode === 'thrown') await thrownOff(at, facing);
+      else await jumpOff(at, facing);
+    }
+    await turnFigure(rider.figure, facing, 0.2);
+    await drawSword();
+  }
+
+  // El caballo vuelve hasta `to` ({x, z}): si había huido, espera a que acabe de irse, reaparece en el
+  // borde por donde se fue y entra en el tablero; después salta.
+  async function horseComes(to) {
+    const figure = horse.figure;
+    if (leaving) await leaving;
+    if (fled) {
+      const inside = clampToBoard(fled);
+      figure.position.set(fled.x, 0, fled.z);
+      figure.rotation.set(0, Math.atan2(inside.x - fled.x, inside.z - fled.z), 0);
+      figure.scale.setScalar(0.001);
+      horse.object.visible = true;
+      dust.puff(new THREE.Vector3(fled.x, DUST_Y, fled.z), { count: 10, radius: 0.5, duration: 0.5 });
+      await clock.tween(0.3, (t) => figure.scale.setScalar(Math.max(0.001, t)));
+      await horseWalk(inside);
+      fled = null;
+    }
+    await leap({ figure, to, footprint: knight.mount, horseMoves: true, extra: [rider.object] });
+    stillHorse();
+  }
+
+  // Tras ganar, en la casilla `target`: el jinete se aparta a un lado de su centro, el caballo se reúne
+  // con él de un salto, el jinete envaina, monta de otro salto y recoge la lanza (si salió volando, le
+  // aparece en la mano entre polvo) y la peana crece bajo los cascos.
+  async function mount(target) {
+    const center = board.squareToWorld(target);
+    if (!horse) {
+      await walkTo(center);
+      await sheathSword();
+      rider.holdSpear();
+      await rise(center);
+      square = target;
+      knight.resting = knight.mounted;
+      return;
+    }
+    const side = clearestSide(center, restFacing, JUMP_OFF_SIDE);
+    await walkTo(side);
+    await Promise.all([horseComes(center), sheathSword()]);
+    await Promise.all([turnFigure(horse.figure, restFacing, 0.3), turnFigure(rider.figure, restFacing, 0.3)]);
+    const from = rider.figure.getWorldPosition(new THREE.Vector3());
+    const seatAt = horse.figure.localToWorld(new THREE.Vector3(knight.mount.riderOffset.x, knight.mount.riderOffset.y, knight.mount.riderOffset.z));
+    rider.play(rider.has('jump') ? 'jump' : 'idle', { loop: false, fade: 0.1 });
+    await jumpArc(rider.figure, from, seatAt, MOUNT_SECONDS, 0.35);
+    knight.seatRider();
+    rider.play('idle', { fade: 0.2 });
+    const planted = rider.props.spear && !spearThrown ? rider.props.spear.getWorldPosition(new THREE.Vector3()) : null;
+    rider.holdSpear();
+    if (planted) dust.puff(planted.setY(DUST_Y), { count: 6, radius: 0.3, duration: 0.3 });
+    const hand = rider.props.spear?.getWorldPosition(new THREE.Vector3());
+    if (hand) dust.puff(hand, { count: spearThrown ? 8 : 4, radius: 0.25, duration: 0.3 });
+    spearThrown = false;
+    await rise(center);
+    square = target;
+    knight.resting = knight.mounted;
+  }
+
+  // El jinete vencido desaparece encogiendo en una nube de polvo, y el caballo que esperaba huye sin
+  // cruzar la pelea (`avoid`).
+  async function defeated({ avoid = null } = {}) {
+    const at = rider.figure.getWorldPosition(new THREE.Vector3());
+    dust.puff(new THREE.Vector3(at.x, DUST_Y, at.z), { count: 18, radius: 0.8, duration: 0.7 });
+    const escape = horseFlee({ avoid });
+    await clock.tween(0.5, (t) => rider.figure.scale.setScalar(Math.max(0.001, 1 - t * t)));
+    rider.object.visible = false;
+    await escape;
+    knight.object.visible = false;
+  }
+
   // Desaparece del tablero encogiendo dentro de una nube de polvo (capturas sin batalla).
   async function vanish() {
     const at = knight.figure.getWorldPosition(new THREE.Vector3());
@@ -485,6 +766,18 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     leapTo,
     fidget,
     stopGesture,
+    leavePedestal,
+    dismount,
+    walkTo,
+    drawSword,
+    horseFlee,
+    mount,
+    defeated,
+    sit,
+    standUp,
+    get horseLeaving() {
+      return leaving;
+    },
     get square() {
       return square;
     },
