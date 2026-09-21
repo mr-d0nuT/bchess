@@ -4,6 +4,7 @@
 // luchadores (sus abanicos, los cuerpos tendidos y los trozos que salen volando) y la limpieza al
 // terminar, pase lo que pase.
 
+import { bishopSpellFizzles } from './bishop/bishop-spell-fizzles.js';
 import { bishopTurnsToStone } from './bishop/bishop-turns-to-stone.js';
 import { giantCrushesKnight } from './knight/giant-crushes-knight.js';
 import { knightFightsKnight } from './knight/knight-fights-knight.js';
@@ -15,7 +16,7 @@ import { pawnKicksKnight } from './knight/pawn-kicks-knight.js';
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas
 const BATTLES = [
   pawnKicksKnight, knightRunsThroughPawn, knightLancesPawn, knightFightsKnight, knightSweepsGiant, giantCrushesKnight,
-  bishopTurnsToStone,
+  bishopTurnsToStone, bishopSpellFizzles,
 ];
 
 // Las que encajan con esta pareja y pueden hacerse ahora mismo. Cuando hay más de una (el caballero
