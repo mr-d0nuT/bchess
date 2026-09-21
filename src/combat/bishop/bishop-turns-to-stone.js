@@ -8,11 +8,13 @@ import { bonePosition, facingTo, shout, victoryLap } from '../knight/common.js';
 // fogonazo en la voluta, el rival se queda tieso y se le va el color hasta quedar de piedra, y se
 // resquebraja en cascotes. El alfil ocupa la casilla y hace su reverencia con la cámara encima.
 //
-// Con la torre no vale petrificarla, que ya es de piedra: a ella se la derrite. Se vuelve líquido, se
-// abre un agujero en su casilla y el charco se cuela por él (lo pidió el usuario).
+// Con la torre no vale petrificarla, que ya es de piedra: ella despierta como gigante para plantarle
+// cara, y es al gigante al que el hechizo derrite. Se vuelve líquido, se abre un agujero en la casilla
+// y el charco se cuela por él (lo pidió el usuario).
 
 const SPELL = 'cast_a_spell';
 const CAST_DISTANCE = 1.15; // lo cerca que se pone a lanzar el hechizo
+const CAST_GAP = 0.35; // y lo que se aparta de más si el rival es un vozarrón de piedra
 const STONE_SECONDS = 0.7; // lo que tarda en volverse piedra
 const STONE = new THREE.Color('#8f8a82');
 const CRACK_SECONDS = 0.35; // de piedra a cascotes
@@ -90,16 +92,25 @@ export const bishopTurnsToStone = {
   async run({ attacker, defender, board, home, center, target, clock, fx, cinema, hud, crowd, dust, rubble, bubbles, obstacles }) {
     const bishop = attacker.piece;
     const facing = facingTo(home, center);
-    const spots = strikeSpot(home, center, { reach: CAST_DISTANCE, torso: 0 });
+    const lejos = Math.max(CAST_DISTANCE, attacker.piece.radius + defender.piece.radius + CAST_GAP);
+    const spots = strikeSpot(home, center, { reach: lejos, torso: 0 });
 
-    // 1. La cámara encuadra, el rival se gira hacia él y el alfil baja de su peana y se acerca.
+    // 1. La cámara encuadra; si es una torre, despierta como gigante para plantarle cara. El rival se
+    //    gira hacia él y el alfil baja de su peana y se acerca.
+    const esTorre = defender.kind === 'rook' && Boolean(defender.piece.giant);
     await Promise.all([
       cinema.frame(clock, home, center, obstacles),
-      defender.mover.turnTo(facingTo(center, home), 0.3),
+      esTorre ? defender.mover.awaken() : Promise.resolve(),
     ]);
+    await defender.mover.turnTo(facingTo(center, home), 0.3);
     await attacker.mover.descend(home);
     await attacker.mover.walkTo(spots.attacker);
     await attacker.mover.turnTo(spots.attackerFacing, 0.25);
+    if (esTorre) {
+      const giant = defender.piece.giant;
+      if (giant.has('taunt')) await giant.playOnce('taunt'); // el gigante se viene arriba… por poco tiempo
+      giant.play('idle', { fade: 0.25 });
+    }
 
     // 2. El hechizo, a cámara lenta: fogonazo en la voluta del báculo.
     const strike = bishop.strikes?.[SPELL];
@@ -113,12 +124,11 @@ export const bishopTurnsToStone = {
     cinema.shake(0.12);
     shout(bubbles, '¡ZAS!', tip);
 
-    // 3. El rival cambia: la torre, que ya es de piedra, se derrite; los demás se vuelven piedra.
-    const esTorre = defender.kind === 'rook';
+    // 3. El rival cambia: al gigante, que ya es de piedra, lo derrite; a los demás los vuelve piedra.
     const victim = defender.kind === 'knight'
       ? defender.piece.object
-      : (esTorre ? defender.piece.tower : defender.piece.object);
-    const forma = esTorre ? defender.piece.tower : defender.piece.figure;
+      : (esTorre ? defender.piece.giant.object : defender.piece.object);
+    const forma = defender.piece.figure;
     const cambio = esTorre ? liquefy(victim) : petrify(victim);
     fx.burst(defender.piece.figure.getWorldPosition(new THREE.Vector3()).setY(1), { size: 1, sparks: 18 });
     await clock.tween(STONE_SECONDS, cambio);
