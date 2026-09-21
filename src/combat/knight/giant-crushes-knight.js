@@ -20,6 +20,7 @@ const TREMBLE_SECONDS = 0.9;
 const STAGGER_SECONDS = 1.2; // los pasitos mareados
 const STAGGER = 0.14; // lo que se mueve a cada lado
 const DUST = { count: 18, radius: 0.8, duration: 0.6 };
+const GIANT_GAP = 0.45; // lo que se aparta de un gigante: el caballo aterriza largo y él se desploma encima
 const DUST_Y = 0.05;
 
 export const giantCrushesKnight = {
@@ -35,7 +36,12 @@ export const giantCrushesKnight = {
     const facing = facingTo(center, home);
 
     // 1. Puestos y encuadre: el gigante avanza hasta donde su golpe alcanza al caballero.
-    const distance = attacker.piece.body.torso + defender.piece.body.torso + BODY_GAP;
+    // Lo que se separan: sus torsos medidos se quedan cortos con el gigante (el gigante es mucho más ancho que su torso medido),
+    // así que al menos lo que ocupan sus peanas, o acaban uno encima del otro.
+    const distance = Math.max(
+      attacker.piece.body.torso + defender.piece.body.torso + BODY_GAP,
+      attacker.piece.radius + defender.piece.radius + GIANT_GAP,
+    );
     const spots = strikeSpot(home, center, { reach: distance, torso: 0 });
     const post = postOf(attacker, spots.attacker, spots.attackerFacing, [{ action: 'attack', key: punch }]);
     const overlap = () => overlapOf(crowd, [attacker, defender], [post]);

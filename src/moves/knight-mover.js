@@ -18,6 +18,7 @@ const LEG_STRETCH = { front: -40, back: 35 }; // grados de las patas estiradas a
 const LEG_TUCK = { front: 55, back: -45 }; // y recogidas al bajar
 const LEAP_MAX_PEAK = 2.2; // por alto que sea lo de debajo, el arco no pasa de aquí
 const TROT = 1.7; // veces su paseo, cuando va al trote
+const CHARGE = 2.8; // y cuando carga con la lanza
 const FIDGET_REAR = 0.6; // radianes que se levanta el caballo en su gesto de reposo
 const FIDGET_UP = 0.45; // segundos que tarda en levantarse
 const FIDGET_PAWS = 2; // manotazos al aire antes de bajar
@@ -744,6 +745,41 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     knight.object.visible = false;
   }
 
+  // Carga a caballo: cruza en línea recta hasta `to` ({x, z}) con el caballo lanzado, sin tocar la peana
+  // (ya la ha dejado quien llama). La usa la batalla de la lanza, en la que el caballero no desmonta.
+  async function chargeTo(to, { seconds = 0.7 } = {}) {
+    const figure = knight.figure;
+    const from = { x: figure.position.x, z: figure.position.z };
+    looseLegs();
+    await turnFigure(figure, Math.atan2(to.x - from.x, to.z - from.z), 0.2);
+    heading = { x: to.x, z: to.z };
+    const paso = horse?.play('walk', { fade: 0.15 });
+    if (paso) {
+      paso.paused = false;
+      paso.timeScale = CHARGE;
+    }
+    try {
+      await clock.tween(seconds, (t) => {
+        const at = pointAlong(from, to, t);
+        figure.position.set(at.x, figure.position.y, at.z);
+      });
+    } finally {
+      heading = null;
+      if (paso) paso.timeScale = 1;
+    }
+    stillHorse();
+  }
+
+  // Ya a caballo, se planta en el centro de `square` y le crece la peana debajo: el final de una carga.
+  async function rideOnto(target) {
+    const to = board.squareToWorld(target);
+    await moveTo(to);
+    await rise(to);
+    await turnTo(restFacing, 0.3);
+    square = target;
+    knight.resting = knight.mounted;
+  }
+
   // Desaparece del tablero encogiendo dentro de una nube de polvo (capturas sin batalla).
   async function vanish() {
     const at = knight.figure.getWorldPosition(new THREE.Vector3());
@@ -767,6 +803,8 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     fidget,
     stopGesture,
     leavePedestal,
+    chargeTo,
+    rideOnto,
     dismount,
     walkTo,
     drawSword,

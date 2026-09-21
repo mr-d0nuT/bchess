@@ -19,12 +19,14 @@ import { restFacingFor } from './moves/walk.js';
 import { onBoardTap } from './input.js';
 import { pawnCaptures, pawnMoves } from './rules/pawn.js';
 import { rookMoves } from './rules/rook.js';
+import { bishopMoves } from './rules/bishop.js';
 import { knightMoves } from './rules/knight.js';
 import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
 import { createClock } from './combat/clock.js';
 import { measureStrikes } from './combat/strikes.js';
 import { createImpactFx } from './fx/impact.js';
 import { createCinema } from './scene/cinema.js';
+import { createFade } from './scene/fade.js';
 import { pickStyle } from './combat/plan.js';
 import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
@@ -37,12 +39,13 @@ import { canKnightBattle, runKnightBattle } from './combat/knight/battle.js';
 // enemigo marcado, se lo come. Los botones actúan sobre el peón elegido.
 
 const SIDES = [
-  { color: 'white', pawn: 'white-pawn', rook: 'white-rook', knight: 'white-knight', pawnRank: 2, backRank: 1 },
-  { color: 'black', pawn: 'black-pawn', rook: 'black-rook', knight: 'black-knight', pawnRank: 7, backRank: 8 },
+  { color: 'white', pawn: 'white-pawn', rook: 'white-rook', knight: 'white-knight', bishop: 'white-bishop', pawnRank: 2, backRank: 1 },
+  { color: 'black', pawn: 'black-pawn', rook: 'black-rook', knight: 'black-knight', bishop: 'black-bishop', pawnRank: 7, backRank: 8 },
 ];
 const FILES = 'abcdefgh';
 const ROOK_FILES = 'ah';
 const KNIGHT_FILES = 'bg';
+const BISHOP_FILES = 'cf';
 const BUTTON_ACTIONS = ['attack', 'hit', 'fall'];
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
 const hud = createHud();
@@ -80,6 +83,7 @@ async function start() {
   const cinema = createCinema(stage);
   const rubble = createRubble(stage.scene);
   const debris = createDebris(stage.scene);
+  const fade = createFade(clock);
   const bubbles = createBubbles({ camera: stage.camera, canvas: stage.renderer.domElement, clock });
   const pieces = []; // { kind: 'pawn' | 'rook' | 'knight', color, piece, mover }
   const crowd = createCrowd({ board, entries: () => pieces });
@@ -158,9 +162,11 @@ async function start() {
   const enemiesOf = (entry) => new Set(pieces.filter((other) => other.color !== entry.color).map((other) => other.mover.square));
   const pieceAt = (square) => pieces.find((entry) => entry.mover.square === square) ?? null;
   // La torre y el caballero se mueven y comen igual; el peón come de otra forma que avanza.
-  const reach = (entry) => (entry.kind === 'rook'
-    ? rookMoves(entry.mover.square, occupied(), enemiesOf(entry))
-    : knightMoves(entry.mover.square, occupied(), enemiesOf(entry)));
+  const reach = (entry) => {
+    if (entry.kind === 'rook') return rookMoves(entry.mover.square, occupied(), enemiesOf(entry));
+    if (entry.kind === 'bishop') return bishopMoves(entry.mover.square, occupied(), enemiesOf(entry));
+    return knightMoves(entry.mover.square, occupied(), enemiesOf(entry));
+  };
   const movesOf = (entry) => (entry.kind === 'pawn' ? pawnMoves(entry.mover.square, occupied(), entry.color) : reach(entry).moves);
   const capturesOf = (entry) => (entry.kind === 'pawn' ? pawnCaptures(entry.mover.square, enemiesOf(entry), entry.color) : reach(entry).captures);
   // Atacar, Golpe y Caer solo actúan sobre peones.
@@ -204,6 +210,8 @@ async function start() {
     const target = defender.mover.square;
     try {
       const obstacles = pieces.filter((entry) => entry !== attacker && entry !== defender).map((entry) => board.squareToWorld(entry.mover.square));
+      // Las que no pelean, translúcidas: si alguna queda delante de la cámara, no tapa el combate.
+      fade.dim(pieces.filter((entry) => entry !== attacker && entry !== defender).map((entry) => entry.piece.object));
       const style = pickStyle(state.lastStyle);
       if (attacker.kind === 'pawn' && defender.kind === 'pawn' && canFight(attacker, defender, style)) {
         state.lastStyle = style;
@@ -227,6 +235,7 @@ async function start() {
       attacker.mover.placeOn(target);
     } finally {
       if (pieces.includes(defender)) removePiece(defender);
+      await fade.restore();
       await Promise.race([crowd.settle(), clock.wait(SETTLE_LIMIT)]);
       state.fighting = false;
       select(attacker);
@@ -312,6 +321,26 @@ async function start() {
     }
   }
 
+  // Los alfiles van aparte, como los demás: si fallan, el resto del tablero sigue.
+  async function loadBishops(manifest) {
+    try {
+      const sides = SIDES.filter((side) => manifest.pieces?.[side.bishop]);
+      const kits = await Promise.all(sides.map((side) => loadPieceKit(manifest.pieces[side.bishop], quality)));
+      for (const kit of kits) kit.strikes = measureStrikes(kit, spawnPiece);
+      sides.forEach((side, i) => {
+        for (const file of BISHOP_FILES) {
+          const piece = spawnPiece(kits[i]);
+          const entry = { kind: 'bishop', color: side.color, piece };
+          entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing: restFacingFor(side.color) });
+          addPiece(entry, file + side.backRank);
+        }
+      });
+    } catch (err) {
+      console.error('[BChess] No se pudieron cargar los alfiles:', err);
+      hud.showMessage('No se pudieron cargar los alfiles', { retry: () => loadBishops(manifest) });
+    }
+  }
+
   // Los caballeros también van aparte.
   async function loadKnights(manifest) {
     try {
@@ -342,7 +371,7 @@ async function start() {
       hud.showMessage('No se pudieron cargar las piezas', { retry: loadPieces });
       return;
     }
-    await Promise.all([loadPawns(manifest), loadRooks(manifest), loadKnights(manifest)]);
+    await Promise.all([loadPawns(manifest), loadRooks(manifest), loadKnights(manifest), loadBishops(manifest)]);
   }
 
   await addLighting(stage, quality);
@@ -355,6 +384,9 @@ async function start() {
     },
     get rooks() {
       return pieces.filter((entry) => entry.kind === 'rook');
+    },
+    get bishops() {
+      return pieces.filter((entry) => entry.kind === 'bishop');
     },
     get knights() {
       return pieces.filter((entry) => entry.kind === 'knight');

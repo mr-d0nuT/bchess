@@ -16,6 +16,8 @@ const SWEEP_SECONDS = 0.3; // lo que tarda en levantarse después de barrer
 const COLLAPSE_SECONDS = 0.8; // del tajo a deshacerse en rocas
 const LEG_BONES = ['R_Calf', 'L_Calf', 'R_Thigh', 'L_Thigh'];
 const DUST = { count: 26, radius: 1.3, duration: 0.8 };
+const BACK_STEP = 0.35; // lo que retrocede al ver caer al gigante
+const GIANT_GAP = 0.45; // lo que se aparta de un gigante: el caballo aterriza largo y él se desploma encima
 const DUST_Y = 0.05;
 
 export const knightSweepsGiant = {
@@ -32,7 +34,12 @@ export const knightSweepsGiant = {
 
     // 1. Puestos: el caballero a distancia de espada del gigante; el gigante, en su casilla, con su
     //    puñetazo y, si cabe, una provocación.
-    const distance = attacker.piece.body.torso + defender.piece.body.torso + BODY_GAP;
+    // Lo que se separan: sus torsos medidos se quedan cortos con el gigante (el gigante es mucho más ancho que su torso medido),
+    // así que al menos lo que ocupan sus peanas, o acaban uno encima del otro.
+    const distance = Math.max(
+      attacker.piece.body.torso + defender.piece.body.torso + BODY_GAP,
+      attacker.piece.radius + defender.piece.radius + GIANT_GAP,
+    );
     const spots = strikeSpot(home, center, { reach: distance, torso: 0 });
     const post = postOf(defender, center, facing, [{ action: 'attack', key: punch }]);
     const overlap = () => overlapOf(crowd, [attacker, defender], [post]);
@@ -76,8 +83,12 @@ export const knightSweepsGiant = {
     giant.playOnce(giant.has('defeat') ? 'defeat' : 'hit', { fade: 0.1 });
     const crumbled = clock.wait(COLLAPSE_SECONDS).then(() => defender.mover.crumble());
     await afterImpact(clock);
+    // Se levanta y retrocede un paso: el gigante se le venía encima al desplomarse.
+    const desde = rider.figure.position.clone();
+    const atrasX = -Math.sin(spots.attackerFacing) * BACK_STEP;
+    const atrasZ = -Math.cos(spots.attackerFacing) * BACK_STEP;
     await clock.tween(SWEEP_SECONDS, (t) => {
-      rider.figure.position.y = agachado - DUCK * (1 - t);
+      rider.figure.position.set(desde.x + atrasX * t, agachado - DUCK * (1 - t), desde.z + atrasZ * t);
     });
     rider.figure.position.y = agachado;
     await sweeping;
