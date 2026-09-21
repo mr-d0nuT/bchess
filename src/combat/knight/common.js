@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { roomClearance } from '../../moves/room.js';
+import { findBone } from '../../pieces/bone-names.js';
 
 // Lo que comparten las batallas del caballero (diseño en docs/superpowers/specs/
 // 2026-09-15-bchess-caballero-design.md, sección 7).
@@ -57,14 +58,17 @@ export function swordTip(fighter) {
   return fighter.props.sword.localToWorld(new THREE.Vector3(0, fighter.swordEnds.top, 0));
 }
 
-// Un hueso del luchador, esté donde esté su figura: a caballo cuelga de la del caballo, no de su pieza.
+// Un hueso del luchador, esté donde esté su figura (a caballo cuelga de la del caballo, no de su
+// pieza) y se llame como se llame en su esqueleto (`findBone` traduce a los nombres de Mixamo).
 export function boneOf(fighter, name) {
-  return fighter.figure.getObjectByName(name) ?? fighter.object.getObjectByName(name) ?? null;
+  return findBone(fighter.figure, name) ?? findBone(fighter.object, name);
 }
 
 // Dónde está ahora un hueso.
 export function bonePosition(fighter, name) {
-  return boneOf(fighter, name).getWorldPosition(new THREE.Vector3());
+  const bone = boneOf(fighter, name);
+  if (!bone) throw new Error(`El luchador no tiene el hueso ${name}`);
+  return bone.getWorldPosition(new THREE.Vector3());
 }
 
 // Al azar y con la misma probabilidad: desmonta o su caballo lo tira.
@@ -122,7 +126,7 @@ export function fallDirection({ at, around, spread, length, rival, overlap }) {
 
 // Estrellitas sobre la cabeza durante `seconds`.
 export async function knockOut({ clock, fx, fighter, seconds = KO_SECONDS }) {
-  fx.koStars(fighter.object.getObjectByName('Head') ?? fighter.figure, { seconds });
+  fx.koStars(boneOf(fighter, 'Head') ?? fighter.figure, { seconds });
   await clock.wait(seconds);
 }
 

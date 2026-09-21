@@ -4,6 +4,7 @@ import {
   afterImpact, choose, gripSlideToTarget, knockBack, overlapOf, planPunch, poseAhead, slowToImpact, stanceOf, standing, targetsOf, towardRival,
 } from './fight.js';
 import { skinnedMeshes } from './strikes.js';
+import { findBone } from '../pieces/bone-names.js';
 import { CRUMBLE_SECONDS } from '../moves/rook-mover.js';
 
 // Capturas cortas y brutales en las que participa una torre (diseño en docs/superpowers/specs/
@@ -87,7 +88,7 @@ function planOverhead({ strike, from, center, target, closest, rest = false, fig
   const { path } = strike.overhead;
   const facing = Math.atan2(center.x - from.x, center.z - from.z);
   const head = standing(target, facing + Math.PI, () => {
-    const bone = target.object.getObjectByName('Head');
+    const bone = findBone(target.object, 'Head');
     if (!bone) return null;
     const down = new THREE.Vector3(0, -1, 0);
     const targets = targetsOf(target);
@@ -256,7 +257,7 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
     await crumbled;
   } else {
     await fall;
-    fx.koStars(d.object.getObjectByName('Head') ?? d.figure, { seconds: KO_SECONDS });
+    fx.koStars(findBone(d.object, 'Head') ?? d.figure, { seconds: KO_SECONDS });
     await clock.wait(KO_SECONDS);
     await defender.mover.vanish();
   }
