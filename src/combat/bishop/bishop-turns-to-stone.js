@@ -3,14 +3,15 @@ import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
 import { bonePosition, facingTo, shout, victoryLap } from '../knight/common.js';
 
-// El alfil se come a cualquiera: lo convierte en piedra (diseño, sección 7 del caballero, mismo espíritu
-// de gag). El alfil baja de su peana y se acerca lo justo, levanta el báculo y lanza el hechizo: un
-// fogonazo en la voluta, el rival se queda tieso y se le va el color hasta quedar de piedra, y se
-// resquebraja en cascotes. El alfil ocupa la casilla y hace su reverencia con la cámara encima.
+// El alfil se come a cualquiera (mismo espíritu de gag que las batallas del caballero). Baja de su peana,
+// se acerca lo justo, levanta el báculo y lanza el hechizo: fogonazo en la voluta y al rival se le va el
+// color hasta quedar de piedra lisa, y entonces se resquebraja en cascotes.
 //
 // Con la torre no vale petrificarla, que ya es de piedra: ella despierta como gigante para plantarle
-// cara, y es al gigante al que el hechizo derrite. Se vuelve líquido, se abre un agujero en la casilla
-// y el charco se cuela por él (lo pidió el usuario).
+// cara y el hechizo le abre el suelo. El gigante se tambalea y se lo traga el agujero: mientras baja se
+// le recorta al ras del tablero (`clippingPlanes`), así que desaparece tragado de verdad y no
+// encogiendo. Antes se probó a derretirlo en un charco y no colaba: un disco con ondas nunca parece
+// líquido.
 
 const SPELL = 'cast_a_spell';
 const CAST_DISTANCE = 1.15; // lo cerca que se pone a lanzar el hechizo
@@ -19,12 +20,17 @@ const STONE_SECONDS = 0.7; // lo que tarda en volverse piedra
 const STONE = new THREE.Color('#8f8a82');
 const CRACK_SECONDS = 0.35; // de piedra a cascotes
 const ROCKS = 22;
-const LIQUID = new THREE.Color('#2f3a42'); // el charco en que se queda la torre
-const MELT_SECONDS = 1.5; // lo que tarda en derretirse
-const DRAIN_SECONDS = 0.9; // y en colarse por el agujero
-const HOLE_RADIUS = 0.46;
-const PUDDLE = 1.35; // lo que se despatarra el charco antes de colarse
+const HOLE_RADIUS = 0.46; // mínimo; se agranda hasta los hombros del gigante para que quepa entero
+const HOLE_MAX = 0.58; // y no más, que la casilla mide 1 de lado
+const HOLE_SECONDS = 0.5; // lo que tarda el agujero en abrirse (y en cerrarse)
+const TEETER_SECONDS = 0.7; // el tambaleo antes de caer
+const TEETER = 0.22; // radianes que se bambolea
+const FALL_SECONDS = 1.1;
+const FALL_DEPTH = 3.2; // lo que baja hasta perderse
+const FALL_SPIN = 1.6; // y lo que gira mientras cae
+const BOARD_TOP = 0.004; // el ras del tablero: por debajo, recortado
 const DUST_Y = 0.05;
+const HOLE_DUST = '#6b6054'; // el polvo del agujero es de madera rota, no blanco
 
 // Le quita el color a una pieza hasta dejarla de piedra: se le clonan los materiales (los comparten
 // todas las copias del mismo modelo) y se les lleva el color y el brillo a los de la roca.
@@ -49,37 +55,83 @@ function petrify(object) {
   };
 }
 
-// Lo mismo, pero a líquido: color de charco y brillo mojado, que es lo que se le hace a la torre.
-function liquefy(object) {
-  const materials = [];
+// Recorta una figura al ras del tablero: lo que baja de ahí deja de verse, que es lo que hace que
+// parezca que se la traga el agujero en vez de que encoja.
+function clipToBoard(object) {
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -BOARD_TOP);
   object.traverse((o) => {
     if (!o.isMesh || !o.material) return;
     const list = Array.isArray(o.material) ? o.material : [o.material];
     o.material = Array.isArray(o.material) ? list.map((m) => m.clone()) : list[0].clone();
     for (const material of Array.isArray(o.material) ? o.material : [o.material]) {
-      materials.push({ material, color: material.color?.clone() ?? null, map: material.map });
-    }
-  });
-  return (t) => {
-    for (const { material, color, map } of materials) {
-      if (color) material.color.copy(color).lerp(LIQUID, t);
-      if (map && t > 0.5) material.map = null;
-      material.roughness = Math.min(material.roughness ?? 1, 1 - 0.85 * t);
-      material.metalness = Math.max(material.metalness ?? 0, 0.5 * t);
+      material.clippingPlanes = [plane];
+      material.clipShadows = true;
       material.needsUpdate = true;
     }
-  };
+  });
 }
 
-// Agujero negro en la casilla: un disco sobre la baldosa que crece, se traga el charco y se cierra.
+// Agujero en la casilla: no vale un disco negro pegado, que se nota plano. Se pinta en un lienzo un
+// degradado que va de negro en el centro a nada en el borde, con grietas saliendo hacia fuera, y se
+// tiende sobre la baldosa: así parece que la madera se ha roto y debajo no hay nada.
+function holeTexture() {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const c = size / 2;
+
+  // Las grietas primero, que el degradado las tape hacia el centro.
+  ctx.strokeStyle = 'rgba(20, 14, 10, 0.85)';
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 14; i++) {
+    const angle = (i / 14) * Math.PI * 2 + Math.random() * 0.2;
+    const largo = c * (0.82 + Math.random() * 0.22);
+    ctx.lineWidth = 1 + Math.random() * 2.5;
+    ctx.beginPath();
+    ctx.moveTo(c, c);
+    let x = c;
+    let y = c;
+    const pasos = 4;
+    for (let k = 1; k <= pasos; k++) {
+      const r = (largo * k) / pasos;
+      const desvio = (Math.random() - 0.5) * 0.25;
+      x = c + Math.cos(angle + desvio) * r;
+      y = c + Math.sin(angle + desvio) * r;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // Y encima el pozo: negro en el centro, difuminado en el borde.
+  const grad = ctx.createRadialGradient(c, c, 0, c, c, c);
+  grad.addColorStop(0, 'rgba(2, 3, 5, 1)');
+  grad.addColorStop(0.58, 'rgba(4, 5, 8, 1)');
+  grad.addColorStop(0.76, 'rgba(12, 10, 9, 0.85)');
+  grad.addColorStop(0.9, 'rgba(26, 18, 12, 0.35)');
+  grad.addColorStop(1, 'rgba(26, 18, 12, 0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(c, c, c, 0, Math.PI * 2);
+  ctx.fill();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 function openHole(board, at) {
+  const texture = holeTexture();
   const hole = new THREE.Mesh(
-    new THREE.CircleGeometry(1, 36),
-    new THREE.MeshBasicMaterial({ color: 0x05070a, transparent: true, opacity: 0.95 }),
+    new THREE.CircleGeometry(1, 48),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false }),
   );
   hole.name = 'agujero';
   hole.rotation.x = -Math.PI / 2;
+  hole.rotation.z = Math.random() * Math.PI * 2; // que no salgan las grietas siempre igual
   hole.position.set(at.x, 0.006, at.z);
+  hole.renderOrder = 1; // sobre la baldosa, por debajo del polvo
   hole.scale.setScalar(0.001);
   board.group.add(hole);
   return hole;
@@ -94,10 +146,10 @@ export const bishopTurnsToStone = {
     const facing = facingTo(home, center);
     const lejos = Math.max(CAST_DISTANCE, attacker.piece.radius + defender.piece.radius + CAST_GAP);
     const spots = strikeSpot(home, center, { reach: lejos, torso: 0 });
+    const esTorre = defender.kind === 'rook' && Boolean(defender.piece.giant);
 
     // 1. La cámara encuadra; si es una torre, despierta como gigante para plantarle cara. El rival se
     //    gira hacia él y el alfil baja de su peana y se acerca.
-    const esTorre = defender.kind === 'rook' && Boolean(defender.piece.giant);
     await Promise.all([
       cinema.frame(clock, home, center, obstacles),
       esTorre ? defender.mover.awaken() : Promise.resolve(),
@@ -124,44 +176,61 @@ export const bishopTurnsToStone = {
     cinema.shake(0.12);
     shout(bubbles, '¡ZAS!', tip);
 
-    // 3. El rival cambia: al gigante, que ya es de piedra, lo derrite; a los demás los vuelve piedra.
     const victim = defender.kind === 'knight'
       ? defender.piece.object
       : (esTorre ? defender.piece.giant.object : defender.piece.object);
     const forma = defender.piece.figure;
-    const cambio = esTorre ? liquefy(victim) : petrify(victim);
-    fx.burst(defender.piece.figure.getWorldPosition(new THREE.Vector3()).setY(1), { size: 1, sparks: 18 });
-    await clock.tween(STONE_SECONDS, cambio);
-    await afterImpact(clock);
-    await casting;
-    bishop.play('idle', { fade: 0.3 });
+    const at = forma.getWorldPosition(new THREE.Vector3());
+    fx.burst(at.clone().setY(1), { size: 1, sparks: 18 });
 
-    const at = defender.piece.figure.getWorldPosition(new THREE.Vector3());
     if (esTorre) {
-      // 4a. La torre se derrite en un charco, se abre un agujero en su casilla y el charco se cuela.
+      // 3a. Al gigante el hechizo le abre el suelo: se tambalea y se lo traga el tablero.
+      const radio = Math.min(HOLE_MAX, Math.max(HOLE_RADIUS, defender.piece.body?.walk ?? 0));
       const hole = openHole(board, center);
-      shout(bubbles, '¡CHOF!', at);
-      const alto = forma.scale.y;
-      await Promise.all([
-        clock.tween(MELT_SECONDS, (t) => {
-          const k = t * t; // al principio aguanta y luego se viene abajo de golpe
-          forma.scale.set(1 + (PUDDLE - 1) * k, alto * Math.max(0.02, 1 - k), 1 + (PUDDLE - 1) * k);
-        }),
-        clock.tween(MELT_SECONDS * 0.7, (t) => hole.scale.setScalar(Math.max(0.001, HOLE_RADIUS * t))),
-      ]);
-      shout(bubbles, '¡GLUP!', at);
-      await clock.tween(DRAIN_SECONDS, (t) => {
-        const k = 1 - t;
-        forma.scale.set(PUDDLE * k, Math.max(0.001, alto * 0.02 * k), PUDDLE * k);
-        forma.position.y = -0.08 * t;
+      clipToBoard(victim);
+      await clock.tween(HOLE_SECONDS, (t) => hole.scale.setScalar(Math.max(0.001, radio * t)));
+      dust.puff(new THREE.Vector3(center.x, DUST_Y, center.z), { count: 9, radius: 0.62, duration: 0.5, color: HOLE_DUST });
+      cinema.shake(0.12);
+      shout(bubbles, '¡AAAH!', at);
+      await afterImpact(clock);
+      await casting;
+      bishop.play('idle', { fade: 0.3 });
+      const desde = forma.position.y;
+      const giro = forma.rotation.y;
+      await clock.tween(TEETER_SECONDS, (t) => {
+        forma.rotation.z = Math.sin(t * Math.PI * 3) * TEETER * (1 - t); // manotea buscando el suelo
+        forma.position.y = desde - 0.05 * t;
+      });
+      rubble.explode(new THREE.Vector3(center.x, 0.1, center.z), {
+        color: defender.piece.stone ?? `#${STONE.getHexString()}`,
+        count: 10,
+        height: 0.6,
+        obstacles: () => crowd.obstacles([attacker, defender]),
+      });
+      await clock.tween(FALL_SECONDS, (t) => {
+        const k = t * t; // cae acelerando, como quien se cae de verdad
+        forma.position.y = desde - FALL_DEPTH * k;
+        forma.rotation.z = TEETER * 0.6 * (1 - t);
+        forma.rotation.y = giro + FALL_SPIN * k;
       });
       defender.piece.object.visible = false;
-      await clock.tween(0.45, (t) => hole.scale.setScalar(Math.max(0.001, HOLE_RADIUS * (1 - t))));
+      forma.rotation.set(0, giro, 0);
+      forma.position.y = desde;
+      dust.puff(new THREE.Vector3(center.x, DUST_Y, center.z), { count: 12, radius: 0.75, duration: 0.7, color: HOLE_DUST });
+      cinema.shake(0.16);
+      shout(bubbles, '¡PLOF!', at);
+      await clock.tween(HOLE_SECONDS, (t) => hole.scale.setScalar(Math.max(0.001, radio * (1 - t))));
       board.group.remove(hole);
       hole.geometry.dispose();
+      hole.material.map?.dispose();
       hole.material.dispose();
     } else {
-      // 4b. Y los demás se resquebrajan en cascotes, con su nube de polvo y su temblor.
+      // 3b. A los demás el hechizo los vuelve piedra y se resquebrajan en cascotes.
+      const stone = petrify(victim);
+      await clock.tween(STONE_SECONDS, stone);
+      await afterImpact(clock);
+      await casting;
+      bishop.play('idle', { fade: 0.3 });
       rubble.explode(at, {
         color: `#${STONE.getHexString()}`,
         count: ROCKS,
@@ -177,7 +246,7 @@ export const bishopTurnsToStone = {
       await defender.mover.vanish();
     }
 
-    // 5. Ocupa la casilla y hace la reverencia, con la cámara encima.
+    // 4. Ocupa la casilla y hace la reverencia, con la cámara encima.
     await victoryLap({ entry: attacker, clock, cinema, at: center, obstacles, move: () => attacker.mover.walkOnto(target) });
   },
 };

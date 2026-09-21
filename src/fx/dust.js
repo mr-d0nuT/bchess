@@ -25,9 +25,12 @@ function texture() {
 export function createDust(scene) {
   const active = [];
 
-  function puff(position, { count = 9, radius = 0.45, duration = 0.4 } = {}) {
+  // `color` tiñe la nube: la de un agujero en la madera es parda y oscura, no blanca de dibujos.
+  function puff(position, { count = 9, radius = 0.45, duration = 0.4, color = null } = {}) {
     for (let i = 0; i < count; i++) {
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture(), transparent: true, depthWrite: false }));
+      const material = new THREE.SpriteMaterial({ map: texture(), transparent: true, depthWrite: false });
+      if (color) material.color.set(color);
+      const sprite = new THREE.Sprite(material);
       const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
       const distance = radius * (0.35 + Math.random() * 0.4);
       sprite.position.set(
