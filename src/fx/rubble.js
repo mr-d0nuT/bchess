@@ -40,7 +40,9 @@ export function createRubble(scene) {
 
   // Estalla en `center` ({x, z}): rocas repartidas en todo el alto (`height`) que salen hacia
   // fuera. `obstacles()` devuelve las piezas en las que rebotan.
-  function explode(center, { color, count = 18, height = 1.6, obstacles = () => [] }) {
+  // `force` multiplica lo que salen despedidas: un bastonazo esparce los cascotes mucho más
+  // lejos que un derrumbe.
+  function explode(center, { color, count = 18, height = 1.6, force = 1, obstacles = () => [] }) {
     for (let i = 0; i < count; i++) {
       const size = 0.05 + Math.random() * 0.07;
       const angle = Math.random() * Math.PI * 2;
@@ -53,7 +55,7 @@ export function createRubble(scene) {
         restAge: null,
         body: {
           position: { x: center.x + Math.sin(angle) * from, y: 0.15 + Math.random() * height, z: center.z + Math.cos(angle) * from },
-          velocity: { x: Math.sin(angle) * out, y: 1 + Math.random() * 2.2, z: Math.cos(angle) * out },
+          velocity: { x: Math.sin(angle) * out * force, y: (1 + Math.random() * 2.2) * force, z: Math.cos(angle) * out * force },
           radius: size,
           bounces: 0,
           resting: false,

@@ -11,7 +11,7 @@ export const PAWN_BODY = 0.25; // del centro de un peón, ya sin peana, a su cos
 export const BODY_GAP = 0.05; // hueco entre los cuerpos de los dos luchadores
 const TOPPLE_SECONDS = 0.45;
 const SHOUT_SECONDS = 0.8;
-const WIND_UP = 0.45; // parte del camino hasta el golpe en la que se queda con el arma en alto
+export const WIND_UP = 0.45; // parte del camino hasta el golpe en la que se queda con el arma en alto
 
 // La pieza con esqueleto que pelea: el peón, el jinete del caballero o el gigante de la torre.
 export function fighterOf(entry) {
@@ -87,7 +87,7 @@ export function shout(bubbles, text, anchor) {
 export async function windUp({ clock, fighter, key }) {
   const measure = fighter.strikes[key];
   const action = fighter.play('attack', { loop: false, fade: 0.15, clip: key });
-  await clock.wait((measure.blade ?? measure.body).t * WIND_UP);
+  await clock.wait((measure.blade ?? measure.body ?? measure.spear).t * WIND_UP);
   if (action) action.paused = true;
   return action;
 }

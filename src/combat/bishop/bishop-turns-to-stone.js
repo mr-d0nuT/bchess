@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
-import { bonePosition, facingTo, shout, victoryLap } from '../knight/common.js';
+import { WIND_UP, bonePosition, facingTo, shout, victoryLap, windUp } from '../knight/common.js';
 
 // El alfil se come a cualquiera (mismo espíritu de gag que las batallas del caballero). Baja de su peana,
 // se acerca lo justo, levanta el báculo y lanza el hechizo: fogonazo en la voluta y al rival se le va el
 // color hasta quedar de piedra lisa, y entonces se resquebraja en cascotes.
+//
+// Y no la deja ahí: se arrima y la revienta de un bastonazo, con el báculo por encima de la cabeza.
 //
 // Con la torre no vale petrificarla, que ya es de piedra: ella despierta como gigante para plantarle
 // cara y el hechizo le abre el suelo. El gigante se tambalea y se lo traga el agujero: mientras baja se
@@ -18,8 +20,13 @@ const CAST_DISTANCE = 1.15; // lo cerca que se pone a lanzar el hechizo
 const CAST_GAP = 0.35; // y lo que se aparta de más si el rival es un vozarrón de piedra
 const STONE_SECONDS = 0.7; // lo que tarda en volverse piedra
 const STONE = new THREE.Color('#8f8a82');
-const CRACK_SECONDS = 0.35; // de piedra a cascotes
-const ROCKS = 22;
+const ADMIRE_SECONDS = 0.5; // lo que se recrea el alfil en su estatua antes de romperla
+const SMASH = 'slash'; // el bastonazo que la hace añicos
+const SMASH_GAP = 0.12; // lo justo para no meterse dentro de ella
+const SMASH_HOLD = 0.3; // el báculo en alto, aguantando, antes de caer
+const SMASH_ROCKS = 36; // salta en muchos más pedazos que un simple derrumbe
+const SMASH_FORCE = 2; // y salen volando el doble de lejos
+const SMASH_SHAKE = 0.34;
 const HOLE_RADIUS = 0.46; // mínimo; se agranda hasta los hombros del gigante para que quepa entero
 const HOLE_MAX = 0.58; // y no más, que la casilla mide 1 de lado
 const HOLE_SECONDS = 0.5; // lo que tarda el agujero en abrirse (y en cerrarse)
@@ -137,6 +144,14 @@ function openHole(board, at) {
   return hole;
 }
 
+// Baja al rival de su peana para pelear, cada uno a su manera: la torre despierta como gigante (que
+// ya pisa el tablero), el caballero se la quita con su caballo encima y los demás bajan a la casilla.
+function stepDown(defender, at) {
+  if (defender.kind === 'rook' && defender.piece.giant) return defender.mover.awaken();
+  if (defender.kind === 'knight') return defender.mover.leavePedestal();
+  return defender.mover.descend(at);
+}
+
 export const bishopTurnsToStone = {
   matches: (attacker) => attacker.kind === 'bishop',
   can: (attacker) => Boolean(attacker.piece.strikes?.[SPELL] ?? attacker.piece.has('attack')),
@@ -148,11 +163,11 @@ export const bishopTurnsToStone = {
     const spots = strikeSpot(home, center, { reach: lejos, torso: 0 });
     const esTorre = defender.kind === 'rook' && Boolean(defender.piece.giant);
 
-    // 1. La cámara encuadra; si es una torre, despierta como gigante para plantarle cara. El rival se
-    //    gira hacia él y el alfil baja de su peana y se acerca.
+    // 1. La cámara encuadra y el rival baja de su peana a plantarle cara (la torre, despertando como
+    //    gigante), se gira hacia él, y el alfil baja de la suya y se acerca.
     await Promise.all([
       cinema.frame(clock, home, center, obstacles),
-      esTorre ? defender.mover.awaken() : Promise.resolve(),
+      stepDown(defender, center),
     ]);
     await defender.mover.turnTo(facingTo(center, home), 0.3);
     await attacker.mover.descend(home);
@@ -225,25 +240,49 @@ export const bishopTurnsToStone = {
       hole.material.map?.dispose();
       hole.material.dispose();
     } else {
-      // 3b. A los demás el hechizo los vuelve piedra y se resquebrajan en cascotes.
+      // 3b. A los demás el hechizo los deja de piedra, tiesos y sin color.
       const stone = petrify(victim);
       await clock.tween(STONE_SECONDS, stone);
       await afterImpact(clock);
       await casting;
       bishop.play('idle', { fade: 0.3 });
+      shout(bubbles, '¡CRIC!', at); // la estatua se asienta, con su crujidito
+      await clock.wait(ADMIRE_SECONDS); // y el alfil se recrea un momento en su obra
+
+      // 3c. Y el remate: se arrima, levanta el báculo por encima de la cabeza, lo deja un instante en
+      //     alto… y machaca la estatua de un bastonazo que la hace añicos.
+      const golpe = bishop.strikes?.[SMASH]?.spear;
+      if (golpe) {
+        const lejos = Math.max(golpe.reach + defender.piece.radius * 0.5, attacker.piece.radius + defender.piece.radius + SMASH_GAP);
+        const sitio = strikeSpot(home, center, { reach: lejos, torso: 0 });
+        await attacker.mover.walkTo(sitio.attacker);
+        await attacker.mover.turnTo(sitio.attackerFacing, 0.2);
+        const swing = await windUp({ clock, fighter: bishop, key: SMASH });
+        await clock.wait(SMASH_HOLD);
+        if (swing) swing.paused = false;
+        await slowToImpact(clock, golpe.t * (1 - WIND_UP));
+      }
+      const punta = bishop.props.spear
+        ? bishop.props.spear.localToWorld(new THREE.Vector3(0, bishop.spearEnds.top, 0))
+        : at.clone().setY(defender.piece.height * 0.8);
+      hud.flash();
+      cinema.shake(SMASH_SHAKE);
+      fx.burst(punta, { size: 1.8, sparks: 44 });
+      fx.burst(at.clone().setY(defender.piece.height * 0.5), { size: 1.4, sparks: 26 });
       rubble.explode(at, {
         color: `#${STONE.getHexString()}`,
-        count: ROCKS,
+        count: SMASH_ROCKS,
         height: defender.piece.height,
+        force: SMASH_FORCE,
         obstacles: () => crowd.obstacles([attacker, defender]),
       });
-      dust.puff(new THREE.Vector3(at.x, DUST_Y, at.z), { count: 20, radius: 0.9, duration: 0.8 });
-      cinema.shake(0.18);
-      shout(bubbles, '¡CRAC!', at);
-      await clock.tween(CRACK_SECONDS, (t) => {
-        forma.scale.setScalar(Math.max(0.001, 1 - t));
-      });
-      await defender.mover.vanish();
+      dust.puff(new THREE.Vector3(at.x, DUST_Y, at.z), { count: 24, radius: 1.15, duration: 0.9 });
+      dust.puff(new THREE.Vector3(at.x, defender.piece.height * 0.5, at.z), { count: 10, radius: 0.5, duration: 0.7 });
+      shout(bubbles, '¡CATACROC!', at);
+      victim.visible = false; // no se desvanece: se hace añicos de golpe
+      defender.piece.object.visible = false;
+      await afterImpact(clock);
+      bishop.play('idle', { fade: 0.25 });
     }
 
     // 4. Ocupa la casilla y hace la reverencia, con la cámara encima.
