@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { afterImpact, choose, overlapOf, slowToImpact, stanceOf } from '../fight.js';
 import { bestStrike, strikeSpot } from '../plan.js';
 import {
-  BODY_GAP, bladeStrikes, boneOf, bonePosition, dismountMode, facingTo, fighterOf, knockOut, postOf, shout,
+  bladeStrikes, BODY_GAP, boneOf, bonePosition, dismountMode, facingTo, fighterOf, knockOut, postOf, shout,
+  victoryLap,
 } from './common.js';
 
 // Torre come caballero: un casco con pies (diseño, sección 7). La torre se convierte en gigante y avanza; el
@@ -99,6 +100,6 @@ export const giantCrushesKnight = {
 
     // 5. El gigante ocupa la casilla y vuelve a ser torre.
     stances.delete(attacker);
-    await Promise.all([cinema.restore(clock), attacker.mover.walkOnto(target)]);
+    await victoryLap({ entry: attacker, clock, cinema, at: center, obstacles, move: () => attacker.mover.walkOnto(target) });
   },
 };

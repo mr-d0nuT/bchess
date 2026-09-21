@@ -40,14 +40,24 @@
       "pedestalModel": { "files": { "movil": "pedestal-movil.glb", "ordenador": "pedestal-ordenador.glb" }, "height": 0.26 }
     },
     "white-bishop": {
-      "files": { "movil": "pawn-movil.glb", "ordenador": "pawn-ordenador.glb" },
-      "animationFiles": ["pawn-fidgets.glb", "pawn-combat.glb"],
-      "height": 1.45,
+      "files": { "movil": "bishop-movil.glb", "ordenador": "bishop-ordenador.glb" },
+      "height": 1.7,
       "yaw": 0,
-      "moves": {"idle": [{"clip": "idle"}], "walk": [{"clip": "walk"}], "jump": [], "attack": [{"clip": "box_03", "spear": "forward", "travel": 0.73}, {"clip": "front_kick_02"}, {"clip": "box_01", "spear": "forward", "travel": 0.75}, {"clip": "front_kick_01", "travel": 0.42}, {"clip": "box_02", "spear": "forward"}], "hit": [{"clip": "hit_to_head"}, {"clip": "hit_to_stomach"}, {"clip": "hit_to_body_01"}, {"clip": "hit_to_side"}, {"clip": "hit_to_body_02"}], "fall": [{"clip": "fall", "travel": 0.27}], "fidget": [{"clip": "look_around"}, {"clip": "scratch", "spear": "upright"}, {"clip": "frightened", "spear": "upright", "travel": 0.6}], "taunt": [{"clip": "angry_01"}, {"clip": "angry_03"}], "victory": [{"clip": "cheer", "seconds": 3.2}, {"clip": "laugh_01", "seconds": 3.5}], "defeat": [{"clip": "defeat_03", "travel": 0.43}]},
+      "required": ["idle", "walk", "attack"],
+      "moves": {
+        "idle": [{ "clip": "idle" }],
+        "walk": [{ "clip": "walk" }],
+        "jump": [],
+        "attack": [{ "clip": "cast_a_spell", "seconds": 2.2 }, { "clip": "slash" }],
+        "hit": [],
+        "fall": [],
+        "fidget": [{ "clip": "look_around" }, { "clip": "afraid" }],
+        "taunt": [{ "clip": "angry_01" }],
+        "victory": [{ "clip": "bow", "seconds": 2.6 }],
+        "defeat": []
+      },
       "hands": {},
       "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.45, "length": 1.35, "crook": true },
-      "hat": { "bone": "Head", "offset": [0, -0.04, 0], "rotation": [0, 0, 0], "height": 0.4, "color": "#f3ece0", "trim": "#d9b44a" },
       "pedestalModel": { "files": { "movil": "pedestal-movil.glb", "ordenador": "pedestal-ordenador.glb" }, "height": 0.26 }
     },
     "black-pawn": {
@@ -90,14 +100,24 @@
       "pedestalModel": { "files": { "movil": "black-pedestal-movil.glb", "ordenador": "black-pedestal-ordenador.glb" }, "height": 0.26 }
     },
     "black-bishop": {
-      "files": { "movil": "black-pawn-movil.glb", "ordenador": "black-pawn-ordenador.glb" },
-      "animationFiles": ["black-pawn-combat.glb"],
-      "height": 1.45,
+      "files": { "movil": "black-bishop-movil.glb", "ordenador": "black-bishop-ordenador.glb" },
+      "height": 1.7,
       "yaw": 0,
-      "moves": {"idle": [{"clip": "idle"}], "walk": [{"clip": "walk"}], "jump": [], "attack": [{"clip": "box_03", "spear": "forward", "travel": 0.73}, {"clip": "front_kick_02"}, {"clip": "box_01", "spear": "forward", "travel": 0.75}, {"clip": "front_kick_01", "travel": 0.42}, {"clip": "box_02", "spear": "forward"}], "hit": [{"clip": "hit_to_head"}, {"clip": "hit_to_stomach"}, {"clip": "hit_to_body_01"}, {"clip": "hit_to_side"}, {"clip": "hit_to_body_02"}], "fall": [{"clip": "fall", "travel": 0.27}], "fidget": [{"clip": "look_around"}, {"clip": "scratch", "spear": "upright"}, {"clip": "frightened", "spear": "upright", "travel": 0.6}], "taunt": [{"clip": "angry_01"}, {"clip": "angry_03"}], "victory": [{"clip": "cheer", "seconds": 3.2}, {"clip": "laugh_01", "seconds": 3.5}], "defeat": [{"clip": "defeat_03", "travel": 0.43}]},
+      "required": ["idle", "walk", "attack"],
+      "moves": {
+        "idle": [{ "clip": "idle" }],
+        "walk": [{ "clip": "walk" }],
+        "jump": [],
+        "attack": [{ "clip": "cast_a_spell", "seconds": 2.2 }, { "clip": "slash" }],
+        "hit": [],
+        "fall": [],
+        "fidget": [{ "clip": "look_around" }, { "clip": "afraid" }],
+        "taunt": [{ "clip": "angry_01" }],
+        "victory": [{ "clip": "bow", "seconds": 2.6 }],
+        "defeat": []
+      },
       "hands": {},
       "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.45, "length": 1.35, "crook": true },
-      "hat": { "bone": "Head", "offset": [0, -0.04, 0], "rotation": [0, 0, 0], "height": 0.4, "color": "#2f2b28", "trim": "#d9b44a" },
       "pedestalModel": { "files": { "movil": "black-pedestal-movil.glb", "ordenador": "black-pedestal-ordenador.glb" }, "height": 0.26 }
     },
     "white-rook": {
@@ -155,7 +175,7 @@
       },
       "rider": {
         "files": { "movil": "knight-movil.glb", "ordenador": "knight-ordenador.glb" },
-        "height": 1.44,
+        "height": 1.62,
         "yaw": 0,
         "moves": {
           "idle": [{ "clip": "idle" }],
@@ -197,7 +217,7 @@
       },
       "rider": {
         "files": { "movil": "black-knight-movil.glb", "ordenador": "black-knight-ordenador.glb" },
-        "height": 1.44,
+        "height": 1.62,
         "yaw": 0,
         "moves": {
           "idle": [{ "clip": "idle" }],

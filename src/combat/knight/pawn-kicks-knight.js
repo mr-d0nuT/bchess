@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js';
 import { strikeSpot } from '../plan.js';
 import {
-  BODY_GAP, COMBAT_RAISE, PAWN_BODY, bladeStrikes, bonePosition, celebrate, dismountMode, facingTo, fallDirection, kickOf, knockOut,
-  lyingBody, postOf, shout, topple, windUp,
+  bladeStrikes, BODY_GAP, bonePosition, COMBAT_RAISE, dismountMode, facingTo, fallDirection, kickOf,
+  knockOut, lyingBody, PAWN_BODY, postOf, shout, topple, victoryLap, windUp,
 } from './common.js';
 
 // Peón come caballero: patada en la entrepierna (diseño, sección 7). El caballero desmonta o su caballo lo
@@ -97,7 +97,6 @@ export const pawnKicksKnight = {
     bodies.length = 0;
     pawn.setSpearDefault(null);
     pawn.setGripSlide(0);
-    await Promise.all([cinema.restore(clock), attacker.mover.walkOnto(target)]);
-    await celebrate(attacker);
+    await victoryLap({ entry: attacker, clock, cinema, at: center, obstacles, move: () => attacker.mover.walkOnto(target) });
   },
 };

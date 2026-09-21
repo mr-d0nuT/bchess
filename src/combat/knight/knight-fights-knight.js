@@ -3,8 +3,8 @@ import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js'
 import { strikeSpot } from '../plan.js';
 import { cutLimb } from '../../pieces/limbs.js';
 import {
-  BODY_GAP, bladeBody, bladeStrikes, boneOf, bonePosition, celebrate, dismountMode, facingTo, fallDirection,
-  kickOf, knockOut, lyingBody, postOf, shout, swordTip, topple,
+  bladeBody, bladeStrikes, BODY_GAP, boneOf, bonePosition, dismountMode, facingTo, fallDirection, kickOf,
+  knockOut, lyingBody, postOf, shout, swordTip, topple, victoryLap,
 } from './common.js';
 
 // Caballero come caballero: el Caballero Negro de los Monty Python (diseño, sección 7). Los dos desmontan y
@@ -147,7 +147,6 @@ export const knightFightsKnight = {
     await defender.mover.defeated({ avoid: center });
     his.resetBones();
     stances.delete(attacker);
-    await Promise.all([cinema.restore(clock), attacker.mover.mount(target)]);
-    await celebrate(attacker);
+    await victoryLap({ entry: attacker, clock, cinema, at: center, obstacles, move: () => attacker.mover.mount(target) });
   },
 };

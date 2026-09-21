@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js';
 import { strikeSpot, usableStrikes } from '../plan.js';
 import {
-  BODY_GAP, COMBAT_RAISE, PAWN_BODY, bladeBody, bladeStrikes, bonePosition, celebrate, facingTo, fallDirection,
-  knockOut, lyingBody, postOf, shout, swordTip, topple,
+  bladeBody, bladeStrikes, BODY_GAP, bonePosition, COMBAT_RAISE, facingTo, fallDirection, knockOut,
+  lyingBody, PAWN_BODY, postOf, shout, swordTip, topple, victoryLap,
 } from './common.js';
 
 // Caballero come peón: lo atraviesa con la espada (diseño, sección 7). El caballero salta hasta el peón y
@@ -117,7 +117,6 @@ export const knightRunsThroughPawn = {
 
     // 5. El caballero ocupa la casilla, el caballo se reúne con él y monta.
     pawn.setSpearDefault(null);
-    await Promise.all([cinema.restore(clock), attacker.mover.mount(target)]);
-    await celebrate(attacker);
+    await victoryLap({ entry: attacker, clock, cinema, at: center, obstacles, move: () => attacker.mover.mount(target) });
   },
 };

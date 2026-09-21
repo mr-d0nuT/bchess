@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { afterImpact, choose, overlapOf, slowToImpact, stanceOf } from '../fight.js';
 import { bestStrike, strikeSpot } from '../plan.js';
 import {
-  BODY_GAP, bladeStrikes, bonePosition, celebrate, facingTo, fighterOf, postOf, shout, swordTip,
+  bladeStrikes, BODY_GAP, bonePosition, facingTo, fighterOf, postOf, shout, swordTip, victoryLap,
 } from './common.js';
 
 // Caballero come torre: le barre las piernas (diseño, sección 7). El caballero salta hasta la torre y
@@ -100,7 +100,6 @@ export const knightSweepsGiant = {
     // 5. El caballero ocupa la casilla, el caballo se reúne con él y monta.
     stances.delete(attacker);
     stances.delete(defender);
-    await Promise.all([cinema.restore(clock), attacker.mover.mount(target)]);
-    await celebrate(attacker);
+    await victoryLap({ entry: attacker, clock, cinema, at: center, obstacles, move: () => attacker.mover.mount(target) });
   },
 };

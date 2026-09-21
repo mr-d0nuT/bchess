@@ -126,6 +126,27 @@ export async function knockOut({ clock, fx, fighter, seconds = KO_SECONDS }) {
   await clock.wait(seconds);
 }
 
+// El ganador ocupa su casilla y lo celebra con la cámara encima: la sigue mientras va, se le acerca para
+// la celebración y, al acabar, vuelve a donde la tenía el usuario. Lo pidió el usuario: quería ver la
+// celebración de cerca y de forma cinemática, no desde la cámara de siempre.
+export async function victoryLap({ entry, clock, cinema, at, obstacles = [], move }) {
+  const figure = () => entry.piece.figure.position;
+  cinema.follow(figure);
+  try {
+    await move();
+  } finally {
+    cinema.follow(null);
+  }
+  await cinema.frame(clock, at, at, obstacles); // primer plano de la casilla ganada
+  cinema.follow(figure);
+  try {
+    await celebrate(entry);
+  } finally {
+    cinema.follow(null);
+    await cinema.restore(clock);
+  }
+}
+
 // Celebra la victoria: su animación o, si no la tiene, unos saltitos.
 export async function celebrate(entry) {
   const fighter = fighterOf(entry);

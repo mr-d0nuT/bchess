@@ -4,7 +4,6 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { pickDriftTrack, pickRootPositionTrack, pickUpAxis, pickVariant, removeLinearDrift, resolveMoves, scaleHorizontalMotion } from './clips.js';
 import { pickHandBone } from './bones.js';
-import { createMitre } from './mitre.js';
 import { createSpear } from './spear.js';
 import { createSword } from './sword.js';
 import { strideSpeed } from '../moves/walk.js';
@@ -342,10 +341,6 @@ export function spawnPiece(kit) {
     swordEnds = { bottom: box.min.y, top: box.max.y };
     props.sword = attachInWorld(sword, swordBone, spec.sword);
   }
-  // Sombrero (la mitra del alfil): se engancha a la coronilla como los demás complementos.
-  const hatBone = spec.hat ? model.getObjectByName(spec.hat.bone ?? 'Head') : null;
-  if (hatBone) props.hat = attachInWorld(createMitre(spec.hat), hatBone, spec.hat);
-
   const spearHold = props.spear ? props.spear.quaternion.clone() : null;
   const spearGripAt = props.spear ? props.spear.position.clone() : null;
   const spearScale = props.spear ? props.spear.scale.clone() : null;

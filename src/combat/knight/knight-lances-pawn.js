@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { afterImpact, knockBack, slowToImpact, stanceOf } from '../fight.js';
 import {
-  BODY_GAP, COMBAT_RAISE, PAWN_BODY, bonePosition, celebrate, facingTo, fallDirection, knockOut, lyingBody,
-  postOf, shout, topple,
+  BODY_GAP, bonePosition, COMBAT_RAISE, facingTo, fallDirection, knockOut, lyingBody, PAWN_BODY, postOf,
+  shout, topple, victoryLap,
 } from './common.js';
 
 // Caballero come peón, sin bajarse del caballo: la carga con la lanza (lo pidió el usuario, que para eso
@@ -98,7 +98,6 @@ export const knightLancesPawn = {
     rider.setSpearPose(null);
     pawn.setSpearDefault(null);
     stances.delete(attacker);
-    await Promise.all([cinema.restore(clock), attacker.mover.rideOnto(target)]);
-    await celebrate(attacker);
+    await victoryLap({ entry: attacker, clock, cinema, at: center, obstacles, move: () => attacker.mover.rideOnto(target) });
   },
 };
