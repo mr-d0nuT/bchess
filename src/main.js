@@ -371,7 +371,14 @@ async function start() {
       hud.showMessage('No se pudieron cargar las piezas', { retry: loadPieces });
       return;
     }
-    await Promise.all([loadPawns(manifest), loadRooks(manifest), loadKnights(manifest), loadBishops(manifest)]);
+    // Uno detrás de otro, no todos a la vez: así el tablero se va llenando desde el primer momento en
+    // vez de quedarse vacío mientras los modelos compiten por la conexión. Primero los peones, que son
+    // la mitad del tablero, y enseguida los caballeros y los alfiles, que son los que más se hacen
+    // esperar.
+    await loadPawns(manifest);
+    await loadKnights(manifest);
+    await loadBishops(manifest);
+    await loadRooks(manifest);
   }
 
   await addLighting(stage, quality);

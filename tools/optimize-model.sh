@@ -4,7 +4,10 @@
 # Uso: bash tools/optimize-model.sh <entrada.glb> <nombre> [ratio_simplificación] [ratio_móvil]
 #   bash tools/optimize-model.sh raw/tripo/pawn.glb pawn
 #   bash tools/optimize-model.sh raw/tripo/shield.glb shield 0.01 0.004
+#   bash tools/optimize-model.sh raw/tripo/alfil-blanco.glb bishop "" "" 1024 512
 # Crea assets/models/<nombre>-ordenador.glb (texturas de 2048 px) y <nombre>-movil.glb (1024 px).
+# Los dos últimos parámetros cambian esos tamaños de textura: con dibujos poco detallados, la mitad
+# pesa la cuarta parte y no se nota.
 # Los ratios opcionales reducen los polígonos (el segundo, solo en la versión para el móvil;
 # si falta, se usa el primero). Úsalos solo con objetos sin esqueleto (escudo, peana).
 set -euo pipefail
@@ -13,6 +16,8 @@ input="$1"
 name="$2"
 ratio="${3:-}"
 ratio_movil="${4:-$ratio}"
+textura="${5:-2048}"
+textura_movil="${6:-1024}"
 cd "$(dirname "$0")/.."
 
 g() { npx --yes @gltf-transform/cli@4.5.0 "$@"; }
@@ -20,7 +25,7 @@ g() { npx --yes @gltf-transform/cli@4.5.0 "$@"; }
 tmp="raw/tmp/opt"
 mkdir -p "$tmp" assets/models
 
-for level in ordenador:2048:0.001 movil:1024:0.002; do
+for level in "ordenador:$textura:0.001" "movil:$textura_movil:0.002"; do
   IFS=: read -r quality size max_error <<< "$level"
   t="$tmp/$name-$quality"
   if [ "$quality" = movil ]; then r="$ratio_movil"; else r="$ratio"; fi
