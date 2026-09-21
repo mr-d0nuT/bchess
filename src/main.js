@@ -30,7 +30,7 @@ import { createFade } from './scene/fade.js';
 import { pickStyle } from './combat/plan.js';
 import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
-import { canKnightBattle, runKnightBattle } from './combat/knight/battle.js';
+import { canGagBattle, runGagBattle } from './combat/battles.js';
 
 // Arranque: peones blancos en la fila 2 y negros en la 7, torres en las esquinas y caballeros en las
 // columnas b y g (las piezas que traiga el manifiesto). Tocas una pieza y se marcan sus casillas
@@ -216,8 +216,8 @@ async function start() {
       if (attacker.kind === 'pawn' && defender.kind === 'pawn' && canFight(attacker, defender, style)) {
         state.lastStyle = style;
         await runCombat({ attacker, defender, board, clock, fx, cinema, hud, style, obstacles });
-      } else if (canKnightBattle(attacker, defender)) {
-        await runKnightBattle({ attacker, defender, board, clock, fx, cinema, hud, crowd, dust, debris, bubbles, obstacles });
+      } else if (canGagBattle(attacker, defender)) {
+        await runGagBattle({ attacker, defender, board, clock, fx, cinema, hud, crowd, dust, rubble, debris, bubbles, obstacles });
       } else if (attacker.kind !== 'knight' && defender.kind !== 'knight' && canSmash(attacker, defender)) {
         await runSmash({ attacker, defender, board, clock, fx, cinema, hud, crowd, obstacles });
       } else {
