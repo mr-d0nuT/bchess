@@ -357,6 +357,7 @@ export function spawnKnight(kit) {
     new THREE.CylinderGeometry(HITBOX_RADIUS, HITBOX_RADIUS, height, 8),
     new THREE.MeshBasicMaterial({ visible: false }),
   );
+  hitbox.userData.noPick = true; // referencia del centro, no zona de toque
   object.add(hitbox);
 
   // Cómo lleva el escudo de pie: su postura respecto a la figura y la que tiene colgado de la mano. A

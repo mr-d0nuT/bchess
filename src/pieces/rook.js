@@ -91,6 +91,7 @@ export function spawnRook(kit) {
     new THREE.MeshBasicMaterial({ visible: false }),
   );
   hitbox.position.y = spec.tower.height / 2;
+  hitbox.userData.noPick = true; // referencia del centro, no zona de toque
   tower.add(hitbox);
   object.add(tower);
 

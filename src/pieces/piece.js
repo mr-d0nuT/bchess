@@ -208,11 +208,13 @@ export function spawnPiece(kit) {
   turn.add(model);
   figure.add(turn);
 
-  // Zona de toque invisible: un cilindro del tamaño de la pieza, más fácil de acertar que la malla.
+  // Cilindro invisible del tamaño de la pieza. Ya no se toca con el ratón (se tocan las mallas, que
+  // es lo que se ve): queda como referencia del centro de la pieza y de su altura.
   const hitbox = new THREE.Mesh(
     new THREE.CylinderGeometry(0.34, 0.34, spec.height, 8),
     new THREE.MeshBasicMaterial({ visible: false }),
   );
+  hitbox.userData.noPick = true;
   hitbox.position.y = spec.height / 2;
   figure.add(hitbox);
 
@@ -341,6 +343,10 @@ export function spawnPiece(kit) {
     swordEnds = { bottom: box.min.y, top: box.max.y };
     props.sword = attachInWorld(sword, swordBone, spec.sword);
   }
+  // Los pinchos no se pueden tocar con el ratón: una lanza o un báculo son un palo fino que se cruza
+  // por delante de media docena de casillas, y robarían el clic de la que hay detrás.
+  for (const prop of [props.spear, props.sword]) if (prop) prop.userData.noPick = true;
+
   const spearHold = props.spear ? props.spear.quaternion.clone() : null;
   const spearGripAt = props.spear ? props.spear.position.clone() : null;
   const spearScale = props.spear ? props.spear.scale.clone() : null;

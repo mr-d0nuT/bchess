@@ -47,6 +47,7 @@ const ROOK_FILES = 'ah';
 const KNIGHT_FILES = 'bg';
 const BISHOP_FILES = 'cf';
 const BUTTON_ACTIONS = ['attack', 'hit', 'fall'];
+const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar qué hay bajo el ratón
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
 const hud = createHud();
 
@@ -121,7 +122,7 @@ async function start() {
     rubble.update(step);
     debris.update(step);
     fx.update(step);
-    highlights.pulse(now / 1000);
+    highlights.pulse(now / 1000, dt);
     cinema.settle();
     if (!cinema.active) stage.controls.update();
     cinema.update(dt);
@@ -263,9 +264,25 @@ async function start() {
     select(null);
   }
 
+  // Lo que se ilumina bajo el ratón es lo que elegirá el clic: si señala una pieza, su casilla.
+  function handleHover({ owner, square }) {
+    highlights.hover(state.busy || state.fighting ? null : (owner?.mover.square ?? square));
+  }
+
   onBoardTap(
-    { canvas: stage.renderer.domElement, camera: stage.camera, board, targets: () => pieces.map((entry) => entry.piece.hitbox) },
+    {
+      canvas: stage.renderer.domElement,
+      camera: stage.camera,
+      board,
+      targets: () => pieces.map((entry) => ({
+        object: entry.piece.object,
+        anchor: entry.piece.figure, // la figura, que es la que anda (la torre se va de paseo de gigante)
+        lift: entry.piece.height / 2,
+        reach: Math.hypot(entry.piece.radius, entry.piece.height / 2) + PICK_SLACK,
+      })),
+    },
     handleTap,
+    handleHover,
   );
 
   hud.onAction((action) => {
@@ -275,7 +292,7 @@ async function start() {
   function addPiece(entry, square) {
     stage.scene.add(entry.piece.object);
     entry.mover.placeOn(square);
-    entry.piece.hitbox.userData.owner = entry;
+    entry.piece.object.userData.owner = entry;
     pieces.push(entry);
   }
 
