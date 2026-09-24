@@ -8,6 +8,7 @@ import { createSpear } from './spear.js';
 import { createSword } from './sword.js';
 import { strideSpeed } from '../moves/walk.js';
 import { slideAboveFloor } from './grip.js';
+import { findBone } from './bone-names.js';
 
 // Piezas con esqueleto. `loadPieceKit` carga una sola vez los modelos de un tipo de pieza
 // (por ejemplo, el peón blanco) y prepara sus animaciones, con varias versiones por acción;
@@ -418,7 +419,7 @@ export function spawnPiece(kit) {
   function poseOf(name) {
     let pose = bonePoses.get(name);
     if (pose) return pose;
-    const bone = model.getObjectByName(name);
+    const bone = findBone(model, name); // «Head» o «mixamorigHead»: da igual cómo los llame el modelo
     if (!bone?.isBone) return null;
     let depth = 0;
     for (let at = bone.parent; at; at = at.parent) depth++;
@@ -558,6 +559,16 @@ export function spawnPiece(kit) {
     height: kit.spec.height + kit.pedestalHeight,
     walkSpeed: kit.walkSpeed,
     has: (action) => Boolean(variants[action]?.length),
+    // En qué punto del ciclo va la animación que suena ahora, de 0 a 1: sirve para colgarle encima
+    // movimientos propios (el contoneo de la reina) al compás de los pasos.
+    get phase() {
+      if (!current) return 0;
+      const duration = current.getClip().duration;
+      return duration > 0 ? (current.time % duration) / duration : 0;
+    },
+    get playing() {
+      return currentVariant?.key ?? null;
+    },
     play,
     playOnce,
     fidget,
