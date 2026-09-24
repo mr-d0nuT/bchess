@@ -22,6 +22,19 @@ cd "$(dirname "$0")/.."
 
 g() { npx --yes @gltf-transform/cli@4.5.0 "$@"; }
 
+# `prune` da por inservible el esqueleto de un modelo que no trae animaciones y lo tira, y con él la
+# posibilidad de moverle un hueso. La reina es justo ese caso: va aparejada pero sin animaciones,
+# porque se desliza y el movimiento se lo pone el juego. Así que si hay esqueleto y no hay
+# animaciones, se salta ese paso.
+aparejado_sin_animar() {
+  node -e '
+    const fs = require("fs");
+    const b = fs.readFileSync(process.argv[1]);
+    const json = JSON.parse(b.subarray(20, 20 + b.readUInt32LE(12)).toString());
+    process.exit(json.skins?.length && !json.animations?.length ? 0 : 1);
+  ' "$1"
+}
+
 tmp="raw/tmp/opt"
 mkdir -p "$tmp" assets/models
 
@@ -34,7 +47,7 @@ for level in "ordenador:$textura:0.001" "movil:$textura_movil:0.002"; do
     g simplify "$t-1.glb" "$t-1s.glb" --ratio "$r" --error "$max_error"
     mv "$t-1s.glb" "$t-1.glb"
   fi
-  g prune "$t-1.glb" "$t-2.glb"
+  if aparejado_sin_animar "$input"; then cp "$t-1.glb" "$t-2.glb"; else g prune "$t-1.glb" "$t-2.glb"; fi
   g resample "$t-2.glb" "$t-3.glb"
   g resize "$t-3.glb" "$t-4.glb" --width "$size" --height "$size"
   g webp "$t-4.glb" "$t-5.glb" --quality 88

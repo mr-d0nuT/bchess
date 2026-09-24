@@ -1,251 +1,1055 @@
 {
   "pieces": {
     "white-pawn": {
-      "files": { "movil": "pawn-movil.glb", "ordenador": "pawn-ordenador.glb" },
-      "animationFiles": ["pawn-fidgets.glb", "pawn-combat.glb"],
+      "files": {
+        "movil": "pawn-movil.glb",
+        "ordenador": "pawn-ordenador.glb"
+      },
+      "animationFiles": [
+        "pawn-fidgets.glb",
+        "pawn-combat.glb"
+      ],
       "height": 1.35,
       "yaw": 0,
       "moves": {
-        "idle": [{ "clip": "idle" }],
-        "walk": [{ "clip": "walk" }],
+        "idle": [
+          {
+            "clip": "idle"
+          }
+        ],
+        "walk": [
+          {
+            "clip": "walk"
+          }
+        ],
         "jump": [],
         "attack": [
-          { "clip": "box_03", "spear": "forward", "travel": 0.73 },
-          { "clip": "front_kick_02" },
-          { "clip": "box_01", "spear": "forward", "travel": 0.75 },
-          { "clip": "front_kick_01", "travel": 0.42 },
-          { "clip": "box_02", "spear": "forward" }
+          {
+            "clip": "box_03",
+            "spear": "forward",
+            "travel": 0.73
+          },
+          {
+            "clip": "front_kick_02"
+          },
+          {
+            "clip": "box_01",
+            "spear": "forward",
+            "travel": 0.75
+          },
+          {
+            "clip": "front_kick_01",
+            "travel": 0.42
+          },
+          {
+            "clip": "box_02",
+            "spear": "forward"
+          }
         ],
         "hit": [
-          { "clip": "hit_to_head" },
-          { "clip": "hit_to_stomach" },
-          { "clip": "hit_to_body_01" },
-          { "clip": "hit_to_side" },
-          { "clip": "hit_to_body_02" }
+          {
+            "clip": "hit_to_head"
+          },
+          {
+            "clip": "hit_to_stomach"
+          },
+          {
+            "clip": "hit_to_body_01"
+          },
+          {
+            "clip": "hit_to_side"
+          },
+          {
+            "clip": "hit_to_body_02"
+          }
         ],
-        "fall": [{ "clip": "fall", "travel": 0.27 }],
+        "fall": [
+          {
+            "clip": "fall",
+            "travel": 0.27
+          }
+        ],
         "fidget": [
-          { "clip": "look_around" },
-          { "clip": "scratch", "spear": "upright" },
-          { "clip": "frightened", "spear": "upright", "travel": 0.6 }
+          {
+            "clip": "look_around"
+          },
+          {
+            "clip": "scratch",
+            "spear": "upright"
+          },
+          {
+            "clip": "frightened",
+            "spear": "upright",
+            "travel": 0.6
+          }
         ],
-        "taunt": [{ "clip": "angry_01" }, { "clip": "angry_03" }],
-        "victory": [{ "clip": "cheer", "seconds": 3.2 }, { "clip": "laugh_01", "seconds": 3.5 }],
-        "defeat": [{ "clip": "defeat_03", "travel": 0.43 }]
+        "taunt": [
+          {
+            "clip": "angry_01"
+          },
+          {
+            "clip": "angry_03"
+          }
+        ],
+        "victory": [
+          {
+            "clip": "cheer",
+            "seconds": 3.2
+          },
+          {
+            "clip": "laugh_01",
+            "seconds": 3.5
+          }
+        ],
+        "defeat": [
+          {
+            "clip": "defeat_03",
+            "travel": 0.43
+          }
+        ]
       },
       "hands": {},
-      "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.45, "length": 1.9 },
-      "shield": { "hand": "left", "offset": [0.04, -0.34, 0.02], "rotation": [0, 1.5707963267948966, 0], "scale": 1 },
-      "shieldModel": { "files": { "movil": "shield-movil.glb", "ordenador": "shield-ordenador.glb" }, "height": 0.62 },
-      "pedestalModel": { "files": { "movil": "pedestal-movil.glb", "ordenador": "pedestal-ordenador.glb" }, "height": 0.26 }
+      "spear": {
+        "hand": "right",
+        "offset": [
+          0,
+          -0.07,
+          0.02
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "grip": 0.45,
+        "length": 1.9
+      },
+      "shield": {
+        "hand": "left",
+        "offset": [
+          0.04,
+          -0.34,
+          0.02
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": 1
+      },
+      "shieldModel": {
+        "files": {
+          "movil": "shield-movil.glb",
+          "ordenador": "shield-ordenador.glb"
+        },
+        "height": 0.62
+      },
+      "pedestalModel": {
+        "files": {
+          "movil": "pedestal-movil.glb",
+          "ordenador": "pedestal-ordenador.glb"
+        },
+        "height": 0.26
+      }
     },
     "white-bishop": {
-      "files": { "movil": "bishop-movil.glb", "ordenador": "bishop-ordenador.glb" },
+      "files": {
+        "movil": "bishop-movil.glb",
+        "ordenador": "bishop-ordenador.glb"
+      },
       "height": 1.7,
       "yaw": 0,
-      "required": ["idle", "walk", "attack"],
+      "required": [
+        "idle",
+        "walk",
+        "attack"
+      ],
       "moves": {
-        "idle": [{ "clip": "idle" }],
-        "walk": [{ "clip": "walk" }],
+        "idle": [
+          {
+            "clip": "idle"
+          }
+        ],
+        "walk": [
+          {
+            "clip": "walk"
+          }
+        ],
         "jump": [],
-        "attack": [{ "clip": "cast_a_spell", "seconds": 2.2 }, { "clip": "slash" }],
+        "attack": [
+          {
+            "clip": "cast_a_spell",
+            "seconds": 2.2
+          },
+          {
+            "clip": "slash"
+          }
+        ],
         "hit": [],
         "fall": [],
-        "fidget": [{ "clip": "look_around" }, { "clip": "afraid" }],
-        "taunt": [{ "clip": "angry_01" }],
-        "victory": [{ "clip": "bow", "seconds": 2.6 }],
+        "fidget": [
+          {
+            "clip": "look_around"
+          },
+          {
+            "clip": "afraid"
+          }
+        ],
+        "taunt": [
+          {
+            "clip": "angry_01"
+          }
+        ],
+        "victory": [
+          {
+            "clip": "bow",
+            "seconds": 2.6
+          }
+        ],
         "defeat": []
       },
       "hands": {},
-      "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.45, "length": 1.35, "crook": true },
-      "pedestalModel": { "files": { "movil": "pedestal-movil.glb", "ordenador": "pedestal-ordenador.glb" }, "height": 0.26 }
+      "spear": {
+        "hand": "right",
+        "offset": [
+          0,
+          -0.07,
+          0.02
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "grip": 0.45,
+        "length": 1.35,
+        "crook": true
+      },
+      "pedestalModel": {
+        "files": {
+          "movil": "pedestal-movil.glb",
+          "ordenador": "pedestal-ordenador.glb"
+        },
+        "height": 0.26
+      }
     },
     "black-pawn": {
-      "files": { "movil": "black-pawn-movil.glb", "ordenador": "black-pawn-ordenador.glb" },
-      "animationFiles": ["black-pawn-combat.glb"],
+      "files": {
+        "movil": "black-pawn-movil.glb",
+        "ordenador": "black-pawn-ordenador.glb"
+      },
+      "animationFiles": [
+        "black-pawn-combat.glb"
+      ],
       "height": 1.35,
       "yaw": 0,
       "moves": {
-        "idle": [{ "clip": "idle" }],
-        "walk": [{ "clip": "walk" }],
+        "idle": [
+          {
+            "clip": "idle"
+          }
+        ],
+        "walk": [
+          {
+            "clip": "walk"
+          }
+        ],
         "jump": [],
         "attack": [
-          { "clip": "box_03", "spear": "forward", "travel": 0.73 },
-          { "clip": "front_kick_02" },
-          { "clip": "box_01", "spear": "forward", "travel": 0.75 },
-          { "clip": "front_kick_01", "travel": 0.42 },
-          { "clip": "box_02", "spear": "forward" }
+          {
+            "clip": "box_03",
+            "spear": "forward",
+            "travel": 0.73
+          },
+          {
+            "clip": "front_kick_02"
+          },
+          {
+            "clip": "box_01",
+            "spear": "forward",
+            "travel": 0.75
+          },
+          {
+            "clip": "front_kick_01",
+            "travel": 0.42
+          },
+          {
+            "clip": "box_02",
+            "spear": "forward"
+          }
         ],
         "hit": [
-          { "clip": "hit_to_head" },
-          { "clip": "hit_to_stomach" },
-          { "clip": "hit_to_body_01" },
-          { "clip": "hit_to_side" },
-          { "clip": "hit_to_body_02" }
+          {
+            "clip": "hit_to_head"
+          },
+          {
+            "clip": "hit_to_stomach"
+          },
+          {
+            "clip": "hit_to_body_01"
+          },
+          {
+            "clip": "hit_to_side"
+          },
+          {
+            "clip": "hit_to_body_02"
+          }
         ],
-        "fall": [{ "clip": "fall", "travel": 0.27 }],
+        "fall": [
+          {
+            "clip": "fall",
+            "travel": 0.27
+          }
+        ],
         "fidget": [
-          { "clip": "look_around" },
-          { "clip": "scratch", "spear": "upright" },
-          { "clip": "frightened", "spear": "upright", "travel": 0.6 }
+          {
+            "clip": "look_around"
+          },
+          {
+            "clip": "scratch",
+            "spear": "upright"
+          },
+          {
+            "clip": "frightened",
+            "spear": "upright",
+            "travel": 0.6
+          }
         ],
-        "taunt": [{ "clip": "angry_01" }, { "clip": "angry_03" }],
-        "victory": [{ "clip": "cheer", "seconds": 3.2 }, { "clip": "laugh_01", "seconds": 3.5 }],
-        "defeat": [{ "clip": "defeat_03", "travel": 0.43 }]
+        "taunt": [
+          {
+            "clip": "angry_01"
+          },
+          {
+            "clip": "angry_03"
+          }
+        ],
+        "victory": [
+          {
+            "clip": "cheer",
+            "seconds": 3.2
+          },
+          {
+            "clip": "laugh_01",
+            "seconds": 3.5
+          }
+        ],
+        "defeat": [
+          {
+            "clip": "defeat_03",
+            "travel": 0.43
+          }
+        ]
       },
       "hands": {},
-      "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.45, "length": 1.9 },
-      "shield": { "hand": "left", "offset": [0.04, -0.34, 0.02], "rotation": [0, 1.5707963267948966, 0], "scale": 1 },
-      "shieldModel": { "files": { "movil": "black-shield-movil.glb", "ordenador": "black-shield-ordenador.glb" }, "height": 0.62 },
-      "pedestalModel": { "files": { "movil": "black-pedestal-movil.glb", "ordenador": "black-pedestal-ordenador.glb" }, "height": 0.26 }
+      "spear": {
+        "hand": "right",
+        "offset": [
+          0,
+          -0.07,
+          0.02
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "grip": 0.45,
+        "length": 1.9
+      },
+      "shield": {
+        "hand": "left",
+        "offset": [
+          0.04,
+          -0.34,
+          0.02
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": 1
+      },
+      "shieldModel": {
+        "files": {
+          "movil": "black-shield-movil.glb",
+          "ordenador": "black-shield-ordenador.glb"
+        },
+        "height": 0.62
+      },
+      "pedestalModel": {
+        "files": {
+          "movil": "black-pedestal-movil.glb",
+          "ordenador": "black-pedestal-ordenador.glb"
+        },
+        "height": 0.26
+      }
     },
     "black-bishop": {
-      "files": { "movil": "black-bishop-movil.glb", "ordenador": "black-bishop-ordenador.glb" },
+      "files": {
+        "movil": "black-bishop-movil.glb",
+        "ordenador": "black-bishop-ordenador.glb"
+      },
       "height": 1.7,
       "yaw": 0,
-      "required": ["idle", "walk", "attack"],
+      "required": [
+        "idle",
+        "walk",
+        "attack"
+      ],
       "moves": {
-        "idle": [{ "clip": "idle" }],
-        "walk": [{ "clip": "walk" }],
+        "idle": [
+          {
+            "clip": "idle"
+          }
+        ],
+        "walk": [
+          {
+            "clip": "walk"
+          }
+        ],
         "jump": [],
-        "attack": [{ "clip": "cast_a_spell", "seconds": 2.2 }, { "clip": "slash" }],
+        "attack": [
+          {
+            "clip": "cast_a_spell",
+            "seconds": 2.2
+          },
+          {
+            "clip": "slash"
+          }
+        ],
         "hit": [],
         "fall": [],
-        "fidget": [{ "clip": "look_around" }, { "clip": "afraid" }],
-        "taunt": [{ "clip": "angry_01" }],
-        "victory": [{ "clip": "bow", "seconds": 2.6 }],
+        "fidget": [
+          {
+            "clip": "look_around"
+          },
+          {
+            "clip": "afraid"
+          }
+        ],
+        "taunt": [
+          {
+            "clip": "angry_01"
+          }
+        ],
+        "victory": [
+          {
+            "clip": "bow",
+            "seconds": 2.6
+          }
+        ],
         "defeat": []
       },
       "hands": {},
-      "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.45, "length": 1.35, "crook": true },
-      "pedestalModel": { "files": { "movil": "black-pedestal-movil.glb", "ordenador": "black-pedestal-ordenador.glb" }, "height": 0.26 }
+      "spear": {
+        "hand": "right",
+        "offset": [
+          0,
+          -0.07,
+          0.02
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "grip": 0.45,
+        "length": 1.35,
+        "crook": true
+      },
+      "pedestalModel": {
+        "files": {
+          "movil": "black-pedestal-movil.glb",
+          "ordenador": "black-pedestal-ordenador.glb"
+        },
+        "height": 0.26
+      }
     },
     "white-rook": {
-      "tower": { "files": { "movil": "tower-movil.glb", "ordenador": "tower-ordenador.glb" }, "height": 1.75 },
-      "pedestalModel": { "files": { "movil": "pedestal-movil.glb", "ordenador": "pedestal-ordenador.glb" }, "height": 0.26, "width": 1.0 },
-      "flag": { "texture": "assets/textures/flag-white.jpg" },
+      "tower": {
+        "files": {
+          "movil": "tower-movil.glb",
+          "ordenador": "tower-ordenador.glb"
+        },
+        "height": 1.75
+      },
+      "pedestalModel": {
+        "files": {
+          "movil": "pedestal-movil.glb",
+          "ordenador": "pedestal-ordenador.glb"
+        },
+        "height": 0.26,
+        "width": 1.0
+      },
+      "flag": {
+        "texture": "assets/textures/flag-white.jpg"
+      },
       "stone": "#d8ccb4",
       "giant": {
-        "files": { "movil": "giant-movil.glb", "ordenador": "giant-ordenador.glb" },
+        "files": {
+          "movil": "giant-movil.glb",
+          "ordenador": "giant-ordenador.glb"
+        },
         "height": 1.9,
         "yaw": 0,
         "moves": {
-          "idle": [{ "clip": "idle" }],
-          "walk": [{ "clip": "walk" }],
+          "idle": [
+            {
+              "clip": "idle"
+            }
+          ],
+          "walk": [
+            {
+              "clip": "walk"
+            }
+          ],
           "jump": [],
           "fall": [],
-          "attack": [{ "clip": "box_03" }, { "clip": "box_01" }, { "clip": "slash", "overhead": true, "seconds": 2.4 }],
-          "hit": [{ "clip": "hit_to_body_01" }, { "clip": "hit_to_stomach" }],
-          "defeat": [{ "clip": "defeat_03", "travel": 0.4 }, { "clip": "fall", "travel": 0.4 }],
-          "taunt": [{ "clip": "angry_01", "seconds": 2.6 }, { "clip": "angry_03", "seconds": 2.6 }]
+          "attack": [
+            {
+              "clip": "box_03"
+            },
+            {
+              "clip": "box_01"
+            },
+            {
+              "clip": "slash",
+              "overhead": true,
+              "seconds": 2.4
+            }
+          ],
+          "hit": [
+            {
+              "clip": "hit_to_body_01"
+            },
+            {
+              "clip": "hit_to_stomach"
+            }
+          ],
+          "defeat": [
+            {
+              "clip": "defeat_03",
+              "travel": 0.4
+            },
+            {
+              "clip": "fall",
+              "travel": 0.4
+            }
+          ],
+          "taunt": [
+            {
+              "clip": "angry_01",
+              "seconds": 2.6
+            },
+            {
+              "clip": "angry_03",
+              "seconds": 2.6
+            }
+          ]
         },
         "hands": {}
       }
     },
     "black-rook": {
-      "tower": { "files": { "movil": "black-tower-movil.glb", "ordenador": "black-tower-ordenador.glb" }, "height": 1.75 },
-      "pedestalModel": { "files": { "movil": "black-pedestal-movil.glb", "ordenador": "black-pedestal-ordenador.glb" }, "height": 0.26, "width": 1.0 },
-      "flag": { "texture": "assets/textures/flag-black.jpg" },
+      "tower": {
+        "files": {
+          "movil": "black-tower-movil.glb",
+          "ordenador": "black-tower-ordenador.glb"
+        },
+        "height": 1.75
+      },
+      "pedestalModel": {
+        "files": {
+          "movil": "black-pedestal-movil.glb",
+          "ordenador": "black-pedestal-ordenador.glb"
+        },
+        "height": 0.26,
+        "width": 1.0
+      },
+      "flag": {
+        "texture": "assets/textures/flag-black.jpg"
+      },
       "stone": "#3b3733",
       "giant": {
-        "files": { "movil": "black-giant-movil.glb", "ordenador": "black-giant-ordenador.glb" },
+        "files": {
+          "movil": "black-giant-movil.glb",
+          "ordenador": "black-giant-ordenador.glb"
+        },
         "height": 1.9,
         "yaw": 0,
         "moves": {
-          "idle": [{ "clip": "idle" }],
-          "walk": [{ "clip": "walk" }],
+          "idle": [
+            {
+              "clip": "idle"
+            }
+          ],
+          "walk": [
+            {
+              "clip": "walk"
+            }
+          ],
           "jump": [],
           "fall": [],
-          "attack": [{ "clip": "box_03" }, { "clip": "box_01" }, { "clip": "slash", "overhead": true, "seconds": 2.4 }],
-          "hit": [{ "clip": "hit_to_body_01" }, { "clip": "hit_to_stomach" }],
-          "defeat": [{ "clip": "defeat_03", "travel": 0.4 }, { "clip": "fall", "travel": 0.4 }],
-          "taunt": [{ "clip": "angry_01", "seconds": 2.6 }, { "clip": "angry_03", "seconds": 2.6 }]
+          "attack": [
+            {
+              "clip": "box_03"
+            },
+            {
+              "clip": "box_01"
+            },
+            {
+              "clip": "slash",
+              "overhead": true,
+              "seconds": 2.4
+            }
+          ],
+          "hit": [
+            {
+              "clip": "hit_to_body_01"
+            },
+            {
+              "clip": "hit_to_stomach"
+            }
+          ],
+          "defeat": [
+            {
+              "clip": "defeat_03",
+              "travel": 0.4
+            },
+            {
+              "clip": "fall",
+              "travel": 0.4
+            }
+          ],
+          "taunt": [
+            {
+              "clip": "angry_01",
+              "seconds": 2.6
+            },
+            {
+              "clip": "angry_03",
+              "seconds": 2.6
+            }
+          ]
         },
         "hands": {}
       }
     },
     "white-knight": {
-      "pedestalModel": { "files": { "movil": "pedestal-movil.glb", "ordenador": "pedestal-ordenador.glb" }, "height": 0.26, "width": 1.14 },
-      "pennant": { "texture": "assets/textures/flag-white.jpg" },
+      "pedestalModel": {
+        "files": {
+          "movil": "pedestal-movil.glb",
+          "ordenador": "pedestal-ordenador.glb"
+        },
+        "height": 0.26,
+        "width": 1.14
+      },
+      "pennant": {
+        "texture": "assets/textures/flag-white.jpg"
+      },
       "horse": {
-        "files": { "movil": "horse-movil.glb", "ordenador": "horse-ordenador.glb" },
+        "files": {
+          "movil": "horse-movil.glb",
+          "ordenador": "horse-ordenador.glb"
+        },
         "height": 1.34,
-        "required": ["walk"],
-        "moves": { "idle": [{ "clip": "idle" }], "walk": [{ "clip": "walk" }] }
+        "required": [
+          "walk"
+        ],
+        "moves": {
+          "idle": [
+            {
+              "clip": "idle"
+            }
+          ],
+          "walk": [
+            {
+              "clip": "walk"
+            }
+          ]
+        }
       },
       "rider": {
-        "files": { "movil": "knight-movil.glb", "ordenador": "knight-ordenador.glb" },
+        "files": {
+          "movil": "knight-movil.glb",
+          "ordenador": "knight-ordenador.glb"
+        },
         "height": 1.62,
         "yaw": 0,
         "moves": {
-          "idle": [{ "clip": "idle" }],
-          "walk": [{ "clip": "walk" }],
-          "jump": [{ "clip": "jump_down" }],
+          "idle": [
+            {
+              "clip": "idle"
+            }
+          ],
+          "walk": [
+            {
+              "clip": "walk"
+            }
+          ],
+          "jump": [
+            {
+              "clip": "jump_down"
+            }
+          ],
           "attack": [
-            { "clip": "slash", "seconds": 1.6 },
-            { "clip": "box_03", "thrust": true },
-            { "clip": "box_01", "thrust": true }
+            {
+              "clip": "slash",
+              "seconds": 1.6
+            },
+            {
+              "clip": "box_03",
+              "thrust": true
+            },
+            {
+              "clip": "box_01",
+              "thrust": true
+            }
           ],
           "block": [],
-          "kick": [{ "clip": "front_kick_02" }, { "clip": "front_kick_01" }],
-          "hit": [{ "clip": "hit_to_head" }, { "clip": "hit_to_body_01" }, { "clip": "hit_to_stomach" }],
-          "fall": [{ "clip": "fall", "travel": 0.3 }],
-          "defeat": [{ "clip": "defeat_03", "travel": 0.4 }],
-          "taunt": [{ "clip": "angry_01", "seconds": 2.6 }],
-          "victory": [{ "clip": "cheer", "seconds": 3.2 }],
-          "fidget": [{ "clip": "frightened", "travel": 0.4 }],
+          "kick": [
+            {
+              "clip": "front_kick_02"
+            },
+            {
+              "clip": "front_kick_01"
+            }
+          ],
+          "hit": [
+            {
+              "clip": "hit_to_head"
+            },
+            {
+              "clip": "hit_to_body_01"
+            },
+            {
+              "clip": "hit_to_stomach"
+            }
+          ],
+          "fall": [
+            {
+              "clip": "fall",
+              "travel": 0.3
+            }
+          ],
+          "defeat": [
+            {
+              "clip": "defeat_03",
+              "travel": 0.4
+            }
+          ],
+          "taunt": [
+            {
+              "clip": "angry_01",
+              "seconds": 2.6
+            }
+          ],
+          "victory": [
+            {
+              "clip": "cheer",
+              "seconds": 3.2
+            }
+          ],
+          "fidget": [
+            {
+              "clip": "frightened",
+              "travel": 0.4
+            }
+          ],
           "getup": [],
           "dizzy": [],
           "hop": []
         },
         "hands": {},
-        "seat": { "thigh": { "x": -80, "z": 18 }, "calf": { "x": 75 }, "arm": { "upper": { "x": -15, "z": 45 } } },
-        "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.7, "length": 2.3 },
-        "sword": { "hand": "right", "offset": [0, -0.03, 0.03], "rotation": [1.5707963267948966, 0, 0], "length": 0.75 },
-        "shield": { "hand": "left", "offset": [0.04, -0.34, 0.02], "rotation": [0, 1.5707963267948966, 0], "scale": 1 },
-        "shieldModel": { "files": { "movil": "shield-movil.glb", "ordenador": "shield-ordenador.glb" }, "height": 0.62 }
+        "seat": {
+          "thigh": {
+            "x": -80,
+            "z": 18
+          },
+          "calf": {
+            "x": 75
+          },
+          "arm": {
+            "upper": {
+              "x": -15,
+              "z": 45
+            }
+          }
+        },
+        "spear": {
+          "hand": "right",
+          "offset": [
+            0,
+            -0.07,
+            0.02
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "grip": 0.7,
+          "length": 2.3
+        },
+        "sword": {
+          "hand": "right",
+          "offset": [
+            0,
+            -0.03,
+            0.03
+          ],
+          "rotation": [
+            1.5707963267948966,
+            0,
+            0
+          ],
+          "length": 0.75
+        },
+        "shield": {
+          "hand": "left",
+          "offset": [
+            0.04,
+            -0.34,
+            0.02
+          ],
+          "rotation": [
+            0,
+            1.5707963267948966,
+            0
+          ],
+          "scale": 1
+        },
+        "shieldModel": {
+          "files": {
+            "movil": "shield-movil.glb",
+            "ordenador": "shield-ordenador.glb"
+          },
+          "height": 0.62
+        }
       }
     },
     "black-knight": {
-      "pedestalModel": { "files": { "movil": "black-pedestal-movil.glb", "ordenador": "black-pedestal-ordenador.glb" }, "height": 0.26, "width": 1.14 },
-      "pennant": { "texture": "assets/textures/flag-black.jpg" },
+      "pedestalModel": {
+        "files": {
+          "movil": "black-pedestal-movil.glb",
+          "ordenador": "black-pedestal-ordenador.glb"
+        },
+        "height": 0.26,
+        "width": 1.14
+      },
+      "pennant": {
+        "texture": "assets/textures/flag-black.jpg"
+      },
       "horse": {
-        "files": { "movil": "black-horse-movil.glb", "ordenador": "black-horse-ordenador.glb" },
+        "files": {
+          "movil": "black-horse-movil.glb",
+          "ordenador": "black-horse-ordenador.glb"
+        },
         "height": 1.34,
-        "required": ["walk"],
-        "moves": { "idle": [{ "clip": "idle" }], "walk": [{ "clip": "walk" }] }
+        "required": [
+          "walk"
+        ],
+        "moves": {
+          "idle": [
+            {
+              "clip": "idle"
+            }
+          ],
+          "walk": [
+            {
+              "clip": "walk"
+            }
+          ]
+        }
       },
       "rider": {
-        "files": { "movil": "black-knight-movil.glb", "ordenador": "black-knight-ordenador.glb" },
+        "files": {
+          "movil": "black-knight-movil.glb",
+          "ordenador": "black-knight-ordenador.glb"
+        },
         "height": 1.62,
         "yaw": 0,
         "moves": {
-          "idle": [{ "clip": "idle" }],
-          "walk": [{ "clip": "walk" }],
-          "jump": [{ "clip": "jump_down" }],
+          "idle": [
+            {
+              "clip": "idle"
+            }
+          ],
+          "walk": [
+            {
+              "clip": "walk"
+            }
+          ],
+          "jump": [
+            {
+              "clip": "jump_down"
+            }
+          ],
           "attack": [
-            { "clip": "slash", "seconds": 1.6 },
-            { "clip": "box_03", "thrust": true },
-            { "clip": "box_01", "thrust": true }
+            {
+              "clip": "slash",
+              "seconds": 1.6
+            },
+            {
+              "clip": "box_03",
+              "thrust": true
+            },
+            {
+              "clip": "box_01",
+              "thrust": true
+            }
           ],
           "block": [],
-          "kick": [{ "clip": "front_kick_02" }, { "clip": "front_kick_01" }],
-          "hit": [{ "clip": "hit_to_head" }, { "clip": "hit_to_body_01" }, { "clip": "hit_to_stomach" }],
-          "fall": [{ "clip": "fall", "travel": 0.3 }],
-          "defeat": [{ "clip": "defeat_03", "travel": 0.4 }],
-          "taunt": [{ "clip": "angry_01", "seconds": 2.6 }],
-          "victory": [{ "clip": "cheer", "seconds": 3.2 }],
-          "fidget": [{ "clip": "frightened", "travel": 0.4 }],
+          "kick": [
+            {
+              "clip": "front_kick_02"
+            },
+            {
+              "clip": "front_kick_01"
+            }
+          ],
+          "hit": [
+            {
+              "clip": "hit_to_head"
+            },
+            {
+              "clip": "hit_to_body_01"
+            },
+            {
+              "clip": "hit_to_stomach"
+            }
+          ],
+          "fall": [
+            {
+              "clip": "fall",
+              "travel": 0.3
+            }
+          ],
+          "defeat": [
+            {
+              "clip": "defeat_03",
+              "travel": 0.4
+            }
+          ],
+          "taunt": [
+            {
+              "clip": "angry_01",
+              "seconds": 2.6
+            }
+          ],
+          "victory": [
+            {
+              "clip": "cheer",
+              "seconds": 3.2
+            }
+          ],
+          "fidget": [
+            {
+              "clip": "frightened",
+              "travel": 0.4
+            }
+          ],
           "getup": [],
           "dizzy": [],
           "hop": []
         },
         "hands": {},
-        "seat": { "thigh": { "x": -80, "z": 18 }, "calf": { "x": 75 }, "arm": { "upper": { "x": -15, "z": 45 } } },
-        "spear": { "hand": "right", "offset": [0, -0.07, 0.02], "rotation": [0, 0, 0], "grip": 0.7, "length": 2.3 },
-        "sword": { "hand": "right", "offset": [0, -0.03, 0.03], "rotation": [1.5707963267948966, 0, 0], "length": 0.75 },
-        "shield": { "hand": "left", "offset": [0.04, -0.34, 0.02], "rotation": [0, 1.5707963267948966, 0], "scale": 1 },
-        "shieldModel": { "files": { "movil": "black-shield-movil.glb", "ordenador": "black-shield-ordenador.glb" }, "height": 0.62 }
+        "seat": {
+          "thigh": {
+            "x": -80,
+            "z": 18
+          },
+          "calf": {
+            "x": 75
+          },
+          "arm": {
+            "upper": {
+              "x": -15,
+              "z": 45
+            }
+          }
+        },
+        "spear": {
+          "hand": "right",
+          "offset": [
+            0,
+            -0.07,
+            0.02
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "grip": 0.7,
+          "length": 2.3
+        },
+        "sword": {
+          "hand": "right",
+          "offset": [
+            0,
+            -0.03,
+            0.03
+          ],
+          "rotation": [
+            1.5707963267948966,
+            0,
+            0
+          ],
+          "length": 0.75
+        },
+        "shield": {
+          "hand": "left",
+          "offset": [
+            0.04,
+            -0.34,
+            0.02
+          ],
+          "rotation": [
+            0,
+            1.5707963267948966,
+            0
+          ],
+          "scale": 1
+        },
+        "shieldModel": {
+          "files": {
+            "movil": "black-shield-movil.glb",
+            "ordenador": "black-shield-ordenador.glb"
+          },
+          "height": 0.62
+        }
+      }
+    },
+    "white-queen": {
+      "files": {
+        "movil": "queen-movil.glb",
+        "ordenador": "queen-ordenador.glb"
+      },
+      "height": 1.85,
+      "yaw": 0,
+      "required": [],
+      "moves": {
+        "idle": [],
+        "walk": [],
+        "jump": [],
+        "attack": [],
+        "hit": [],
+        "fall": [],
+        "fidget": [],
+        "taunt": [],
+        "victory": [],
+        "defeat": []
+      },
+      "hands": {},
+      "pedestalModel": {
+        "files": {
+          "movil": "pedestal-movil.glb",
+          "ordenador": "pedestal-ordenador.glb"
+        },
+        "height": 0.26
       }
     }
   }

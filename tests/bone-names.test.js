@@ -19,8 +19,24 @@ test('un nombre sin lado no se inventa ninguno', () => {
 });
 
 test('busca primero con nuestro nombre y luego con el de Mixamo', () => {
-  assert.deepEqual(boneAliases('Head'), ['Head', 'mixamorigHead']);
+  assert.deepEqual(boneAliases('R_Hand'), ['R_Hand', 'mixamorigRightHand']);
   assert.deepEqual(boneAliases('mixamorigHead'), ['mixamorigHead']);
+});
+
+test('y prueba también los sinónimos del tronco que usa cada aparejo', () => {
+  assert.ok(boneAliases('Hips').includes('Pelvis'));
+  assert.ok(boneAliases('Spine').includes('Spine01'));
+  assert.ok(boneAliases('Spine2').includes('Spine02'));
+  assert.ok(boneAliases('Neck').includes('NeckTwist01'));
+});
+
+test('encuentra el tronco de la reina, que se llama a la manera de Tripo', () => {
+  const reina = skeleton(['BoneRoot', 'Hip', 'Pelvis', 'Spine01', 'Spine02', 'NeckTwist01', 'Head']);
+  assert.equal(findBone(reina, 'Hips').name, 'Pelvis');
+  assert.equal(findBone(reina, 'Spine').name, 'Spine01');
+  assert.equal(findBone(reina, 'Spine2').name, 'Spine02');
+  assert.equal(findBone(reina, 'Neck').name, 'NeckTwist01');
+  assert.equal(findBone(reina, 'Head').name, 'Head');
 });
 
 test('encuentra el hueso tanto en un esqueleto corto como en uno de Mixamo', () => {
