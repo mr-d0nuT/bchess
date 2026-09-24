@@ -49,6 +49,12 @@ test('el ciclo se repite: la fase 1 es la misma postura que la 0', () => {
   assert.ok(Math.abs(swayPose(1).chest.z - swayPose(0).chest.z) < 1e-9);
 });
 
-test('mueve la cadera, la cintura, el pecho, el cuello y la cabeza', () => {
+test('mueve el cuerpo entero, la cadera, la cintura, el pecho, el cuello y la cabeza', () => {
   assert.deepEqual(Object.keys(SWAY_BONES).sort(), Object.keys(swayPose(0.1)).sort());
+});
+
+test('el cuerpo se mece al lado contrario que la cadera: el peso pasa de un pie al otro', () => {
+  const pose = swayPose(0.25);
+  assert.ok(pose.hips.z > 0 && pose.body.z < 0);
+  assert.ok(Math.abs(swayPose(0.75).body.z + pose.body.z) < 1e-9, 'y al otro lado en el medio ciclo');
 });
