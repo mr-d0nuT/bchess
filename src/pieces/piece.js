@@ -9,6 +9,7 @@ import { createSword } from './sword.js';
 import { strideSpeed } from '../moves/walk.js';
 import { slideAboveFloor } from './grip.js';
 import { findBone } from './bone-names.js';
+import { SWAY_BONES, swayPose } from './sway.js';
 
 // Piezas con esqueleto. `loadPieceKit` carga una sola vez los modelos de un tipo de pieza
 // (por ejemplo, el peón blanco) y prepara sus animaciones, con varias versiones por acción;
@@ -32,6 +33,7 @@ const SPEAR_FLIGHT = 0.8; // segundos que tarda en desvanecerse la lanza que sal
 const SPEAR_GRAVITY = 6;
 const SPEAR_PLANT_DEPTH = 0.12; // lo que se clava en el tablero la lanza que se deja en el suelo
 const DEGREES = Math.PI / 180;
+const STRUT_SECONDS = 1.1; // lo que dura un ciclo de contoneo cuando la pieza se desliza sin dar pasos
 
 export async function loadManifest() {
   const response = await fetch(`${MODELS}manifest.json`);
@@ -238,6 +240,7 @@ export function spawnPiece(kit) {
   let spearOverride = null; // postura que impone el combate a todo lo que haga ('upright'…)
   let spearDefault = null; // postura en combate de lo que no pide ninguna (reacciones, guardia)
   let currentVariant = null;
+  let currentName = null; // qué acción suena ahora ('walk', 'idle'…)
   let gripTarget = 0; // lo que el combate pide que la lanza resbale hacia el regatón
   let grip = 0;
   let flying = null; // lanza que ha salido volando: { velocity, axis, age }
@@ -257,6 +260,13 @@ export function spawnPiece(kit) {
 
   // Reproduce una versión de la acción: la de clave `clip` si se pide, o una al azar sin
   // repetir la anterior (o la de `avoid`).
+  let sway = 0; // cuánto contonea al moverse (la reina); 0, nada
+  let swaying = false; // si ahora mismo tiene el contoneo puesto encima
+  let swayPhase = 0; // su propio compás, para cuando se desliza sin clip de andar
+  let frozenIdle = null; // instante en el que se congela el reposo (modelos sin clip de reposo)
+  const lastAt = new THREE.Vector3();
+  let moving = 0; // lo que se ha movido en el último fotograma
+
   function play(action, { loop = true, fade = 0.25, avoid, clip } = {}) {
     const list = variants[action];
     if (!list?.length) return null;
@@ -271,7 +281,12 @@ export function spawnPiece(kit) {
     next.clampWhenFinished = !loop;
     if (current && current !== next) next.crossFadeFrom(current, fade, false);
     next.play();
+    if (action === 'idle' && frozenIdle !== null) {
+      next.time = frozenIdle; // pose quieta: el clip no avanza, y encima va el contoneo
+      next.paused = true;
+    }
     current = next;
+    currentName = action;
     currentVariant = variant;
     applySpearPose();
     playCount++;
@@ -416,6 +431,20 @@ export function spawnPiece(kit) {
     spearBlend = 0;
   }
 
+  function turnBone(name, turn) {
+    const pose = poseOf(name);
+    if (!pose) return false;
+    if (!turn) {
+      pose.turn = null;
+      return true;
+    }
+    pose.turn ??= new THREE.Quaternion();
+    // En grados ({x, y, z}) o ya como giro hecho (lo que sale de la cinemática inversa).
+    if (turn.isQuaternion) pose.turn.copy(turn);
+    else pose.turn.setFromEuler(new THREE.Euler((turn.x ?? 0) * DEGREES, (turn.y ?? 0) * DEGREES, (turn.z ?? 0) * DEGREES));
+    return true;
+  }
+
   function poseOf(name) {
     let pose = bonePoses.get(name);
     if (pose) return pose;
@@ -494,9 +523,33 @@ export function spawnPiece(kit) {
   const poseNow = new THREE.Quaternion();
   const POSE_TURN_SPEED = 7; // radianes por segundo: de erguida a en estocada tarda ~0,25 s
 
+  // El contoneo de la reina: encima del clip de andar, al compás de los pasos. Se pone y se quita
+  // solo, según ande o no.
+  function applySway(dt) {
+    // Se contonea mientras se mueve por el tablero, ande con las piernas o se deslice.
+    const andando = sway > 0 && (currentName === 'walk' || moving > 0.02);
+    if (!andando) {
+      if (!swaying) return;
+      for (const bone of Object.values(SWAY_BONES)) turnBone(bone, null);
+      swaying = false;
+      return;
+    }
+    // Al compás de los pasos si los hay; si se desliza, a su propio ritmo.
+    const duration = currentName === 'walk' && current ? current.getClip().duration : 0;
+    swayPhase = duration > 0 ? (current.time % duration) / duration : (swayPhase + dt / STRUT_SECONDS) % 1;
+    const pose = swayPose(swayPhase, sway);
+    for (const [parte, bone] of Object.entries(SWAY_BONES)) turnBone(bone, pose[parte]);
+    swaying = true;
+  }
+
   function update(dt) {
     restoreBones();
     mixer.update(dt);
+    if (dt > 0) {
+      moving = figure.position.distanceTo(lastAt) / dt;
+      lastAt.copy(figure.position);
+    }
+    applySway(dt);
     if (heldRoot) heldRoot.bone.position.copy(heldRoot.position);
     applyBones();
     for (const cut of [...cuts]) {
@@ -561,6 +614,18 @@ export function spawnPiece(kit) {
     has: (action) => Boolean(variants[action]?.length),
     // En qué punto del ciclo va la animación que suena ahora, de 0 a 1: sirve para colgarle encima
     // movimientos propios (el contoneo de la reina) al compás de los pasos.
+    // En qué instante se congela el reposo, para los modelos que no traen clip de reposo propio
+    // (la reina se queda quieta en un fotograma de su andar y respira con el contoneo).
+    set frozenIdle(time) {
+      frozenIdle = time ?? null;
+    },
+    // Cuánto contonea al moverse: 0 nada, 1 lo normal. La reina lo lleva puesto.
+    get sway() {
+      return sway;
+    },
+    set sway(value) {
+      sway = Math.max(0, value ?? 0);
+    },
     get phase() {
       if (!current) return 0;
       const duration = current.getClip().duration;
@@ -591,19 +656,7 @@ export function spawnPiece(kit) {
     holdSpear,
     // Gira un hueso `turn` grados ({ x, y, z }, en el espacio de la figura: +X a su izquierda, +Y arriba
     // y +Z delante) encima de lo que haga la animación; con null deja de girarlo.
-    turnBone(name, turn) {
-      const pose = poseOf(name);
-      if (!pose) return false;
-      if (!turn) {
-        pose.turn = null;
-        return true;
-      }
-      pose.turn ??= new THREE.Quaternion();
-      // En grados ({x, y, z}) o ya como giro hecho (lo que sale de la cinemática inversa).
-      if (turn.isQuaternion) pose.turn.copy(turn);
-      else pose.turn.setFromEuler(new THREE.Euler((turn.x ?? 0) * DEGREES, (turn.y ?? 0) * DEGREES, (turn.z ?? 0) * DEGREES));
-      return true;
-    },
+    turnBone,
     // Escala un hueso, y todo lo que cuelga de él, encima de la animación; con null deja de escalarlo.
     scaleBone(name, scale) {
       const pose = poseOf(name);

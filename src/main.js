@@ -20,6 +20,7 @@ import { onBoardTap } from './input.js';
 import { pawnCaptures, pawnMoves } from './rules/pawn.js';
 import { rookMoves } from './rules/rook.js';
 import { bishopMoves } from './rules/bishop.js';
+import { queenMoves } from './rules/queen.js';
 import { knightMoves } from './rules/knight.js';
 import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
 import { createClock } from './combat/clock.js';
@@ -39,13 +40,16 @@ import { canGagBattle, runGagBattle } from './combat/battles.js';
 // enemigo marcado, se lo come. Los botones actúan sobre el peón elegido.
 
 const SIDES = [
-  { color: 'white', pawn: 'white-pawn', rook: 'white-rook', knight: 'white-knight', bishop: 'white-bishop', pawnRank: 2, backRank: 1 },
-  { color: 'black', pawn: 'black-pawn', rook: 'black-rook', knight: 'black-knight', bishop: 'black-bishop', pawnRank: 7, backRank: 8 },
+  { color: 'white', pawn: 'white-pawn', rook: 'white-rook', knight: 'white-knight', bishop: 'white-bishop', queen: 'white-queen', pawnRank: 2, backRank: 1 },
+  { color: 'black', pawn: 'black-pawn', rook: 'black-rook', knight: 'black-knight', bishop: 'black-bishop', queen: 'black-queen', pawnRank: 7, backRank: 8 },
 ];
 const FILES = 'abcdefgh';
 const ROOK_FILES = 'ah';
 const KNIGHT_FILES = 'bg';
 const BISHOP_FILES = 'cf';
+const QUEEN_FILES = 'd';
+const QUEEN_SWAY = 1; // la reina se mueve contoneándose (`sway.js`)
+const QUEEN_STILL = 0.35; // segundos del clip de andar en los que se queda quieta (su pose de reposo)
 const BUTTON_ACTIONS = ['attack', 'hit', 'fall'];
 const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar qué hay bajo el ratón
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
@@ -166,6 +170,7 @@ async function start() {
   const reach = (entry) => {
     if (entry.kind === 'rook') return rookMoves(entry.mover.square, occupied(), enemiesOf(entry));
     if (entry.kind === 'bishop') return bishopMoves(entry.mover.square, occupied(), enemiesOf(entry));
+    if (entry.kind === 'queen') return queenMoves(entry.mover.square, occupied(), enemiesOf(entry));
     return knightMoves(entry.mover.square, occupied(), enemiesOf(entry));
   };
   const movesOf = (entry) => (entry.kind === 'pawn' ? pawnMoves(entry.mover.square, occupied(), entry.color) : reach(entry).moves);
@@ -358,6 +363,31 @@ async function start() {
     }
   }
 
+  // Las reinas, como los alfiles, pero contoneándose al andar.
+  async function loadQueens(manifest) {
+    try {
+      const sides = SIDES.filter((side) => manifest.pieces?.[side.queen]);
+      const kits = await Promise.all(sides.map((side) => loadPieceKit(manifest.pieces[side.queen], quality)));
+      for (const kit of kits) kit.strikes = measureStrikes(kit, spawnPiece);
+      sides.forEach((side, i) => {
+        for (const file of QUEEN_FILES) {
+          const piece = spawnPiece(kits[i]);
+          // Se desliza por el tablero en vez de dar pasos: con vestido largo, cualquier animación de
+          // piernas destroza la tela (el aparejado automático se la cose a las piernas). Así que en
+          // reposo se queda quieta en un fotograma de su andar y el movimiento se lo pone el contoneo.
+          piece.sway = QUEEN_SWAY;
+          piece.frozenIdle = QUEEN_STILL;
+          const entry = { kind: 'queen', color: side.color, piece };
+          entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing: restFacingFor(side.color) });
+          addPiece(entry, file + side.backRank);
+        }
+      });
+    } catch (err) {
+      console.error('[BChess] No se pudieron cargar las reinas:', err);
+      hud.showMessage('No se pudieron cargar las reinas', { retry: () => loadQueens(manifest) });
+    }
+  }
+
   // Los caballeros también van aparte.
   async function loadKnights(manifest) {
     try {
@@ -395,6 +425,7 @@ async function start() {
     await loadPawns(manifest);
     await loadKnights(manifest);
     await loadBishops(manifest);
+    await loadQueens(manifest);
     await loadRooks(manifest);
   }
 
