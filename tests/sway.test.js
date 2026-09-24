@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SWAY_BONES, swayPose } from '../src/pieces/sway.js';
+import { LAG, SWAY_BONES, swayPose } from '../src/pieces/sway.js';
 
-test('al empezar el ciclo el cuerpo está recto', () => {
+test('al empezar el ciclo la cadera está recta; el torso aún viene de atrás', () => {
   const pose = swayPose(0);
-  for (const parte of Object.values(pose)) {
-    for (const grados of Object.values(parte)) assert.ok(Math.abs(grados) < 1e-9, `${grados} debería ser 0`);
-  }
+  assert.ok(Math.abs(pose.hips.z) < 1e-9);
+  assert.ok(Math.abs(pose.hips.y) < 1e-9);
+  assert.ok(Math.abs(pose.waist.z) < 1e-9);
+  assert.ok(Math.abs(pose.chest.z) > 1e-6, 'el pecho llega con retardo, no a la vez que la cadera');
 });
 
 test('a mitad de cada paso la cadera bascula al máximo, a un lado y al otro', () => {
@@ -21,6 +22,13 @@ test('el pecho hace el contragiro de la cadera, para que los hombros miren al fr
   const pose = swayPose(0.25);
   assert.ok(pose.hips.y > 0 && pose.chest.y < 0);
   assert.ok(pose.hips.z > 0 && pose.chest.z < 0);
+});
+
+test('el torso llega tarde: la cadera hace su tope en 0,25 y el pecho, en 0,25 + el retardo', () => {
+  assert.ok(swayPose(0.25).hips.z > swayPose(0.25 + LAG).hips.z, 'la cadera ya va de vuelta');
+  const aTiempo = Math.abs(swayPose(0.25).chest.z);
+  const conRetardo = Math.abs(swayPose(0.25 + LAG).chest.z);
+  assert.ok(conRetardo > aTiempo, 'el pecho alcanza su tope un poco después');
 });
 
 test('la cabeza se endereza contra el contrabalanceo del pecho', () => {
@@ -38,6 +46,7 @@ test('`amount` sube y baja el volumen sin cambiar la forma', () => {
 
 test('el ciclo se repite: la fase 1 es la misma postura que la 0', () => {
   assert.ok(Math.abs(swayPose(1).hips.z - swayPose(0).hips.z) < 1e-9);
+  assert.ok(Math.abs(swayPose(1).chest.z - swayPose(0).chest.z) < 1e-9);
 });
 
 test('mueve la cadera, la cintura, el pecho, el cuello y la cabeza', () => {

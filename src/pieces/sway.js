@@ -3,6 +3,10 @@
 // contragiro (para que los hombros sigan mirando al frente) y la cabeza se endereza. Es lo mismo que
 // hace un cuerpo de verdad al andar marcando, solo que exagerado.
 //
+// El torso va con RETARDO respecto a la cadera (`LAG`): primero se mueve la cadera y el pecho llega
+// un poco después, que es lo que hace un cuerpo de verdad —y, de paso, lo que hace que la capa, que
+// cuelga de la espalda, se balancee como tela en vez de ir clavada al cuerpo.
+//
 // Puro: recibe la fase del ciclo (de 0 a 1, un ciclo son dos pasos) y devuelve grados, que es lo que
 // come `turnBone`. `amount` es cuánto se le sube el volumen: 0 nada, 1 lo normal.
 
@@ -15,19 +19,20 @@ const CHEST_TURN = 7; // el contragiro de los hombros
 const CHEST_ROLL = 4; // y su contrabalanceo
 const HEAD_ROLL = 3; // la cabeza se queda derecha aunque debajo todo se mueva
 const SHOULDER = 2.5; // el hombro acompaña un pelín
+export const LAG = 0.12; // parte del ciclo que el torso (y la capa) va por detrás de la cadera
 
 // La postura del contoneo en este momento del ciclo. Los ejes son los de la figura: x mira al lado,
 // y hacia arriba y z hacia delante, así que girar sobre z es bascular y sobre y, girar.
 export function swayPose(phase, amount = 1) {
-  const step = TWO_PI * (phase ?? 0);
-  const vaiven = Math.sin(step);
+  const vaiven = Math.sin(TWO_PI * (phase ?? 0));
+  const tarde = Math.sin(TWO_PI * ((phase ?? 0) - LAG)); // lo que el torso aún no ha alcanzado
   const k = amount;
   return {
     hips: { y: vaiven * HIP_TURN * k, z: vaiven * HIP_ROLL * k },
     waist: { z: -vaiven * LEAN * k },
-    chest: { y: -vaiven * CHEST_TURN * k, z: -vaiven * CHEST_ROLL * k },
-    head: { z: vaiven * HEAD_ROLL * k },
-    shoulders: { z: -vaiven * SHOULDER * k },
+    chest: { y: -tarde * CHEST_TURN * k, z: -tarde * CHEST_ROLL * k },
+    head: { z: tarde * HEAD_ROLL * k },
+    shoulders: { z: -tarde * SHOULDER * k },
   };
 }
 
