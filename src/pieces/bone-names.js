@@ -10,6 +10,11 @@ const SIDES = { R: 'Right', L: 'Left' };
 // Y además cada aparejo bautiza el tronco a su manera. Se pide por el nombre de siempre y se prueban
 // los sinónimos: la reina, por ejemplo, trae `Pelvis`, `Spine01` y `NeckTwist01`.
 const SYNONYMS = {
+  // La raíz de la figura: el nudo que está por encima de todo el esqueleto y cuyo origen cae en el
+  // suelo. Girarlo mece la figura entera —pies incluidos— apoyada en el suelo, que es otra cosa que
+  // girar la pelvis (eso sería un balancín con el eje en la cintura). Los modelos de Tripo lo llaman
+  // «Armature»; si un esqueleto no tiene ninguno, se cae a la pelvis, que es lo más parecido.
+  Root: ['Armature', 'Hips', 'Pelvis'],
   Hips: ['Pelvis', 'Hip'],
   Hip: ['Hips', 'Pelvis'],
   Spine: ['Spine01', 'Spine1'],
@@ -20,16 +25,17 @@ const SYNONYMS = {
 
 // «R_Hand» → «mixamorigRightHand»; «Head» → «mixamorigHead». Un nombre que ya es de Mixamo se queda
 // como está, que si no se traduciría dos veces.
-export function mixamoName(name) {
+export function mixamoName(name, separador = '') {
   if (name.startsWith(MIXAMO)) return name;
   const lado = name[1] === '_' ? SIDES[name[0]] : null;
-  return MIXAMO + (lado ?? '') + (lado ? name.slice(2) : name);
+  return MIXAMO + separador + (lado ?? '') + (lado ? name.slice(2) : name);
 }
 
 // Los nombres con los que buscar un hueso, en orden: el nuestro, sus sinónimos y los de Mixamo.
 export function boneAliases(name) {
   const nombres = [name, ...(SYNONYMS[name] ?? [])];
-  const todos = [...nombres, ...nombres.map(mixamoName)];
+  // Unos exportadores escriben «mixamorigHead» y otros «mixamorig:Head»: se prueban las dos.
+  const todos = [...nombres, ...nombres.map((n) => mixamoName(n)), ...nombres.map((n) => mixamoName(n, ':'))];
   return [...new Set(todos)];
 }
 

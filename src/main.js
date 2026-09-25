@@ -49,6 +49,8 @@ const KNIGHT_FILES = 'bg';
 const BISHOP_FILES = 'cf';
 const QUEEN_FILES = 'd';
 const QUEEN_SWAY = 1; // la reina se mueve contoneándose (`sway.js`)
+const QUEEN_GAIT = 1; // y andando de verdad, hueso a hueso, porque su modelo no trae animaciones
+const QUEEN_CAPE = 1; // y con la capa colgando de su propia cadena de huesos (`cape.js`)
 const QUEEN_STILL = 0.35; // segundos del clip de andar en los que se queda quieta (su pose de reposo)
 const BUTTON_ACTIONS = ['attack', 'hit', 'fall'];
 const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar qué hay bajo el ratón
@@ -376,6 +378,8 @@ async function start() {
           // piernas destroza la tela (el aparejado automático se la cose a las piernas). Así que en
           // reposo se queda quieta en un fotograma de su andar y el movimiento se lo pone el contoneo.
           piece.sway = QUEEN_SWAY;
+          piece.gait = QUEEN_GAIT;
+          piece.cape = QUEEN_CAPE;
           piece.frozenIdle = QUEEN_STILL;
           const entry = { kind: 'queen', color: side.color, piece };
           entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing: restFacingFor(side.color) });

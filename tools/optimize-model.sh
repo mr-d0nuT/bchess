@@ -50,7 +50,13 @@ for level in "ordenador:$textura:0.001" "movil:$textura_movil:0.002"; do
   if aparejado_sin_animar "$input"; then cp "$t-1.glb" "$t-2.glb"; else g prune "$t-1.glb" "$t-2.glb"; fi
   g resample "$t-2.glb" "$t-3.glb"
   g resize "$t-3.glb" "$t-4.glb" --width "$size" --height "$size"
-  g webp "$t-4.glb" "$t-5.glb" --quality 88
+  # El color admite pérdida sin que se note, pero el mapa de normales y el de metal y rugosidad, NO:
+  # ahí cada valor es un número —la inclinación de la superficie, cuánto brilla—, y el ruido de la
+  # compresión se ve luego como churretes y manchas de grasa sobre la piel. Así que primero pasan
+  # todas casi sin pérdida y después se aprieta solo la del color. (En dos pasadas y no en una con
+  # varias ranuras, porque la CLI no traga la lista entre llaves.)
+  g webp "$t-4.glb" "$t-4c.glb" --quality 100
+  g webp "$t-4c.glb" "$t-5.glb" --slots baseColorTexture --quality 88
   g meshopt "$t-5.glb" "assets/models/$name-$quality.glb" --level medium
 done
 

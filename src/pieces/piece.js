@@ -9,6 +9,8 @@ import { createSword } from './sword.js';
 import { strideSpeed } from '../moves/walk.js';
 import { slideAboveFloor } from './grip.js';
 import { findBone } from './bone-names.js';
+import { CAPE_BONES, capePose, capeRest, capeStep } from './cape.js';
+import { GAIT_BONES, gaitPose, gaitRate } from './gait.js';
 import { SWAY_BONES, swayPose } from './sway.js';
 
 // Piezas con esqueleto. `loadPieceKit` carga una sola vez los modelos de un tipo de pieza
@@ -263,8 +265,18 @@ export function spawnPiece(kit) {
   let sway = 0; // cuánto contonea al moverse (la reina); 0, nada
   let swaying = false; // si ahora mismo tiene el contoneo puesto encima
   let swayPhase = 0; // su propio compás, para cuando se desliza sin clip de andar
+  let gait = 0; // cuánto anda por su cuenta, hueso a hueso (la reina, que no trae clip); 0, nada
+  let gaiting = false;
+  let gaitPhase = 0; // en qué punto del ciclo va: un ciclo son dos pasos
+  let cape = 0; // cuánto vuela la capa (la reina); 0, ninguna capa que mover
+  let capeState = capeRest();
+  let capeBones = null; // los huesos de capa que tenga este modelo; null si aún no se ha mirado
+  const lastTurn = new THREE.Quaternion();
+  let turnKnown = false;
+  let legLength = 0; // de la cadera al suelo: de ahí sale la zancada, para que el pie no resbale
   let frozenIdle = null; // instante en el que se congela el reposo (modelos sin clip de reposo)
   const lastAt = new THREE.Vector3();
+  const stepped = new THREE.Vector3(); // lo andado en el último fotograma, en el mundo
   let moving = 0; // lo que se ha movido en el último fotograma
 
   function play(action, { loop = true, fade = 0.25, avoid, clip } = {}) {
@@ -431,6 +443,16 @@ export function spawnPiece(kit) {
     spearBlend = 0;
   }
 
+  // Sube o baja un hueso `lift` unidades, encima de lo que haga la animación; con null lo deja.
+  // Lo usa el paso de la reina: en cada apoyo el cuerpo sube un poco, que es lo que separa andar
+  // de ir en volandas.
+  function liftBone(name, lift) {
+    const pose = poseOf(name);
+    if (!pose) return false;
+    pose.lift = lift === null || lift === undefined ? null : lift;
+    return true;
+  }
+
   function turnBone(name, turn) {
     const pose = poseOf(name);
     if (!pose) return false;
@@ -449,10 +471,22 @@ export function spawnPiece(kit) {
     let pose = bonePoses.get(name);
     if (pose) return pose;
     const bone = findBone(model, name); // «Head» o «mixamorigHead»: da igual cómo los llame el modelo
-    if (!bone?.isBone) return null;
+    // Casi siempre es un hueso, pero la raíz de la figura («Armature») es el nudo del que cuelga el
+    // esqueleto, y no lo es. Vale igual: se gira en el espacio de la figura como cualquier otro.
+    if (!bone || bone === model) return null;
     let depth = 0;
     for (let at = bone.parent; at; at = at.parent) depth++;
-    pose = { bone, turn: null, scale: null, base: new THREE.Quaternion(), baseScale: new THREE.Vector3(1, 1, 1), depth, applied: false };
+    pose = {
+      bone,
+      turn: null,
+      scale: null,
+      lift: null,
+      base: new THREE.Quaternion(),
+      baseScale: new THREE.Vector3(1, 1, 1),
+      baseY: 0,
+      depth,
+      applied: false,
+    };
     bonePoses.set(name, pose);
     posedBones = [...bonePoses.values()].sort((a, b) => a.depth - b.depth);
     return pose;
@@ -476,6 +510,7 @@ export function spawnPiece(kit) {
       if (!pose.applied) continue;
       pose.bone.quaternion.copy(pose.base);
       pose.bone.scale.copy(pose.baseScale);
+      if (pose.lift !== null) pose.bone.position.y = pose.baseY;
     }
   }
 
@@ -494,8 +529,10 @@ export function spawnPiece(kit) {
     for (const pose of posedBones) {
       pose.base.copy(pose.bone.quaternion);
       pose.baseScale.copy(pose.bone.scale);
+      pose.baseY = pose.bone.position.y;
       pose.applied = true;
       if (pose.scale !== null) pose.bone.scale.setScalar(pose.scale);
+      if (pose.lift !== null) pose.bone.position.y += pose.lift;
       if (!pose.turn) continue;
       pose.bone.parent.getWorldQuaternion(parentTurn);
       parentTurnInverse.copy(parentTurn).invert();
@@ -523,6 +560,68 @@ export function spawnPiece(kit) {
   const poseNow = new THREE.Quaternion();
   const POSE_TURN_SPEED = 7; // radianes por segundo: de erguida a en estocada tarda ~0,25 s
 
+  // El vuelo de la capa. La capa cuelga de una cadena de huesos propia (`Capa1..3`, que les pone
+  // `tools/capa.py`) y la mueve la inercia: se queda atrás al arrancar, alcanza al pararse y se abre
+  // al girar. Aquí solo se mide lo que hace el cuerpo —cuánto avanza, cuánto se desplaza de lado y
+  // cuánto gira, medido COMO LO SIENTE ELLA, no en el mundo— y se le pasa al muelle de `cape.js`.
+  const capeVelocity = new THREE.Vector3();
+  const figureInverse = new THREE.Quaternion();
+  const turnDelta = new THREE.Quaternion();
+  function applyCape(dt) {
+    if (cape <= 0 || dt <= 0) return;
+    if (capeBones === null) capeBones = CAPE_BONES.filter((name) => poseOf(name));
+    if (!capeBones.length) return;
+    // Lo andado en este fotograma, pasado al espacio de la figura.
+    capeVelocity.copy(stepped).divideScalar(dt);
+    figure.getWorldQuaternion(figureInverse).invert();
+    capeVelocity.applyQuaternion(figureInverse);
+    // Y lo girado: el ángulo entre la orientación de antes y la de ahora, en vueltas por segundo.
+    let turn = 0;
+    const now = figure.quaternion;
+    if (turnKnown) {
+      turnDelta.copy(lastTurn).invert().multiply(now);
+      const seno = Math.min(1, Math.abs(turnDelta.w));
+      turn = ((2 * Math.acos(seno)) / (2 * Math.PI)) / dt * Math.sign(turnDelta.y || 1);
+    }
+    lastTurn.copy(now);
+    turnKnown = true;
+    // Si va dando pasos, la capa se entera: se balancea al compás en vez de quedarse tiesa, que es
+    // además lo que le abre hueco a la pierna para pasar por dentro de la tela.
+    capeState = capeStep(capeState, {
+      forward: capeVelocity.z,
+      side: capeVelocity.x,
+      turn,
+      step: gaiting ? gaitPhase : null,
+      dt,
+    });
+    const pose = capePose(capeState, cape);
+    capeBones.forEach((name, i) => turnBone(name, pose[i]));
+  }
+
+  // El paso de la reina, hueso a hueso. Su modelo no trae ninguna animación (se exportó pelado,
+  // porque cualquier clip le destrozaba la capa), así que andar se lo pone el juego: `gait.js` dice
+  // la postura y aquí se le da el compás, sacado de lo que avanza de verdad para que no patine.
+  function applyGait(dt) {
+    const andando = gait > 0 && moving > 0.02;
+    if (!andando) {
+      if (!gaiting) return;
+      for (const bone of Object.values(GAIT_BONES)) turnBone(bone, null);
+      liftBone(SWAY_BONES.body, null);
+      gaiting = false;
+      gaitPhase = 0;
+      return;
+    }
+    if (!legLength) {
+      const cadera = findBone(model, 'Hips');
+      legLength = cadera ? cadera.getWorldPosition(new THREE.Vector3()).y - figure.position.y : kit.spec.height * 0.53;
+    }
+    gaitPhase = (gaitPhase + gaitRate(moving, legLength) * dt) % 1;
+    const pose = gaitPose(gaitPhase, gait);
+    for (const [parte, bone] of Object.entries(GAIT_BONES)) turnBone(bone, pose[parte]);
+    liftBone(SWAY_BONES.body, pose.rise); // el cuerpo sube en cada apoyo
+    gaiting = true;
+  }
+
   // El contoneo de la reina: encima del clip de andar, al compás de los pasos. Se pone y se quita
   // solo, según ande o no.
   function applySway(dt) {
@@ -534,9 +633,11 @@ export function spawnPiece(kit) {
       swaying = false;
       return;
     }
-    // Al compás de los pasos si los hay; si se desliza, a su propio ritmo.
+    // Al compás de los pasos si los hay —los del clip o los que le pone `applyGait`—; si se
+    // desliza sin dar ninguno, a su propio ritmo. La cadera tiene que ir con los pies, no por libre.
     const duration = currentName === 'walk' && current ? current.getClip().duration : 0;
-    swayPhase = duration > 0 ? (current.time % duration) / duration : (swayPhase + dt / STRUT_SECONDS) % 1;
+    if (gaiting) swayPhase = gaitPhase;
+    else swayPhase = duration > 0 ? (current.time % duration) / duration : (swayPhase + dt / STRUT_SECONDS) % 1;
     const pose = swayPose(swayPhase, sway);
     for (const [parte, bone] of Object.entries(SWAY_BONES)) turnBone(bone, pose[parte]);
     swaying = true;
@@ -546,9 +647,14 @@ export function spawnPiece(kit) {
     restoreBones();
     mixer.update(dt);
     if (dt > 0) {
-      moving = figure.position.distanceTo(lastAt) / dt;
+      // Lo andado en este fotograma, que es de donde sale tanto la velocidad como el vuelo de la
+      // capa. Se guarda antes de mover `lastAt`, que si no se pierde.
+      stepped.copy(figure.position).sub(lastAt);
+      moving = stepped.length() / dt;
       lastAt.copy(figure.position);
     }
+    applyGait(dt);
+    applyCape(dt); // después del paso: la capa se balancea con él
     applySway(dt);
     if (heldRoot) heldRoot.bone.position.copy(heldRoot.position);
     applyBones();
@@ -619,6 +725,22 @@ export function spawnPiece(kit) {
     set frozenIdle(time) {
       frozenIdle = time ?? null;
     },
+    // Cuánto vuela la capa: 0 nada (va pegada al cuerpo), 1 lo normal. Solo hace algo si el modelo
+    // trae la cadena de huesos de capa.
+    get cape() {
+      return cape;
+    },
+    set cape(value) {
+      cape = Math.max(0, value ?? 0);
+    },
+    // Cuánto anda por su cuenta: 0 nada (usa su clip de andar), 1 lo normal. Para los modelos que
+    // vienen sin animaciones, como la reina.
+    get gait() {
+      return gait;
+    },
+    set gait(value) {
+      gait = Math.max(0, value ?? 0);
+    },
     // Cuánto contonea al moverse: 0 nada, 1 lo normal. La reina lo lleva puesto.
     get sway() {
       return sway;
@@ -657,6 +779,7 @@ export function spawnPiece(kit) {
     // Gira un hueso `turn` grados ({ x, y, z }, en el espacio de la figura: +X a su izquierda, +Y arriba
     // y +Z delante) encima de lo que haga la animación; con null deja de girarlo.
     turnBone,
+    liftBone,
     // Escala un hueso, y todo lo que cuelga de él, encima de la animación; con null deja de escalarlo.
     scaleBone(name, scale) {
       const pose = poseOf(name);

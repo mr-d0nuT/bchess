@@ -18,9 +18,16 @@ test('un nombre sin lado no se inventa ninguno', () => {
   assert.equal(mixamoName('Spine'), 'mixamorigSpine');
 });
 
-test('busca primero con nuestro nombre y luego con el de Mixamo', () => {
-  assert.deepEqual(boneAliases('R_Hand'), ['R_Hand', 'mixamorigRightHand']);
+test('busca primero con nuestro nombre y luego con el de Mixamo, con y sin dos puntos', () => {
+  assert.deepEqual(boneAliases('R_Hand'), ['R_Hand', 'mixamorigRightHand', 'mixamorig:RightHand']);
   assert.deepEqual(boneAliases('mixamorigHead'), ['mixamorigHead']);
+});
+
+test('encuentra el tronco cuando el exportador pone dos puntos', () => {
+  const conDosPuntos = skeleton(['mixamorig:Hips', 'mixamorig:Spine', 'mixamorig:Spine2', 'mixamorig:Neck', 'mixamorig:Head']);
+  assert.equal(findBone(conDosPuntos, 'Hips').name, 'mixamorig:Hips');
+  assert.equal(findBone(conDosPuntos, 'Spine2').name, 'mixamorig:Spine2');
+  assert.equal(findBone(conDosPuntos, 'Neck').name, 'mixamorig:Neck');
 });
 
 test('y prueba también los sinónimos del tronco que usa cada aparejo', () => {
@@ -48,4 +55,14 @@ test('encuentra el hueso tanto en un esqueleto corto como en uno de Mixamo', () 
 test('sin hueso y sin esqueleto, devuelve null', () => {
   assert.equal(findBone(skeleton(['Hips']), 'Head'), null);
   assert.equal(findBone(null, 'Head'), null);
+});
+
+test('la raíz de la figura es el «Armature» de Tripo, no la pelvis: mecerla mece también los pies', () => {
+  const esqueleto = skeleton(['Armature', 'mixamorig:Hips', 'mixamorig:Spine']);
+  assert.equal(findBone(esqueleto, 'Root')?.name, 'Armature');
+  assert.equal(findBone(esqueleto, 'Hips')?.name, 'mixamorig:Hips');
+});
+
+test('un esqueleto sin raíz propia mece la pelvis, que es lo más parecido que tiene', () => {
+  assert.equal(findBone(skeleton(['Pelvis', 'Spine01']), 'Root')?.name, 'Pelvis');
 });

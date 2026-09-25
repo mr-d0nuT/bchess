@@ -45,7 +45,7 @@ export function swayPose(phase, amount = 1) {
 // Los huesos que mueve, con el nombre corto del juego (`findBone` los traduce si el modelo los llama
 // a la manera de Mixamo). En orden de abajo arriba.
 export const SWAY_BONES = {
-  body: 'Hip', // el hueso de arriba del todo: mover este mueve la figura entera, pies incluidos
+  body: 'Root', // la raíz, con el eje en el suelo: mecerla mece la figura entera, pies incluidos
   hips: 'Hips',
   waist: 'Spine',
   chest: 'Spine2',
