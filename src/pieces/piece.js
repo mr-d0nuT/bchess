@@ -153,7 +153,11 @@ export async function loadPieceKit(spec, quality) {
   // Las pistas se cambian ANTES de crear acciones, porque cada acción las copia al crearse.
   // Paseo: se quita su avance y de él sale la velocidad. Resto: `travel` acorta el
   // desplazamiento (por ejemplo, para que una caída se quede en su casilla).
-  let walkSpeed = strideSpeed({ rootDistance: 0, clipDuration: 1, height: spec.height });
+  // El paso de cada figura sale de su clip de andar; quien no trae clip anda a 0,7 alturas por
+  // segundo. La reina va más despacio y lo dice en su ficha: con la capa hasta el suelo y la
+  // zancada corta que eso obliga, al ritmo de todos le salían casi cuatro pasos por segundo, un
+  // trotecillo impropio.
+  let walkSpeed = spec.walkSpeed ?? strideSpeed({ rootDistance: 0, clipDuration: 1, height: spec.height });
   const touched = new Set();
   const walkClip = moves.walk[0] ? clipByName(moves.walk[0].clip) : null;
   const walkRoot = walkClip ? rootTrack(walkClip) : null;

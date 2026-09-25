@@ -22,10 +22,13 @@
 const TWO_PI = Math.PI * 2;
 const ADELANTE = -1; // pasar de «grados hacia delante» al giro del hueso (+Z es el frente)
 
-// Pasos cortos. No es un capricho de estilo: la reina lleva una capa hasta el suelo, y una pierna
-// que zanquea la atraviesa. Con la zancada corta la pierna se queda dentro de la tela, y de paso
-// camina como camina alguien con cola —pasos menudos y muchos—, que es lo que toca.
-const ZANCADA = 16; // grados que la cadera lleva el muslo hacia delante y hacia atrás
+// Pasos cortos y HACIA DELANTE. No es un capricho de estilo: la reina lleva una capa hasta el suelo
+// y la capa le cae por detrás, así que una pierna que se va hacia atrás la atraviesa. Delante no
+// hay tela —la capa se abre—, o sea que el paso se reparte al revés que en un andar normal: casi
+// todo por delante y un dedo por detrás. Que es, además, como anda alguien con cola: pasos menudos,
+// muchos, y el pie apenas despegándose hacia atrás.
+const ZANCADA = 16; // grados que la cadera lleva el muslo hacia DELANTE
+const ATRAS = 0.3; // y qué parte de eso se permite hacia atrás, donde está la tela
 const RODILLA_VUELO = 34; // lo que se dobla la rodilla al recoger el pie
 const RODILLA_APOYO = 7; // y lo poquito que cede mientras aguanta el peso
 const TOBILLO = 14; // el pie apunta al despegar y se endereza para posarse
@@ -33,6 +36,12 @@ const ALZA = 0.035; // altura del pie en el aire, en unidades de tablero
 const BRAZO = 11; // el braceo, cruzado con las piernas
 const CODO = 10; // y el codo, que acompaña doblando un poco
 const SUBE = 0.018; // lo que sube y baja el cuerpo: dos veces por ciclo, en cada apoyo
+
+const DETRAS = ZANCADA * ATRAS; // el tope de atrás, ya en grados
+
+// Lo que abarca un paso de punta a punta, en radio de pierna: de donde se posa el pie a donde se
+// levanta. De aquí sale el ritmo, y de que salga bien depende que el pie no resbale.
+export const STRIDE = Math.sin((ZANCADA * Math.PI) / 180) + Math.sin((DETRAS * Math.PI) / 180);
 
 // Cuánto ha avanzado el paso, de 0 (el pie acaba de posarse) a 1 (vuelve a posarse). La primera
 // mitad es apoyo y la segunda, vuelo.
@@ -53,7 +62,7 @@ export function legPose(fase) {
     // El pie está en el suelo: el muslo va de delante atrás a ritmo constante, que es lo que hace
     // que el pie no resbale mientras el cuerpo pasa por encima.
     return {
-      hip: ZANCADA * (1 - 2 * t),
+      hip: ZANCADA - (ZANCADA + DETRAS) * t,
       knee: -RODILLA_APOYO * Math.sin(Math.PI * t),
       ankle: TOBILLO * (2 * t - 1),
       lift: 0,
@@ -62,7 +71,7 @@ export function legPose(fase) {
   // En el aire: vuelve al frente al doble de velocidad, doblando la rodilla para no arrastrar.
   const s = suave(t);
   return {
-    hip: -ZANCADA + 2 * ZANCADA * s,
+    hip: -DETRAS + (ZANCADA + DETRAS) * s,
     knee: -RODILLA_VUELO * Math.sin(Math.PI * t),
     ankle: TOBILLO * (1 - 2 * suave(Math.max(0, t - 0.4) / 0.6)),
     lift: ALZA * Math.sin(Math.PI * t),
@@ -109,7 +118,7 @@ export const GAIT_BONES = {
 
 // Cuántas veces por segundo repite el ciclo para andar a `speed` sin resbalar: la zancada ha de
 // comerse exactamente el terreno que recorre. `legLength` es de la cadera al suelo.
-export function gaitRate(speed, legLength, stride = 2 * Math.sin((ZANCADA * Math.PI) / 180)) {
+export function gaitRate(speed, legLength, stride = STRIDE) {
   if (!(legLength > 0)) throw new Error('la pierna ha de medir algo');
   const paso = legLength * stride; // lo que avanza en un paso
   return paso > 0 ? Math.abs(speed) / (2 * paso) : 0; // dos pasos por ciclo

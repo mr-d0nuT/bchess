@@ -1050,7 +1050,8 @@
           "ordenador": "pedestal-ordenador.glb"
         },
         "height": 0.26
-      }
+      },
+      "walkSpeed": 0.85
     }
   }
 }

@@ -77,3 +77,14 @@ test('mueve las dos piernas y los dos brazos, y levanta el cuerpo', () => {
   const partes = Object.keys(gaitPose(0.1)).filter((k) => k !== 'rise');
   assert.deepEqual(partes.sort(), Object.keys(GAIT_BONES).sort());
 });
+
+test('la pierna va mucho más hacia delante que hacia atrás: detrás está la capa', () => {
+  let masAdelante = -Infinity;
+  let masAtras = Infinity;
+  for (let f = 0; f < 1; f += 0.005) {
+    masAdelante = Math.max(masAdelante, legPose(f).hip);
+    masAtras = Math.min(masAtras, legPose(f).hip);
+  }
+  assert.ok(masAdelante > 0 && masAtras < 0, 'algo va hacia cada lado');
+  assert.ok(masAdelante > 3 * Math.abs(masAtras), 'pero hacia atrás, apenas');
+});
