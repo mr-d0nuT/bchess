@@ -22,8 +22,10 @@ function hoverTexture() {
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d');
-  const inset = 26;
-  const radius = 30;
+  // El marco ocupa casi toda la casilla, pero no del todo: pegado al borde se confunde con la junta
+  // entre casillas y deja de leerse como una marca.
+  const inset = 13;
+  const radius = 26;
   const marco = () => {
     ctx.beginPath();
     const lado = size - inset * 2;

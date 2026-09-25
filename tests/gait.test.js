@@ -131,3 +131,17 @@ test('mueve las dos piernas y los dos brazos, y sube y baja el cuerpo', () => {
   assert.deepEqual(partes.sort(), Object.keys(GAIT_BONES).sort());
 });
 
+
+test('las piernas van un poco abiertas, que si no los pies se rozan', () => {
+  const pose = gaitPose(0.25, { thigh: MUSLO, shin: ESPINILLA });
+  assert.ok(pose.leftThigh.z < 0 && pose.rightThigh.z > 0, 'cada una hacia su lado');
+  assert.ok(Math.abs(pose.leftThigh.z + pose.rightThigh.z) < 1e-9, 'lo mismo las dos');
+  // Y el tobillo lo deshace, para que la planta no quede de canto.
+  assert.ok(Math.abs(pose.leftFoot.z + pose.leftThigh.z) < 1e-9);
+});
+
+test('la abertura es fija: no cambia con el paso, así que no mueve el pie clavado', () => {
+  const a = gaitPose(0.1, { thigh: MUSLO, shin: ESPINILLA }).leftThigh.z;
+  const b = gaitPose(0.4, { thigh: MUSLO, shin: ESPINILLA }).leftThigh.z;
+  assert.equal(a, b);
+});

@@ -26,6 +26,9 @@ const ALZA = 0.055; // lo que sube el pie al volar, en largos de pierna
 const ESTIRA = 0.97; // lo más que se estira la pierna: una rodilla no se bloquea al andar
 const TALON = 9; // grados que el pie apunta hacia arriba al posar el talón
 const PUNTA = 18; // y hacia abajo al despegar la punta
+const ABRE = 2.6; // grados que se abren las piernas: la figura viene con los pies casi juntos y,
+                 // andando, se rozan. Es un ángulo fijo, no cambia con el paso, así que no mueve el
+                 // pie que está clavado: solo lo pone un dedo más afuera.
 const BRAZO = 0.5; // el braceo, cruzado con las piernas: la mitad de lo que gira el muslo
 const CODO = 10; // y el codo, que acompaña doblando un poco
 
@@ -117,13 +120,14 @@ export function gaitPose(phase, { amount = 1, thigh = 0.5, shin = 0.5, step = PA
   const izq = pierna(f, step, cadera, thigh, shin, shift?.left);
   const der = pierna(f + 0.5, step, cadera, thigh, shin, shift?.right);
   const g = ADELANTE * amount;
+  const abre = ABRE * amount; // hacia fuera cada una: la izquierda a su izquierda y al revés
   return {
-    leftThigh: { x: izq.hip * g },
+    leftThigh: { x: izq.hip * g, z: -abre },
     leftShin: { x: izq.knee * g },
-    leftFoot: { x: izq.ankle * g },
-    rightThigh: { x: der.hip * g },
+    leftFoot: { x: izq.ankle * g, z: abre },
+    rightThigh: { x: der.hip * g, z: abre },
     rightShin: { x: der.knee * g },
-    rightFoot: { x: der.ankle * g },
+    rightFoot: { x: der.ankle * g, z: -abre },
     // Los brazos, cruzados: el derecho acompaña a la pierna izquierda. Van con el MUSLO y no con
     // el pie, que en el vuelo van cada uno por su lado (el muslo ya adelanta mientras el pie sigue
     // detrás, con la rodilla doblada) y el brazo tiene que acompañar al muslo.

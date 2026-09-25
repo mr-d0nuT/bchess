@@ -22,7 +22,10 @@ def rampa(x, a, b):
     return t * t * (3 - 2 * t)
 
 def peso_piel(h, s, v):
-    return (rampa(h, -0.005, 0.02) * (1 - rampa(h, 0.10, 0.14))
+    # El oro queda fuera: es amarillo y saturado, y la máscara de la carne llega hasta el amarillo.
+    # Sin este cerrojo, aclarar la piel de una figura con filigrana dorada le apaga el oro.
+    oro = rampa(h, 0.07, 0.10) * rampa(s, 0.30, 0.42)
+    return ((1 - oro) * rampa(h, -0.005, 0.02) * (1 - rampa(h, 0.10, 0.14))
             * rampa(s, 0.08, 0.20) * (1 - rampa(s, 0.55, 0.72))
             * rampa(v, 0.06, 0.18))
 
