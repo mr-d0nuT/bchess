@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FORWARD_SHARE, GAIT_BONES, STEP, footAt, footPath, gaitPose, gaitRate, hipHeight, solveLeg } from '../src/pieces/gait.js';
+import { FORWARD_SHARE, GAIT_BONES, STEP, footAt, footPath, gaitPose, gaitRate, hipHeight, restArms, solveLeg } from '../src/pieces/gait.js';
 
 const MUSLO = 0.52;
 const ESPINILLA = 0.48;
@@ -144,4 +144,18 @@ test('la abertura es fija: no cambia con el paso, así que no mueve el pie clava
   const a = gaitPose(0.1, { thigh: MUSLO, shin: ESPINILLA }).leftThigh.z;
   const b = gaitPose(0.4, { thigh: MUSLO, shin: ESPINILLA }).leftThigh.z;
   assert.equal(a, b);
+});
+
+test('una figura con los brazos en cruz los baja al costado', () => {
+  const brazos = restArms(90);
+  assert.ok(brazos.leftArm.z < 0 && brazos.rightArm.z > 0, 'cada uno hacia su lado');
+  assert.ok(Math.abs(brazos.leftArm.z + brazos.rightArm.z) < 1e-9, 'lo mismo los dos');
+  assert.ok(restArms(0).leftArm.z === 0, 'sin nada que bajar, no se bajan');
+});
+
+test('el braceo se suma a lo bajados que estén, no lo sustituye', () => {
+  const quietos = gaitPose(0.25, { thigh: MUSLO, shin: ESPINILLA, armDrop: 0 });
+  const bajados = gaitPose(0.25, { thigh: MUSLO, shin: ESPINILLA, armDrop: 70 });
+  assert.equal(bajados.leftArm.x, quietos.leftArm.x, 'el braceo, igual');
+  assert.equal(bajados.leftArm.z, -70, 'y además colgando');
 });

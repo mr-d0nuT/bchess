@@ -30,6 +30,7 @@ const ABRE = 2.6; // grados que se abren las piernas: la figura viene con los pi
                  // andando, se rozan. Es un ángulo fijo, no cambia con el paso, así que no mueve el
                  // pie que está clavado: solo lo pone un dedo más afuera.
 const BRAZO = 0.5; // el braceo, cruzado con las piernas: la mitad de lo que gira el muslo
+const CRUZ = 90; // los brazos de una pose en T, medidos desde el cuerpo: de ahí hay que bajarlos
 const CODO = 10; // y el codo, que acompaña doblando un poco
 
 // Dónde está el pie en este momento de SU ciclo, visto desde el cuerpo: `z` hacia delante y `y`
@@ -112,9 +113,26 @@ function pierna(phase, paso, cadera, thigh, shin, shift) {
 
 const ADELANTE = -1; // pasar de «grados hacia delante» al giro del hueso (+Z es el frente)
 
+// Los brazos, quietos, para una figura que viene con ellos en cruz. `drop` es cuánto se bajan desde
+// la horizontal: 90 los deja pegados al cuerpo, 0 los deja como venían. Se piden aparte del paso
+// porque una figura los necesita también parada, y `gaitPose` solo habla de andar.
+//
+// Los modelos se generan con los brazos en cruz a propósito: es lo que pide el aparejo automático,
+// porque con los brazos pegados al costado no sabe dónde acaba uno y empieza el otro y los cose
+// juntos. Bajarlos después es cosa nuestra, y sale gratis.
+export function restArms(drop = CRUZ, elbow = CODO) {
+  return {
+    leftArm: { z: -drop },
+    rightArm: { z: drop },
+    leftForearm: { x: -elbow },
+    rightForearm: { x: -elbow },
+  };
+}
+
 // La postura entera. `phase` es el ciclo completo (dos pasos); la pierna derecha va media vuelta por
 // detrás. `thigh` y `shin` son los largos de los dos huesos, en largos de pierna (suman ~1).
-export function gaitPose(phase, { amount = 1, thigh = 0.5, shin = 0.5, step = PASO, shift } = {}) {
+// `armDrop`: cuánto hay que bajar unos brazos que vienen en cruz (0 si ya cuelgan).
+export function gaitPose(phase, { amount = 1, thigh = 0.5, shin = 0.5, step = PASO, shift, armDrop = 0 } = {}) {
   const f = ((phase % 1) + 1) % 1;
   const cadera = hipHeight(f, step);
   const izq = pierna(f, step, cadera, thigh, shin, shift?.left);
@@ -131,8 +149,10 @@ export function gaitPose(phase, { amount = 1, thigh = 0.5, shin = 0.5, step = PA
     // Los brazos, cruzados: el derecho acompaña a la pierna izquierda. Van con el MUSLO y no con
     // el pie, que en el vuelo van cada uno por su lado (el muslo ya adelanta mientras el pie sigue
     // detrás, con la rodilla doblada) y el brazo tiene que acompañar al muslo.
-    leftArm: { x: -izq.hip * BRAZO * g },
-    rightArm: { x: -der.hip * BRAZO * g },
+    // El braceo se suma a lo que haya que bajarlos: una cosa es de dónde cuelgan y otra cómo se
+    // mueven.
+    leftArm: { x: -izq.hip * BRAZO * g, z: -armDrop },
+    rightArm: { x: -der.hip * BRAZO * g, z: armDrop },
     leftForearm: { x: -CODO * amount },
     rightForearm: { x: -CODO * amount },
     // Lo que sube o baja el cuerpo respecto a estar de pie, en largos de pierna.

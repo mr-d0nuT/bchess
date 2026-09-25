@@ -20,6 +20,7 @@ import { onBoardTap } from './input.js';
 import { pawnCaptures, pawnMoves } from './rules/pawn.js';
 import { rookMoves } from './rules/rook.js';
 import { bishopMoves } from './rules/bishop.js';
+import { kingMoves } from './rules/king.js';
 import { queenMoves } from './rules/queen.js';
 import { knightMoves } from './rules/knight.js';
 import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
@@ -40,8 +41,8 @@ import { canGagBattle, runGagBattle } from './combat/battles.js';
 // enemigo marcado, se lo come. Los botones actúan sobre el peón elegido.
 
 const SIDES = [
-  { color: 'white', pawn: 'white-pawn', rook: 'white-rook', knight: 'white-knight', bishop: 'white-bishop', queen: 'white-queen', pawnRank: 2, backRank: 1 },
-  { color: 'black', pawn: 'black-pawn', rook: 'black-rook', knight: 'black-knight', bishop: 'black-bishop', queen: 'black-queen', pawnRank: 7, backRank: 8 },
+  { color: 'white', pawn: 'white-pawn', rook: 'white-rook', knight: 'white-knight', bishop: 'white-bishop', queen: 'white-queen', king: 'white-king', pawnRank: 2, backRank: 1 },
+  { color: 'black', pawn: 'black-pawn', rook: 'black-rook', knight: 'black-knight', bishop: 'black-bishop', queen: 'black-queen', king: 'black-king', pawnRank: 7, backRank: 8 },
 ];
 const FILES = 'abcdefgh';
 const ROOK_FILES = 'ah';
@@ -51,6 +52,9 @@ const QUEEN_FILES = 'd';
 const QUEEN_SWAY = 1; // la reina se mueve contoneándose (`sway.js`)
 const QUEEN_GAIT = 1; // y andando de verdad, hueso a hueso, porque su modelo no trae animaciones
 const QUEEN_CAPE = 1; // y con la capa colgando de su propia cadena de huesos (`cape.js`)
+const KING_FILES = 'e';
+const KING_SWAY = 0.35; // el rey no contonea: solo se acompaña
+const KING_ARMS = 78; // sus imágenes se hicieron con los brazos en cruz, como pide el aparejo
 const QUEEN_STILL = 0.35; // segundos del clip de andar en los que se queda quieta (su pose de reposo)
 const BUTTON_ACTIONS = ['attack', 'hit', 'fall'];
 const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar qué hay bajo el ratón
@@ -173,6 +177,7 @@ async function start() {
     if (entry.kind === 'rook') return rookMoves(entry.mover.square, occupied(), enemiesOf(entry));
     if (entry.kind === 'bishop') return bishopMoves(entry.mover.square, occupied(), enemiesOf(entry));
     if (entry.kind === 'queen') return queenMoves(entry.mover.square, occupied(), enemiesOf(entry));
+    if (entry.kind === 'king') return kingMoves(entry.mover.square, occupied(), enemiesOf(entry));
     return knightMoves(entry.mover.square, occupied(), enemiesOf(entry));
   };
   const movesOf = (entry) => (entry.kind === 'pawn' ? pawnMoves(entry.mover.square, occupied(), entry.color) : reach(entry).moves);
@@ -392,6 +397,33 @@ async function start() {
     }
   }
 
+  // Los reyes, como las reinas: andan hueso a hueso y llevan capa. Vienen con los brazos en cruz
+  // —los modelos se generan así porque es lo que pide el aparejo automático, que con los brazos
+  // pegados al costado cose el uno al otro—, así que lo primero es bajárselos.
+  async function loadKings(manifest) {
+    try {
+      const sides = SIDES.filter((side) => manifest.pieces?.[side.king]);
+      const kits = await Promise.all(sides.map((side) => loadPieceKit(manifest.pieces[side.king], quality)));
+      for (const kit of kits) kit.strikes = measureStrikes(kit, spawnPiece);
+      sides.forEach((side, i) => {
+        for (const file of KING_FILES) {
+          const piece = spawnPiece(kits[i]);
+          piece.armDrop = KING_ARMS;
+          piece.sway = KING_SWAY;
+          piece.gait = QUEEN_GAIT;
+          piece.cape = QUEEN_CAPE;
+          piece.frozenIdle = QUEEN_STILL;
+          const entry = { kind: 'king', color: side.color, piece };
+          entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing: restFacingFor(side.color) });
+          addPiece(entry, file + side.backRank);
+        }
+      });
+    } catch (err) {
+      console.error('[BChess] No se pudieron cargar los reyes:', err);
+      hud.showMessage('No se pudieron cargar los reyes', { retry: () => loadKings(manifest) });
+    }
+  }
+
   // Los caballeros también van aparte.
   async function loadKnights(manifest) {
     try {
@@ -430,6 +462,7 @@ async function start() {
     await loadKnights(manifest);
     await loadBishops(manifest);
     await loadQueens(manifest);
+    await loadKings(manifest);
     await loadRooks(manifest);
   }
 

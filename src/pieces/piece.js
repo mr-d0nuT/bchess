@@ -10,7 +10,7 @@ import { strideSpeed } from '../moves/walk.js';
 import { slideAboveFloor } from './grip.js';
 import { findBone } from './bone-names.js';
 import { CAPE_BONES, capePose, capeRest, capeStep } from './cape.js';
-import { GAIT_BONES, gaitPose, gaitRate } from './gait.js';
+import { GAIT_BONES, gaitPose, gaitRate, restArms } from './gait.js';
 import { SWAY_BONES, hipShift, rockAngle, swayPose, uprightBend } from './sway.js';
 
 // Piezas con esqueleto. `loadPieceKit` carga una sola vez los modelos de un tipo de pieza
@@ -272,6 +272,7 @@ export function spawnPiece(kit) {
   let gait = 0; // cuánto anda por su cuenta, hueso a hueso (la reina, que no trae clip); 0, nada
   let gaiting = false;
   let gaitPhase = 0; // en qué punto del ciclo va: un ciclo son dos pasos
+  let armDrop = 0; // cuánto hay que bajarle los brazos a una figura que viene con ellos en cruz
   let rock = 0; // lo que se mece la figura sobre el suelo para llevar la cadera al pie que aguanta
   let hipBend = 0; // y lo que la cintura deshace de eso, para que el torso siga vertical
   let cape = 0; // cuánto vuela la capa (la reina); 0, ninguna capa que mover
@@ -659,7 +660,10 @@ export function spawnPiece(kit) {
     const andando = gait > 0 && moving > 0.02;
     if (!andando) {
       if (!gaiting) return;
-      for (const bone of Object.values(GAIT_BONES)) turnBone(bone, null);
+      // Parada, las piernas vuelven a lo suyo; los brazos, no: si vienen en cruz hay que seguir
+      // bajándoselos, andando y quieta.
+      const brazos = armDrop > 0 ? restArms(armDrop) : null;
+      for (const [parte, bone] of Object.entries(GAIT_BONES)) turnBone(bone, brazos?.[parte] ?? null);
       liftBone(SWAY_BONES.body, null);
       rock = 0;
       hipBend = 0;
@@ -675,7 +679,7 @@ export function spawnPiece(kit) {
     // que luego aplicará `applySway`, para que las dos cuenten lo mismo.
     const contoneo = sway > 0 ? swayPose(gaitPhase, sway, true) : null;
     const shift = contoneo ? hipShift(contoneo, legs.halfWidth) : undefined;
-    const pose = gaitPose(gaitPhase, { amount: gait, thigh: legs.thigh, shin: legs.shin, shift });
+    const pose = gaitPose(gaitPhase, { amount: gait, thigh: legs.thigh, shin: legs.shin, shift, armDrop });
     for (const [parte, bone] of Object.entries(GAIT_BONES)) turnBone(bone, pose[parte]);
     liftBone(SWAY_BONES.body, pose.rise * legs.length); // el cuerpo baja y sube con la zancada
     // Y el contoneo: la figura entera se mece con el eje en el suelo, entre los pies. Así la cadera
@@ -816,6 +820,21 @@ export function spawnPiece(kit) {
     },
     set cape(value) {
       cape = Math.max(0, value ?? 0);
+    },
+    // Cuánto hay que bajarle los brazos, en grados, si la figura viene con ellos en cruz. Los
+    // modelos se generan así a propósito: es lo que pide el aparejo automático para no coser el
+    // brazo al costado. 90 los deja pegados al cuerpo; 0, como venían.
+    get armDrop() {
+      return armDrop;
+    },
+    set armDrop(value) {
+      armDrop = Math.max(0, value ?? 0);
+      if (armDrop > 0 && !gaiting) {
+        const brazos = restArms(armDrop);
+        for (const [parte, bone] of Object.entries(GAIT_BONES)) {
+          if (brazos[parte]) turnBone(bone, brazos[parte]);
+        }
+      }
     },
     // Cuánto anda por su cuenta: 0 nada (usa su clip de andar), 1 lo normal. Para los modelos que
     // vienen sin animaciones, como la reina.

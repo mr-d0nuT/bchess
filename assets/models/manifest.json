@@ -1082,6 +1082,66 @@
         "height": 0.26
       },
       "walkSpeed": 0.85
+    },
+    "white-king": {
+      "files": {
+        "movil": "king-movil.glb",
+        "ordenador": "king-ordenador.glb"
+      },
+      "height": 1.9,
+      "yaw": 0,
+      "required": [],
+      "moves": {
+        "idle": [],
+        "walk": [],
+        "jump": [],
+        "attack": [],
+        "hit": [],
+        "fall": [],
+        "fidget": [],
+        "taunt": [],
+        "victory": [],
+        "defeat": []
+      },
+      "hands": {},
+      "pedestalModel": {
+        "files": {
+          "movil": "pedestal-movil.glb",
+          "ordenador": "pedestal-ordenador.glb"
+        },
+        "height": 0.26
+      },
+      "walkSpeed": 0.9
+    },
+    "black-king": {
+      "files": {
+        "movil": "black-king-movil.glb",
+        "ordenador": "black-king-ordenador.glb"
+      },
+      "height": 1.9,
+      "yaw": 0,
+      "required": [],
+      "moves": {
+        "idle": [],
+        "walk": [],
+        "jump": [],
+        "attack": [],
+        "hit": [],
+        "fall": [],
+        "fidget": [],
+        "taunt": [],
+        "victory": [],
+        "defeat": []
+      },
+      "hands": {},
+      "pedestalModel": {
+        "files": {
+          "movil": "black-pedestal-movil.glb",
+          "ordenador": "black-pedestal-ordenador.glb"
+        },
+        "height": 0.26
+      },
+      "walkSpeed": 0.9
     }
   }
 }
