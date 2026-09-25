@@ -1052,6 +1052,36 @@
         "height": 0.26
       },
       "walkSpeed": 0.85
+    },
+    "black-queen": {
+      "files": {
+        "movil": "black-queen-movil.glb",
+        "ordenador": "black-queen-ordenador.glb"
+      },
+      "height": 1.85,
+      "yaw": 0,
+      "required": [],
+      "moves": {
+        "idle": [],
+        "walk": [],
+        "jump": [],
+        "attack": [],
+        "hit": [],
+        "fall": [],
+        "fidget": [],
+        "taunt": [],
+        "victory": [],
+        "defeat": []
+      },
+      "hands": {},
+      "pedestalModel": {
+        "files": {
+          "movil": "black-pedestal-movil.glb",
+          "ordenador": "black-pedestal-ordenador.glb"
+        },
+        "height": 0.26
+      },
+      "walkSpeed": 0.85
     }
   }
 }
