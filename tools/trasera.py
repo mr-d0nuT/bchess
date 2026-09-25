@@ -16,10 +16,14 @@ from PIL import Image, ImageDraw, ImageFilter
 # El brillo de cada téxel se respeta y solo se reescala, para que los pliegues y el relieve sigan
 # ahí en vez de quedar una mancha plana.
 #
-# Uso: trasera.py <modelo.glb> <color.jpg> <salida.jpg> <tono,sat,val> [techo]
+# Uso: trasera.py <modelo.glb> <color.jpg> <salida.jpg> <tono,sat,val> [techo] [--todo]
+#   sin --todo, solo se repinta lo ROJO de la espalda (el caso de la reina negra);
+#   con --todo, se repinta toda la espalda salvo la piel, el pelo y los adornos dorados, que es lo
+#   que hace falta cuando la prenda ya es del color que sea y solo hay que cambiárselo.
 modelo, color, salida = sys.argv[1], sys.argv[2], sys.argv[3]
 TONO, SAT, VAL = (float(x) for x in sys.argv[4].split(','))
 TECHO = float(sys.argv[5]) if len(sys.argv) > 5 else 0.90  # por encima de esto es la corona: no se toca
+TODO = '--todo' in sys.argv
 
 b = pathlib.Path(modelo).read_bytes()
 njson = struct.unpack_from('<I', b, 12)[0]
@@ -86,13 +90,18 @@ for y in range(H):
         if not pm[x, y]: continue
         r, g, bb = pc[x, y]
         h, s, v = colorsys.rgb_to_hsv(r/255, g/255, bb/255)
-        if (h < 0.045 or h > 0.93) and s > 0.28 and v > 0.05:
+        if TODO:
+            piel = h < 0.09 and 0.12 < s < 0.58 and v > 0.10
+            oro = 0.06 < h < 0.18 and s > 0.30 and v > 0.22
+            if not piel and not oro and v > 0.04:
+                rojos.append((x, y, v))
+        elif (h < 0.045 or h > 0.93) and s > 0.28 and v > 0.05:
             rojos.append((x, y, v))
 if not rojos:
-    raise SystemExit('en la espalda no hay nada rojo que cambiar')
+    raise SystemExit('en la espalda no hay nada que cambiar')
 medio = sum(v for _, _, v in rojos)/len(rojos)
 escala = VAL/medio
-print(f'{len(rojos)/1000:.0f}k téxeles rojos, brillo medio {medio:.3f} -> {VAL:.3f}')
+print(f'{len(rojos)/1000:.0f}k téxeles de espalda, brillo medio {medio:.3f} -> {VAL:.3f}')
 for x, y, v in rojos:
     r2, g2, b2 = colorsys.hsv_to_rgb(TONO, SAT, max(0.0, min(1.0, v*escala)))
     pc[x, y] = (int(r2*255+0.5), int(g2*255+0.5), int(b2*255+0.5))
