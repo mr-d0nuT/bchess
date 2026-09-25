@@ -11,7 +11,7 @@ import { slideAboveFloor } from './grip.js';
 import { findBone } from './bone-names.js';
 import { CAPE_BONES, capePose, capeRest, capeStep } from './cape.js';
 import { GAIT_BONES, gaitPose, gaitRate } from './gait.js';
-import { SWAY_BONES, swayPose } from './sway.js';
+import { SWAY_BONES, hipShift, rockAngle, swayPose, uprightBend } from './sway.js';
 
 // Piezas con esqueleto. `loadPieceKit` carga una sola vez los modelos de un tipo de pieza
 // (por ejemplo, el peón blanco) y prepara sus animaciones, con varias versiones por acción;
@@ -272,6 +272,8 @@ export function spawnPiece(kit) {
   let gait = 0; // cuánto anda por su cuenta, hueso a hueso (la reina, que no trae clip); 0, nada
   let gaiting = false;
   let gaitPhase = 0; // en qué punto del ciclo va: un ciclo son dos pasos
+  let rock = 0; // lo que se mece la figura sobre el suelo para llevar la cadera al pie que aguanta
+  let hipBend = 0; // y lo que la cintura deshace de eso, para que el torso siga vertical
   let cape = 0; // cuánto vuela la capa (la reina); 0, ninguna capa que mover
   let capeState = capeRest();
   let capeBones = null; // los huesos de capa que tenga este modelo; null si aún no se ha mirado
@@ -447,13 +449,15 @@ export function spawnPiece(kit) {
     spearBlend = 0;
   }
 
-  // Sube o baja un hueso `lift` unidades, encima de lo que haga la animación; con null lo deja.
-  // Lo usa el paso de la reina: en cada apoyo el cuerpo sube un poco, que es lo que separa andar
-  // de ir en volandas.
+  // Mueve un hueso de su sitio, encima de lo que haga la animación; con null lo deja donde estaba.
+  // Lo usa el paso de la reina para dos cosas: el cuerpo sube un poco en cada apoyo (que es lo que
+  // separa andar de ir en volandas) y la cadera se va de lado sobre el pie que aguanta (que es lo
+  // que separa contonearse de girar la pelvis y quedarse donde estaba).
   function liftBone(name, lift) {
     const pose = poseOf(name);
     if (!pose) return false;
-    pose.lift = lift === null || lift === undefined ? null : lift;
+    if (lift === null || lift === undefined) pose.lift = null;
+    else pose.lift = typeof lift === 'number' ? { x: 0, y: lift, z: 0 } : { x: lift.x ?? 0, y: lift.y ?? 0, z: lift.z ?? 0 };
     return true;
   }
 
@@ -487,7 +491,7 @@ export function spawnPiece(kit) {
       lift: null,
       base: new THREE.Quaternion(),
       baseScale: new THREE.Vector3(1, 1, 1),
-      baseY: 0,
+      basePos: new THREE.Vector3(),
       depth,
       applied: false,
     };
@@ -514,7 +518,7 @@ export function spawnPiece(kit) {
       if (!pose.applied) continue;
       pose.bone.quaternion.copy(pose.base);
       pose.bone.scale.copy(pose.baseScale);
-      if (pose.lift !== null) pose.bone.position.y = pose.baseY;
+      if (pose.lift !== null) pose.bone.position.copy(pose.basePos);
     }
   }
 
@@ -523,6 +527,8 @@ export function spawnPiece(kit) {
   const parentTurn = new THREE.Quaternion();
   const parentTurnInverse = new THREE.Quaternion();
   const worldTurn = new THREE.Quaternion();
+  const shiftLocal = new THREE.Vector3();
+  const parentScale = new THREE.Vector3(1, 1, 1);
 
   // Encima de la animación, cada hueso impuesto se escala y gira en el espacio de la figura. Los padres
   // van antes que los hijos, para que el giro de un hijo cuente con el de su padre.
@@ -533,10 +539,24 @@ export function spawnPiece(kit) {
     for (const pose of posedBones) {
       pose.base.copy(pose.bone.quaternion);
       pose.baseScale.copy(pose.bone.scale);
-      pose.baseY = pose.bone.position.y;
+      pose.basePos.copy(pose.bone.position);
       pose.applied = true;
       if (pose.scale !== null) pose.bone.scale.setScalar(pose.scale);
-      if (pose.lift !== null) pose.bone.position.y += pose.lift;
+      if (pose.lift !== null) {
+        // El desplazamiento se pide en el espacio de la figura, pero el hueso vive en el de su
+        // padre: hay que traducirlo, o mover la cadera «a su izquierda» la mandaría a cualquier
+        // sitio según cómo esté girado el esqueleto debajo. Y hay que DIVIDIR por la escala del
+        // padre: la figura está escalada para medir lo que mide en el tablero, así que un centímetro
+        // de allí no es un centímetro de aquí. Sin eso, la cadera se va casi el doble de lo pedido
+        // y las piernas, que descuentan lo pedido, no llegan: el pie que estaba clavado patina.
+        pose.bone.parent.getWorldQuaternion(parentTurn);
+        pose.bone.parent.getWorldScale(parentScale);
+        shiftLocal.set(pose.lift.x, pose.lift.y, pose.lift.z)
+          .applyQuaternion(figureTurn)
+          .applyQuaternion(parentTurnInverse.copy(parentTurn).invert())
+          .divide(parentScale);
+        pose.bone.position.add(shiftLocal);
+      }
       if (!pose.turn) continue;
       pose.bone.parent.getWorldQuaternion(parentTurn);
       parentTurnInverse.copy(parentTurn).invert();
@@ -578,7 +598,20 @@ export function spawnPiece(kit) {
     const c = tobillo.getWorldPosition(new THREE.Vector3());
     const largo = a.distanceTo(b) + b.distanceTo(c);
     if (!(largo > 0)) return null;
-    return { thigh: a.distanceTo(b) / largo, shin: b.distanceTo(c) / largo, length: largo };
+    const otra = findBone(model, 'R_UpLeg');
+    const ancho = otra ? a.distanceTo(otra.getWorldPosition(new THREE.Vector3())) / 2 : largo * 0.09;
+    const cintura = findBone(model, 'Spine');
+    const testa = findBone(model, 'Head');
+    const alto = cintura && testa
+      ? cintura.getWorldPosition(new THREE.Vector3()).distanceTo(testa.getWorldPosition(new THREE.Vector3()))
+      : largo * 0.8;
+    return {
+      thigh: a.distanceTo(b) / largo,
+      shin: b.distanceTo(c) / largo,
+      length: largo,
+      halfWidth: ancho / largo, // en largos de pierna, como todo lo demás en `gait.js`
+      spine: alto / largo, // de la cintura a la cabeza: cuánto palanca tiene para enderezarse
+    };
   }
 
   // El vuelo de la capa. La capa cuelga de una cadena de huesos propia (`Capa1..3`, que les pone
@@ -628,6 +661,8 @@ export function spawnPiece(kit) {
       if (!gaiting) return;
       for (const bone of Object.values(GAIT_BONES)) turnBone(bone, null);
       liftBone(SWAY_BONES.body, null);
+      rock = 0;
+      hipBend = 0;
       gaiting = false;
       gaitPhase = 0;
       return;
@@ -635,9 +670,21 @@ export function spawnPiece(kit) {
     legs ??= measureLegs();
     if (!legs) return;
     gaitPhase = (gaitPhase + gaitRate(moving, legs.length) * dt) % 1;
-    const pose = gaitPose(gaitPhase, { amount: gait, thigh: legs.thigh, shin: legs.shin });
+    // El contoneo mueve la pelvis, y la pelvis es de donde cuelgan las piernas: hay que decírselo a
+    // la cinemática inversa o el pie clavado se va con la cadera. Se calcula aquí la misma postura
+    // que luego aplicará `applySway`, para que las dos cuenten lo mismo.
+    const contoneo = sway > 0 ? swayPose(gaitPhase, sway, true) : null;
+    const shift = contoneo ? hipShift(contoneo, legs.halfWidth) : undefined;
+    const pose = gaitPose(gaitPhase, { amount: gait, thigh: legs.thigh, shin: legs.shin, shift });
     for (const [parte, bone] of Object.entries(GAIT_BONES)) turnBone(bone, pose[parte]);
     liftBone(SWAY_BONES.body, pose.rise * legs.length); // el cuerpo baja y sube con la zancada
+    // Y el contoneo: la figura entera se mece con el eje en el suelo, entre los pies. Así la cadera
+    // se va de verdad sobre el pie que aguanta y los tobillos, que están a un dedo del suelo, casi
+    // no se enteran. La cintura lo deshace para que el torso siga vertical.
+    // `rock` es ya el giro que se le aplica al cuerpo: negativo, porque girar sobre Z lleva lo alto
+    // hacia -X y la cadera ha de irse hacia +X cuando el contoneo lo pide.
+    rock = contoneo ? -rockAngle(contoneo) : 0;
+    hipBend = uprightBend(rock);
     gaiting = true;
   }
 
@@ -657,14 +704,22 @@ export function spawnPiece(kit) {
     const duration = currentName === 'walk' && current ? current.getClip().duration : 0;
     if (gaiting) swayPhase = gaitPhase;
     else swayPhase = duration > 0 ? (current.time % duration) / duration : (swayPhase + dt / STRUT_SECONDS) % 1;
-    const pose = swayPose(swayPhase, sway);
+    const pose = swayPose(swayPhase, sway, gaiting);
     for (const [parte, bone] of Object.entries(SWAY_BONES)) {
       // Cuando anda de verdad, el contoneo se queda de cintura para arriba. El mecimiento del
       // cuerpo entero y el giro de la pelvis mueven también las piernas, y las piernas ya no son
       // suyas: las lleva la cinemática inversa, que acaba de clavar un pie en el suelo. Si el
       // contoneo se lo mueve, el pie patina, y patinar es justo lo que había que quitar.
-      if (gaiting && (parte === 'body' || parte === 'hips')) {
-        turnBone(bone, null);
+      if (gaiting && parte === 'waist') {
+        // La cintura tiene dos cosas que deshacer: el giro de la pelvis (como siempre) y el
+        // mecimiento de abajo. Se suman: la cadera se va de lado y el torso sigue vertical.
+        turnBone(bone, { ...pose.waist, z: pose.waist.z + hipBend });
+        continue;
+      }
+      if (gaiting && parte === 'body') {
+        // Andando, el mecimiento no es el del deslizarse (que va con retardo, como un barco): es el
+        // que lleva la cadera sobre el pie que aguanta, al compás exacto de los pasos.
+        turnBone(bone, { z: rock });
         continue;
       }
       turnBone(bone, pose[parte]);

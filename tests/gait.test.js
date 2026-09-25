@@ -62,6 +62,18 @@ test('la cadera sube y baja sola: arriba con la pierna debajo, abajo con las pie
   assert.ok(Math.abs(hipHeight(0.25) - hipHeight(0.75)) < 1e-9, 'dos veces por ciclo, una por pierna');
 });
 
+test('la altura de la cadera no pega brincos al cambiar de pie: si los pega, son saltitos', () => {
+  let mayor = 0;
+  let previa = hipHeight(0);
+  for (let f = 0.001; f <= 1.0001; f += 0.001) {
+    const ahora = hipHeight(f);
+    mayor = Math.max(mayor, Math.abs(ahora - previa));
+    previa = ahora;
+  }
+  // En una milésima de ciclo no puede moverse más de lo que se mueve en cualquier otra.
+  assert.ok(mayor < 0.001, `pega un brinco de ${mayor.toFixed(5)} largos de pierna`);
+});
+
 test('el cuerpo nunca sube por encima de estar de pie', () => {
   for (let f = 0; f < 1; f += 0.01) {
     assert.ok(gaitPose(f, { thigh: MUSLO, shin: ESPINILLA }).rise <= 0);
@@ -118,3 +130,4 @@ test('mueve las dos piernas y los dos brazos, y sube y baja el cuerpo', () => {
   const partes = Object.keys(gaitPose(0.1)).filter((k) => k !== 'rise');
   assert.deepEqual(partes.sort(), Object.keys(GAIT_BONES).sort());
 });
+

@@ -68,14 +68,19 @@ export function solveLeg(z, drop, thigh, shin) {
   return { hip: (direccion + apertura) * GRADO, knee: -(Math.PI - rodilla) * GRADO };
 }
 
-// A qué altura va la cadera en este momento: la justa para alcanzar el pie que aguanta sin estirar
-// la pierna del todo. De aquí sale el sube y baja del cuerpo, que no hay que inventarse.
+// A qué altura va la cadera en este momento: la justa para llegar al pie MÁS LEJANO sin estirar la
+// pierna del todo. De aquí sale el sube y baja del cuerpo, que no hay que inventarse.
+//
+// Al pie más lejano, y no al que aguanta, y eso importa: en el instante en que el peso pasa de un
+// pie al otro, el que aguantaba está detrás y el que entra, delante. Mirando solo al que aguanta,
+// la altura pega un brinco justo en ese cambio —dos veces por ciclo— y la reina daba saltitos.
+// Mirando al más lejano de los dos, en el cambio los dos están a la misma distancia y la altura
+// pasa de uno a otro sin enterarse.
 export function hipHeight(phase, paso = PASO, estira = ESTIRA) {
   const izq = footPath(phase, paso);
   const der = footPath(phase + 0.5, paso);
-  const apoyo = izq.apoyo ? izq : der;
-  const alcance = estira;
-  return Math.sqrt(Math.max(0, alcance * alcance - apoyo.z * apoyo.z));
+  const lejos = Math.max(Math.abs(izq.z), Math.abs(der.z));
+  return Math.sqrt(Math.max(0, estira * estira - lejos * lejos));
 }
 
 // El pie va plano en el suelo mientras aguanta (así que el tobillo tiene que deshacer lo que hayan
@@ -90,10 +95,15 @@ function anklePitch(f, hip, knee) {
   return llano - PUNTA * (1 - t) * (1 - t) + TALON * t * t;
 }
 
-function pierna(phase, paso, cadera, thigh, shin) {
+// `shift` es lo que la pelvis le ha hecho a esta articulación al contonearse: cuánto ha subido y
+// cuánto se ha adelantado. Se le descuenta al objetivo, y así el pie se queda donde estaba aunque
+// la cadera se mueva. Sin esto, contonearse y tener el pie clavado son incompatibles.
+function pierna(phase, paso, cadera, thigh, shin, shift) {
   const f = ((phase % 1) + 1) % 1;
   const pie = footPath(f, paso);
-  const { hip, knee } = solveLeg(pie.z, cadera - pie.y, thigh, shin);
+  const z = pie.z - (shift?.forward ?? 0);
+  const drop = cadera + (shift?.rise ?? 0) - pie.y;
+  const { hip, knee } = solveLeg(z, drop, thigh, shin);
   return { hip, knee, ankle: anklePitch(f, hip, knee) };
 }
 
@@ -101,11 +111,11 @@ const ADELANTE = -1; // pasar de «grados hacia delante» al giro del hueso (+Z 
 
 // La postura entera. `phase` es el ciclo completo (dos pasos); la pierna derecha va media vuelta por
 // detrás. `thigh` y `shin` son los largos de los dos huesos, en largos de pierna (suman ~1).
-export function gaitPose(phase, { amount = 1, thigh = 0.5, shin = 0.5, step = PASO } = {}) {
+export function gaitPose(phase, { amount = 1, thigh = 0.5, shin = 0.5, step = PASO, shift } = {}) {
   const f = ((phase % 1) + 1) % 1;
   const cadera = hipHeight(f, step);
-  const izq = pierna(f, step, cadera, thigh, shin);
-  const der = pierna(f + 0.5, step, cadera, thigh, shin);
+  const izq = pierna(f, step, cadera, thigh, shin, shift?.left);
+  const der = pierna(f + 0.5, step, cadera, thigh, shin, shift?.right);
   const g = ADELANTE * amount;
   return {
     leftThigh: { x: izq.hip * g },
