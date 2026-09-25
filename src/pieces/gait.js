@@ -1,90 +1,112 @@
-// El paso de la reina. El modelo no trae ninguna animación —se exportó aparejado y pelado, porque
-// cualquier clip de andar le destrozaba la capa—, así que el paso se lo pone el juego hueso a hueso.
+// El paso de la reina. Su modelo no trae ninguna animación —se exportó aparejado y pelado, porque
+// cualquier clip de andar le destrozaba la capa—, así que el paso se lo pone el juego.
 //
-// Un ciclo son DOS pasos: la pierna de cada lado va media vuelta por detrás de la otra. Dentro de
-// cada paso hay dos mitades bien distintas, y es la diferencia entre ellas lo que hace que se vea
-// andar y no patinar:
+// Y se lo pone AL REVÉS de como se hace a mano. Lo intuitivo es girar la cadera y la rodilla unos
+// grados y ver qué sale, pero eso hace que el pie describa un arco: en el apoyo se hunde en el
+// suelo por el medio y patina por los extremos, y por muy finos que se afinen los grados eso no se
+// arregla, porque es geometría. Andar es lo contrario: primero se decide DÓNDE VA EL PIE —clavado
+// en el suelo mientras aguanta, en arco por el aire mientras vuelve— y después se busca qué ángulos
+// de cadera y rodilla lo llevan ahí. Eso es cinemática inversa, y con dos huesos se resuelve con el
+// teorema del coseno, sin iterar.
 //
-//   · APOYO (la mitad del ciclo): el pie está clavado en el suelo y el cuerpo pasa por encima. La
-//     pierna va de delante atrás a velocidad constante, que es justo lo que avanza la figura.
-//   · VUELO (la otra mitad): el pie se despega, la rodilla se dobla para que no roce y la pierna
-//     vuelve al frente, al doble de velocidad porque tiene la mitad de tiempo.
+// De ahí sale gratis lo que más se nota: la cadera SUBE Y BAJA sola. Con las piernas abiertas el
+// pie queda más lejos, y para alcanzarlo sin estirar la pierna del todo hay que bajar; a media
+// zancada, con la pierna debajo, se sube. Dos veces por ciclo, sin tener que inventárselo.
 //
-// La rodilla solo dobla hacia atrás (una rodilla no se dobla al revés) y dobla sobre todo en el
-// vuelo. Los brazos van cruzados: el derecho adelante con la pierna izquierda.
+// El paso va sesgado hacia delante (`DELANTE`): la reina lleva una capa hasta el suelo que le cae
+// por detrás, y una pierna que se va hacia atrás la atraviesa. Por delante la capa se abre.
 //
-// Puro: recibe la fase del ciclo (0 a 1) y devuelve grados, que es lo que come `turnBone`.
-//
-// Ojo con el signo: `legPose` habla en claro —positivo es la pierna DELANTE—, pero en el espacio de
-// la figura el frente es +Z, así que adelantar una pierna es girarla en -X. La conversión se hace
-// en un solo sitio, en `gaitPose`, y de ahí sale ya lo que se le pasa a `turnBone`.
+// Puro: todo en radios de pierna y grados, sin tocar nada de three.
 
-const TWO_PI = Math.PI * 2;
+const GRADO = 180 / Math.PI;
+
+const PASO = 0.40; // lo que abarca un paso, en largos de pierna
+const DELANTE = 0.75; // qué parte del paso cae por delante del cuerpo (detrás está la tela)
+const ALZA = 0.055; // lo que sube el pie al volar, en largos de pierna
+const ESTIRA = 0.97; // lo más que se estira la pierna: una rodilla no se bloquea al andar
+const TALON = 9; // grados que el pie apunta hacia arriba al posar el talón
+const PUNTA = 18; // y hacia abajo al despegar la punta
+const BRAZO = 0.5; // el braceo, cruzado con las piernas: la mitad de lo que gira el muslo
+const CODO = 10; // y el codo, que acompaña doblando un poco
+
+// Dónde está el pie en este momento de SU ciclo, visto desde el cuerpo: `z` hacia delante y `y`
+// sobre el suelo, los dos en largos de pierna. La primera mitad es apoyo y la segunda, vuelo.
+export function footPath(phase, paso = PASO, alza = ALZA) {
+  const f = ((phase % 1) + 1) % 1;
+  const delante = paso * DELANTE;
+  const detras = paso * (1 - DELANTE);
+  if (f < 0.5) {
+    // Apoyo: el pie está clavado en el suelo y es el cuerpo el que pasa por encima. Va hacia atrás
+    // a ritmo constante, exactamente lo que avanza la figura: por eso no resbala.
+    const t = f * 2;
+    return { z: delante - (delante + detras) * t, y: 0, apoyo: true };
+  }
+  // Vuelo: vuelve al frente al doble de velocidad, levantando el pie para no arrastrarlo.
+  const t = (f - 0.5) * 2;
+  const s = t * t * (3 - 2 * t);
+  return { z: -detras + (delante + detras) * s, y: alza * Math.sin(Math.PI * t), apoyo: false };
+}
+
+// Los ángulos de cadera y rodilla que llevan el pie a `{z, drop}` (drop: cuánto cae el pie por
+// debajo de la cadera), con un muslo y una espinilla de esos largos. Teorema del coseno: el triángulo
+// cadera-rodilla-pie tiene los tres lados conocidos, así que sus ángulos salen solos.
+//
+// `hip` en grados hacia delante; `knee` en grados de flexión, siempre negativo (una rodilla no se
+// dobla al revés).
+export function solveLeg(z, drop, thigh, shin) {
+  const alcance = (thigh + shin) * 0.9999;
+  let d = Math.hypot(z, drop);
+  if (d > alcance) d = alcance; // el pie fuera de alcance: se estira todo lo que da y ya
+  if (d < 1e-6) return { hip: 0, knee: 0 };
+  // Hacia dónde apunta la pierna entera, medido desde la vertical.
+  const direccion = Math.atan2(z, drop);
+  // Y cuánto se aparta el muslo de esa dirección para que la rodilla llegue.
+  const cosApertura = (thigh * thigh + d * d - shin * shin) / (2 * thigh * d);
+  const apertura = Math.acos(Math.max(-1, Math.min(1, cosApertura)));
+  const cosRodilla = (thigh * thigh + shin * shin - d * d) / (2 * thigh * shin);
+  const rodilla = Math.acos(Math.max(-1, Math.min(1, cosRodilla)));
+  return { hip: (direccion + apertura) * GRADO, knee: -(Math.PI - rodilla) * GRADO };
+}
+
+// A qué altura va la cadera en este momento: la justa para alcanzar el pie que aguanta sin estirar
+// la pierna del todo. De aquí sale el sube y baja del cuerpo, que no hay que inventarse.
+export function hipHeight(phase, paso = PASO, estira = ESTIRA) {
+  const izq = footPath(phase, paso);
+  const der = footPath(phase + 0.5, paso);
+  const apoyo = izq.apoyo ? izq : der;
+  const alcance = estira;
+  return Math.sqrt(Math.max(0, alcance * alcance - apoyo.z * apoyo.z));
+}
+
+// El pie va plano en el suelo mientras aguanta (así que el tobillo tiene que deshacer lo que hayan
+// girado el muslo y la espinilla), con el talón entrando primero y la punta saliendo la última.
+function anklePitch(f, hip, knee) {
+  const llano = -(hip + knee);
+  if (f < 0.5) {
+    const t = f * 2;
+    return llano + TALON * (1 - t) - PUNTA * t * t; // entra de talón, sale de punta
+  }
+  const t = (f - 0.5) * 2;
+  return llano - PUNTA * (1 - t) * (1 - t) + TALON * t * t;
+}
+
+function pierna(phase, paso, cadera, thigh, shin) {
+  const f = ((phase % 1) + 1) % 1;
+  const pie = footPath(f, paso);
+  const { hip, knee } = solveLeg(pie.z, cadera - pie.y, thigh, shin);
+  return { hip, knee, ankle: anklePitch(f, hip, knee) };
+}
+
 const ADELANTE = -1; // pasar de «grados hacia delante» al giro del hueso (+Z es el frente)
 
-// Pasos cortos y HACIA DELANTE. No es un capricho de estilo: la reina lleva una capa hasta el suelo
-// y la capa le cae por detrás, así que una pierna que se va hacia atrás la atraviesa. Delante no
-// hay tela —la capa se abre—, o sea que el paso se reparte al revés que en un andar normal: casi
-// todo por delante y un dedo por detrás. Que es, además, como anda alguien con cola: pasos menudos,
-// muchos, y el pie apenas despegándose hacia atrás.
-const ZANCADA = 16; // grados que la cadera lleva el muslo hacia DELANTE
-const ATRAS = 0.3; // y qué parte de eso se permite hacia atrás, donde está la tela
-const RODILLA_VUELO = 34; // lo que se dobla la rodilla al recoger el pie
-const RODILLA_APOYO = 7; // y lo poquito que cede mientras aguanta el peso
-const TOBILLO = 14; // el pie apunta al despegar y se endereza para posarse
-const ALZA = 0.035; // altura del pie en el aire, en unidades de tablero
-const BRAZO = 11; // el braceo, cruzado con las piernas
-const CODO = 10; // y el codo, que acompaña doblando un poco
-const SUBE = 0.018; // lo que sube y baja el cuerpo: dos veces por ciclo, en cada apoyo
-
-const DETRAS = ZANCADA * ATRAS; // el tope de atrás, ya en grados
-
-// Lo que abarca un paso de punta a punta, en radio de pierna: de donde se posa el pie a donde se
-// levanta. De aquí sale el ritmo, y de que salga bien depende que el pie no resbale.
-export const STRIDE = Math.sin((ZANCADA * Math.PI) / 180) + Math.sin((DETRAS * Math.PI) / 180);
-
-// Cuánto ha avanzado el paso, de 0 (el pie acaba de posarse) a 1 (vuelve a posarse). La primera
-// mitad es apoyo y la segunda, vuelo.
-function tramo(fase) {
-  const f = ((fase % 1) + 1) % 1;
-  return f < 0.5 ? { apoyo: true, t: f * 2 } : { apoyo: false, t: (f - 0.5) * 2 };
-}
-
-// Una curva suave de 0 a 1 que sale y entra sin tirón.
-function suave(t) {
-  return t * t * (3 - 2 * t);
-}
-
-// La pierna de un lado en este momento de SU ciclo.
-export function legPose(fase) {
-  const { apoyo, t } = tramo(fase);
-  if (apoyo) {
-    // El pie está en el suelo: el muslo va de delante atrás a ritmo constante, que es lo que hace
-    // que el pie no resbale mientras el cuerpo pasa por encima.
-    return {
-      hip: ZANCADA - (ZANCADA + DETRAS) * t,
-      knee: -RODILLA_APOYO * Math.sin(Math.PI * t),
-      ankle: TOBILLO * (2 * t - 1),
-      lift: 0,
-    };
-  }
-  // En el aire: vuelve al frente al doble de velocidad, doblando la rodilla para no arrastrar.
-  const s = suave(t);
-  return {
-    hip: -DETRAS + (ZANCADA + DETRAS) * s,
-    knee: -RODILLA_VUELO * Math.sin(Math.PI * t),
-    ankle: TOBILLO * (1 - 2 * suave(Math.max(0, t - 0.4) / 0.6)),
-    lift: ALZA * Math.sin(Math.PI * t),
-  };
-}
-
-// La postura entera. `phase` es el ciclo completo; la pierna derecha va media vuelta por detrás.
-export function gaitPose(phase, amount = 1) {
-  const fase = ((phase ?? 0) % 1 + 1) % 1;
-  const izq = legPose(fase);
-  const der = legPose(fase + 0.5);
-  const k = amount;
-  const g = ADELANTE * k;
+// La postura entera. `phase` es el ciclo completo (dos pasos); la pierna derecha va media vuelta por
+// detrás. `thigh` y `shin` son los largos de los dos huesos, en largos de pierna (suman ~1).
+export function gaitPose(phase, { amount = 1, thigh = 0.5, shin = 0.5, step = PASO } = {}) {
+  const f = ((phase % 1) + 1) % 1;
+  const cadera = hipHeight(f, step);
+  const izq = pierna(f, step, cadera, thigh, shin);
+  const der = pierna(f + 0.5, step, cadera, thigh, shin);
+  const g = ADELANTE * amount;
   return {
     leftThigh: { x: izq.hip * g },
     leftShin: { x: izq.knee * g },
@@ -92,13 +114,27 @@ export function gaitPose(phase, amount = 1) {
     rightThigh: { x: der.hip * g },
     rightShin: { x: der.knee * g },
     rightFoot: { x: der.ankle * g },
-    // Los brazos, cruzados: el derecho acompaña a la pierna izquierda.
-    leftArm: { x: -izq.hip * (BRAZO / ZANCADA) * g },
-    rightArm: { x: -der.hip * (BRAZO / ZANCADA) * g },
-    leftForearm: { x: -CODO * k },
-    rightForearm: { x: -CODO * k },
-    // El cuerpo sube en cada apoyo: dos veces por ciclo.
-    rise: SUBE * (1 - Math.cos(2 * TWO_PI * fase)) * 0.5 * k,
+    // Los brazos, cruzados: el derecho acompaña a la pierna izquierda. Van con el MUSLO y no con
+    // el pie, que en el vuelo van cada uno por su lado (el muslo ya adelanta mientras el pie sigue
+    // detrás, con la rodilla doblada) y el brazo tiene que acompañar al muslo.
+    leftArm: { x: -izq.hip * BRAZO * g },
+    rightArm: { x: -der.hip * BRAZO * g },
+    leftForearm: { x: -CODO * amount },
+    rightForearm: { x: -CODO * amount },
+    // Lo que sube o baja el cuerpo respecto a estar de pie, en largos de pierna.
+    rise: (cadera - 1) * amount,
+  };
+}
+
+// Dónde acaba el pie con esos ángulos. Es la vuelta de `solveLeg`, y está aquí porque es la única
+// manera honrada de comprobar que la cinemática inversa hace lo que dice: se le pide un sitio, se
+// resuelve, y se mira si el pie ha ido donde se le pidió.
+export function footAt(hip, knee, thigh, shin) {
+  const a = hip / GRADO;
+  const b = (hip + knee) / GRADO;
+  return {
+    z: thigh * Math.sin(a) + shin * Math.sin(b),
+    drop: thigh * Math.cos(a) + shin * Math.cos(b),
   };
 }
 
@@ -116,10 +152,12 @@ export const GAIT_BONES = {
   rightForearm: 'R_ForeArm',
 };
 
-// Cuántas veces por segundo repite el ciclo para andar a `speed` sin resbalar: la zancada ha de
-// comerse exactamente el terreno que recorre. `legLength` es de la cadera al suelo.
-export function gaitRate(speed, legLength, stride = STRIDE) {
+// Cuántas veces por segundo repite el ciclo para andar a `speed` sin resbalar: el paso ha de comerse
+// exactamente el terreno que recorre. `legLength` es de la cadera al suelo.
+export function gaitRate(speed, legLength, step = PASO) {
   if (!(legLength > 0)) throw new Error('la pierna ha de medir algo');
-  const paso = legLength * stride; // lo que avanza en un paso
+  const paso = legLength * step;
   return paso > 0 ? Math.abs(speed) / (2 * paso) : 0; // dos pasos por ciclo
 }
+
+export { PASO as STEP, DELANTE as FORWARD_SHARE };

@@ -1,63 +1,104 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GAIT_BONES, gaitPose, gaitRate, legPose } from '../src/pieces/gait.js';
+import { FORWARD_SHARE, GAIT_BONES, STEP, footAt, footPath, gaitPose, gaitRate, hipHeight, solveLeg } from '../src/pieces/gait.js';
 
-test('en el apoyo el muslo va de delante atrás a ritmo constante: el pie no resbala', () => {
-  const a = legPose(0).hip;
-  const b = legPose(0.25).hip;
-  const c = legPose(0.5 - 1e-9).hip;
-  assert.ok(a > 0, 'el paso empieza con la pierna delante');
-  assert.ok(c < 0, 'y acaba con ella detrás');
-  assert.ok(Math.abs((a - b) - (b - c)) < 1e-6, 'a ritmo constante, sin acelerones');
-});
+const MUSLO = 0.52;
+const ESPINILLA = 0.48;
 
-test('en el vuelo la pierna vuelve al frente y el pie se despega del suelo', () => {
-  assert.equal(legPose(0.25).lift, 0, 'mientras apoya, el pie está en el suelo');
-  assert.ok(legPose(0.75).lift > 0, 'y en el vuelo, en el aire');
-  assert.ok(legPose(0.75).hip > legPose(0.55).hip, 'la pierna adelanta');
-});
-
-test('la rodilla solo dobla hacia atrás, y sobre todo al recoger el pie', () => {
-  for (const f of [0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9]) {
-    assert.ok(legPose(f).knee <= 1e-9, `en la fase ${f} la rodilla no se dobla al revés`);
+test('la cinemática inversa lleva el pie exactamente donde se le pide', () => {
+  for (const z of [-0.2, -0.05, 0, 0.1, 0.25]) {
+    for (const drop of [0.75, 0.85, 0.93]) {
+      const { hip, knee } = solveLeg(z, drop, MUSLO, ESPINILLA);
+      const donde = footAt(hip, knee, MUSLO, ESPINILLA);
+      assert.ok(Math.abs(donde.z - z) < 1e-6, `z pedido ${z}, conseguido ${donde.z}`);
+      assert.ok(Math.abs(donde.drop - drop) < 1e-6, `caída pedida ${drop}, conseguida ${donde.drop}`);
+    }
   }
-  assert.ok(Math.abs(legPose(0.75).knee) > Math.abs(legPose(0.25).knee) * 3, 'dobla mucho más en el aire');
 });
 
-test('el ciclo cierra: la fase 1 es la misma pierna que la 0', () => {
-  const a = legPose(0);
-  const b = legPose(1);
-  assert.ok(Math.abs(a.hip - b.hip) < 1e-9);
-  assert.ok(Math.abs(a.knee - b.knee) < 1e-9);
+test('la rodilla nunca se dobla al revés', () => {
+  for (let f = 0; f < 1; f += 0.01) {
+    const pose = gaitPose(f, { thigh: MUSLO, shin: ESPINILLA });
+    assert.ok(pose.leftShin.x >= -1e-9, `en la fase ${f.toFixed(2)} la rodilla se dobla al revés`);
+    assert.ok(pose.rightShin.x >= -1e-9);
+  }
 });
 
-test('una pierna va media vuelta por detrás de la otra', () => {
-  const pose = gaitPose(0.2);
-  // El signo cambia al pasar al espacio de la figura: adelantar la pierna es girar en -X.
-  assert.ok(Math.abs(pose.leftThigh.x + legPose(0.2).hip) < 1e-9);
-  assert.ok(Math.abs(pose.rightThigh.x + legPose(0.7).hip) < 1e-9);
+test('un pie fuera de alcance estira la pierna en vez de romperse', () => {
+  const { hip, knee } = solveLeg(0.9, 0.9, MUSLO, ESPINILLA);
+  assert.ok(Number.isFinite(hip) && Number.isFinite(knee));
+  assert.ok(Math.abs(knee) < 3, 'con la pierna estirada, la rodilla casi recta');
 });
 
-test('adelantar una pierna la gira en -X, que es hacia donde mira la figura', () => {
-  assert.ok(legPose(0).hip > 0 && gaitPose(0).leftThigh.x < 0);
+test('mientras aguanta, el pie está en el suelo y va hacia atrás a ritmo constante', () => {
+  const a = footPath(0.05);
+  const b = footPath(0.2);
+  const c = footPath(0.35);
+  assert.equal(a.y, 0);
+  assert.equal(b.y, 0);
+  assert.ok(a.apoyo && b.apoyo && c.apoyo);
+  assert.ok(Math.abs((a.z - b.z) - (b.z - c.z)) < 1e-9, 'sin acelerones: por eso no resbala');
+});
+
+test('el paso va sobre todo hacia delante, que detrás está la capa', () => {
+  const alFrente = footPath(0).z;
+  const atras = footPath(0.5 - 1e-9).z;
+  assert.ok(alFrente > 0 && atras < 0);
+  assert.ok(alFrente > 2 * Math.abs(atras), 'tres cuartas partes del paso, por delante');
+  assert.ok(Math.abs(alFrente - STEP * FORWARD_SHARE) < 1e-9);
+});
+
+test('en el vuelo el pie se despega del suelo y vuelve al frente', () => {
+  assert.ok(footPath(0.75).y > 0);
+  assert.ok(!footPath(0.75).apoyo);
+  assert.ok(footPath(0.9).z > footPath(0.6).z);
+  assert.ok(Math.abs(footPath(0.999).y) < 0.01, 'y llega al suelo para posarse');
+});
+
+test('la cadera sube y baja sola: arriba con la pierna debajo, abajo con las piernas abiertas', () => {
+  const abiertas = hipHeight(0);
+  const debajo = hipHeight(0.25);
+  assert.ok(debajo > abiertas, 'a media zancada el cuerpo está más alto');
+  assert.ok(Math.abs(hipHeight(0.25) - hipHeight(0.75)) < 1e-9, 'dos veces por ciclo, una por pierna');
+});
+
+test('el cuerpo nunca sube por encima de estar de pie', () => {
+  for (let f = 0; f < 1; f += 0.01) {
+    assert.ok(gaitPose(f, { thigh: MUSLO, shin: ESPINILLA }).rise <= 0);
+  }
+});
+
+test('la pierna derecha va media vuelta por detrás de la izquierda', () => {
+  const pose = gaitPose(0.2, { thigh: MUSLO, shin: ESPINILLA });
+  const media = gaitPose(0.7, { thigh: MUSLO, shin: ESPINILLA });
+  assert.ok(Math.abs(pose.rightThigh.x - media.leftThigh.x) < 1e-9);
+});
+
+test('el pie va plano en el suelo mientras aguanta, salvo al entrar y al salir', () => {
+  const pose = gaitPose(0.25, { thigh: MUSLO, shin: ESPINILLA });
+  // A media zancada, lo que giran muslo y espinilla lo deshace el tobillo: la planta, horizontal.
+  const acumulado = pose.leftThigh.x + pose.leftShin.x + pose.leftFoot.x;
+  assert.ok(Math.abs(acumulado) < 10, `la planta se queda casi horizontal (${acumulado.toFixed(1)}°)`);
+});
+
+test('el ciclo cierra: la fase 1 es la misma postura que la 0', () => {
+  const a = gaitPose(0, { thigh: MUSLO, shin: ESPINILLA });
+  const b = gaitPose(1, { thigh: MUSLO, shin: ESPINILLA });
+  assert.ok(Math.abs(a.leftThigh.x - b.leftThigh.x) < 1e-9);
+  assert.ok(Math.abs(a.rise - b.rise) < 1e-9);
 });
 
 test('los brazos van cruzados con las piernas', () => {
-  const pose = gaitPose(0.1);
-  assert.ok(pose.leftThigh.x < 0 && pose.leftArm.x > 0, 'pierna izquierda delante, brazo izquierdo detrás');
+  const pose = gaitPose(0.1, { thigh: MUSLO, shin: ESPINILLA });
+  assert.ok(Math.sign(pose.leftArm.x) === -Math.sign(pose.leftThigh.x));
   assert.ok(Math.sign(pose.rightArm.x) === -Math.sign(pose.rightThigh.x));
 });
 
-test('el cuerpo sube dos veces por ciclo, una por cada apoyo', () => {
-  assert.ok(Math.abs(gaitPose(0).rise) < 1e-9);
-  assert.ok(gaitPose(0.25).rise > 0);
-  assert.ok(Math.abs(gaitPose(0.5).rise) < 1e-9);
-  assert.ok(Math.abs(gaitPose(0.25).rise - gaitPose(0.75).rise) < 1e-9);
-});
-
 test('`amount` sube y baja el volumen del paso sin cambiar su forma', () => {
-  assert.ok(Math.abs(gaitPose(0.3, 1).leftThigh.x / 2 - gaitPose(0.3, 0.5).leftThigh.x) < 1e-9);
-  assert.ok(gaitPose(0.3, 0).leftThigh.x === 0, 'a volumen cero, la pierna quieta');
+  const entero = gaitPose(0.3, { thigh: MUSLO, shin: ESPINILLA, amount: 1 });
+  const medio = gaitPose(0.3, { thigh: MUSLO, shin: ESPINILLA, amount: 0.5 });
+  assert.ok(Math.abs(entero.leftThigh.x / 2 - medio.leftThigh.x) < 1e-9);
+  assert.ok(gaitPose(0.3, { amount: 0 }).leftThigh.x === 0);
 });
 
 test('el ritmo sale de la velocidad: al doble de prisa, el doble de pasos', () => {
@@ -73,18 +114,7 @@ test('una pierna sin medida no tiene ritmo que valga', () => {
   assert.throws(() => gaitRate(1, 0), /medir/);
 });
 
-test('mueve las dos piernas y los dos brazos, y levanta el cuerpo', () => {
+test('mueve las dos piernas y los dos brazos, y sube y baja el cuerpo', () => {
   const partes = Object.keys(gaitPose(0.1)).filter((k) => k !== 'rise');
   assert.deepEqual(partes.sort(), Object.keys(GAIT_BONES).sort());
-});
-
-test('la pierna va mucho más hacia delante que hacia atrás: detrás está la capa', () => {
-  let masAdelante = -Infinity;
-  let masAtras = Infinity;
-  for (let f = 0; f < 1; f += 0.005) {
-    masAdelante = Math.max(masAdelante, legPose(f).hip);
-    masAtras = Math.min(masAtras, legPose(f).hip);
-  }
-  assert.ok(masAdelante > 0 && masAtras < 0, 'algo va hacia cada lado');
-  assert.ok(masAdelante > 3 * Math.abs(masAtras), 'pero hacia atrás, apenas');
 });

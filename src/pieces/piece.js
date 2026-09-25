@@ -277,7 +277,7 @@ export function spawnPiece(kit) {
   let capeBones = null; // los huesos de capa que tenga este modelo; null si aún no se ha mirado
   const lastTurn = new THREE.Quaternion();
   let turnKnown = false;
-  let legLength = 0; // de la cadera al suelo: de ahí sale la zancada, para que el pie no resbale
+  let legs = null; // lo que mide su pierna, que es de donde sale todo lo demás
   let frozenIdle = null; // instante en el que se congela el reposo (modelos sin clip de reposo)
   const lastAt = new THREE.Vector3();
   const stepped = new THREE.Vector3(); // lo andado en el último fotograma, en el mundo
@@ -564,6 +564,23 @@ export function spawnPiece(kit) {
   const poseNow = new THREE.Quaternion();
   const POSE_TURN_SPEED = 7; // radianes por segundo: de erguida a en estocada tarda ~0,25 s
 
+  // Lo que mide su pierna, medido en la propia figura y no a ojo: el muslo, la espinilla y la suma
+  // de los dos. De ahí salen las dos cosas que hacen falta: la zancada (que ha de comerse
+  // exactamente el terreno que recorre, o el pie patina) y los dos lados del triángulo que resuelve
+  // la cinemática inversa. Se mide una vez, en la postura de enlace, antes de imponerle nada.
+  function measureLegs() {
+    const cadera = findBone(model, 'L_UpLeg');
+    const rodilla = findBone(model, 'L_Leg');
+    const tobillo = findBone(model, 'L_Foot');
+    if (!cadera || !rodilla || !tobillo) return null;
+    const a = cadera.getWorldPosition(new THREE.Vector3());
+    const b = rodilla.getWorldPosition(new THREE.Vector3());
+    const c = tobillo.getWorldPosition(new THREE.Vector3());
+    const largo = a.distanceTo(b) + b.distanceTo(c);
+    if (!(largo > 0)) return null;
+    return { thigh: a.distanceTo(b) / largo, shin: b.distanceTo(c) / largo, length: largo };
+  }
+
   // El vuelo de la capa. La capa cuelga de una cadena de huesos propia (`Capa1..3`, que les pone
   // `tools/capa.py`) y la mueve la inercia: se queda atrás al arrancar, alcanza al pararse y se abre
   // al girar. Aquí solo se mide lo que hace el cuerpo —cuánto avanza, cuánto se desplaza de lado y
@@ -615,14 +632,12 @@ export function spawnPiece(kit) {
       gaitPhase = 0;
       return;
     }
-    if (!legLength) {
-      const cadera = findBone(model, 'Hips');
-      legLength = cadera ? cadera.getWorldPosition(new THREE.Vector3()).y - figure.position.y : kit.spec.height * 0.53;
-    }
-    gaitPhase = (gaitPhase + gaitRate(moving, legLength) * dt) % 1;
-    const pose = gaitPose(gaitPhase, gait);
+    legs ??= measureLegs();
+    if (!legs) return;
+    gaitPhase = (gaitPhase + gaitRate(moving, legs.length) * dt) % 1;
+    const pose = gaitPose(gaitPhase, { amount: gait, thigh: legs.thigh, shin: legs.shin });
     for (const [parte, bone] of Object.entries(GAIT_BONES)) turnBone(bone, pose[parte]);
-    liftBone(SWAY_BONES.body, pose.rise); // el cuerpo sube en cada apoyo
+    liftBone(SWAY_BONES.body, pose.rise * legs.length); // el cuerpo baja y sube con la zancada
     gaiting = true;
   }
 
@@ -643,7 +658,17 @@ export function spawnPiece(kit) {
     if (gaiting) swayPhase = gaitPhase;
     else swayPhase = duration > 0 ? (current.time % duration) / duration : (swayPhase + dt / STRUT_SECONDS) % 1;
     const pose = swayPose(swayPhase, sway);
-    for (const [parte, bone] of Object.entries(SWAY_BONES)) turnBone(bone, pose[parte]);
+    for (const [parte, bone] of Object.entries(SWAY_BONES)) {
+      // Cuando anda de verdad, el contoneo se queda de cintura para arriba. El mecimiento del
+      // cuerpo entero y el giro de la pelvis mueven también las piernas, y las piernas ya no son
+      // suyas: las lleva la cinemática inversa, que acaba de clavar un pie en el suelo. Si el
+      // contoneo se lo mueve, el pie patina, y patinar es justo lo que había que quitar.
+      if (gaiting && (parte === 'body' || parte === 'hips')) {
+        turnBone(bone, null);
+        continue;
+      }
+      turnBone(bone, pose[parte]);
+    }
     swaying = true;
   }
 
