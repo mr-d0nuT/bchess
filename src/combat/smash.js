@@ -27,7 +27,17 @@ const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vu
 const FIST_BITE = 0.03; // lo que se hunde en el rival la cara del puño
 const FIST_REACH = 1; // hasta dónde se busca, por debajo del hueso de la mano, la cara de abajo del puño
 const SQUASH = 0.55; // lo que queda de alto el peón al que machaca un puñetazo de arriba abajo
-const OVERHEAD_CHANCE = 0.5; // cada cuánto, si puede, machaca el cráneo en vez de pegar de frente
+const OVERHEAD_CHANCE = 0.5; // cada cuánto, contra alguien bajito, machaca el cráneo en vez de pegar de frente
+// A partir de esta parte de su propia altura, el rival es «de su tamaño» y el puñetazo de frente deja
+// de servir: para que el puño le llegue al pecho, los dos cuerpos acaban pegados y el gigante se
+// agacha a abrazarlo. Contra esos va siempre el golpe de arriba abajo, que cae sobre la coronilla
+// desde más atrás y se lee como lo que es. Un peón queda por debajo del listón y conserva los dos.
+const TALL_SHARE = 0.9;
+const BACK_OFF = 1.4; // paso atrás contra un rival de su tamaño, en costados suyos
+// Y hasta dónde se le deja retroceder por detrás del centro de SU casilla. El sitio de pegar se mide
+// desde el rival, así que si el rival está pegado el gigante acaba detrás de su propia casilla, y
+// ahí hay otra pieza. Menos de media casilla: se queda dentro de la suya pase lo que pase.
+const RETREAT_MAX = 0.4;
 const RAY_FAR = 3; // desde dónde se lanza el rayo que busca la coronilla del rival
 const CROWN_PHASES = 4; // momentos del reposo del rival en los que se mira su coronilla
 // Cruz de rayos alrededor del hueso de la cabeza: la corona del gigante es almenada y por el centro
@@ -178,16 +188,29 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   const d = rival ?? defender.piece;
   const rest = Boolean(rival);
   const closest = rook.body.torso + (rival ? defender.piece.body.torso : PAWN_BODY) + BODY_GAP;
-  // La mitad de las veces, si tiene un golpe de arriba abajo y el puño llega a la coronilla del rival,
-  // le machaca el cráneo; si no, o si el puño se queda corto, un puñetazo de frente.
+  // Si tiene un golpe de arriba abajo y el puño llega a la coronilla del rival, le machaca el cráneo;
+  // si no, o si el puño se queda corto, un puñetazo de frente. Contra un rival de su tamaño lo
+  // intenta siempre; contra uno bajito, la mitad de las veces, que así hay variedad.
   const overheads = giant.attacks.filter((attack) => attack.overhead && giant.strikes[attack.key]?.overhead);
-  const pick = overheads.length && random() < OVERHEAD_CHANCE ? overheads[Math.floor(random() * overheads.length)].key : null;
+  const grande = (d.height ?? 0) >= giant.height * TALL_SHARE;
+  const quiere = overheads.length && (grande || random() < OVERHEAD_CHANCE);
+  const pick = quiere ? overheads[Math.floor(random() * overheads.length)].key : null;
   const down = pick ? planOverhead({ strike: giant.strikes[pick], from: home, center, target: d, closest, rest, fighter: giant, key: pick }) : null;
-  const { key, distance } = down ? { key: pick, distance: down.distance } : planPunch({
+  const plan = down ? { key: pick, distance: down.distance } : planPunch({
     attacks: giant.attacks, strikes: giant.strikes, from: home, center, target: d, rest,
     torso: rival ? defender.piece.body.torso : TORSO,
     closest,
   });
+  const key = plan.key;
+  // Contra alguien de su tamaño y pegando de frente, se queda un paso más atrás. El puño se planta
+  // donde toca para hundirse en el pecho, y con dos cuerpos anchos eso deja al gigante encima del
+  // rival, agachado sobre él. Quedándose atrás el puño no llega a hundirse, pero eso no se ve: lo
+  // que se ve es el parón, el temblor y las chispas. Lo que sí se veía era el abrazo.
+  //
+  // Con tope: el paso atrás no puede sacarlo de su casilla, que detrás hay otra pieza esperando.
+  const camino = Math.hypot(center.x - home.x, center.z - home.z);
+  const paso = !down && grande ? rook.body.torso * BACK_OFF : 0;
+  const distance = Math.min(plan.distance + paso, Math.max(plan.distance, camino + RETREAT_MAX));
   const measure = giant.strikes[key];
   const spots = strikeSpot(home, down ? down.head : center, { reach: distance, torso: 0 });
   const facing = spots.attackerFacing + (down?.turn ?? 0); // el puño baja por un lado: gira para que caiga encima
