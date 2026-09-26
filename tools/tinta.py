@@ -1,4 +1,4 @@
-import json, struct, pathlib, sys, colorsys
+import json, struct, pathlib, sys, colorsys, math
 from PIL import Image, ImageDraw, ImageFilter
 
 # Tiñe de otro color una PRENDA entera, no una zona de la textura.
@@ -23,7 +23,7 @@ j = json.loads(b[20:20+njson])
 off = 20 + njson
 binario = b[off+8:off+8+struct.unpack_from('<I', b, off)[0]]
 TIPOS = {5120:('b',1),5121:('B',1),5122:('h',2),5123:('H',2),5125:('I',4),5126:('f',4)}
-CUENTA = {'SCALAR':1,'VEC2':2,'VEC3':3,'VEC4':4}
+CUENTA = {'SCALAR':1,'VEC2':2,'VEC3':3,'VEC4':4,'MAT4':16}
 def lee(i):
     acc=j['accessors'][i]; fmt,tam=TIPOS[acc['componentType']]; c=CUENTA[acc['type']]
     bv=j['bufferViews'][acc['bufferView']]; base=bv.get('byteOffset',0)+acc.get('byteOffset',0)
@@ -35,12 +35,46 @@ nombres = [j['nodes'][x].get('name') or '' for x in sk['joints']]
 capa = {i for i, n in enumerate(nombres) if n.startswith('Capa')}
 if not capa:
     raise SystemExit('este modelo no tiene huesos de capa: pásalo antes por capa.py')
+
+# La capa entera, no solo su vuelo. De los huesos de capa cuelga la parte de abajo; la de arriba, la
+# que se apoya en los hombros, se queda en la espalda alta (`descose.py` la deja ahí a propósito,
+# que una capa cuelga de los hombros). Si se tiñe solo lo de abajo queda una costura a media
+# espalda: gris arriba y del color nuevo abajo.
+def inversa(m):
+    a = [[m[c*4+f] for c in range(4)] for f in range(4)]
+    aug = [a[i][:] + [1.0 if i == k else 0.0 for k in range(4)] for i in range(4)]
+    for col in range(4):
+        piv = max(range(col, 4), key=lambda r: abs(aug[r][col]))
+        aug[col], aug[piv] = aug[piv], aug[col]
+        d = aug[col][col]; aug[col] = [x/d for x in aug[col]]
+        for r in range(4):
+            if r != col and aug[r][col]:
+                f = aug[r][col]; aug[r] = [x - f*y for x, y in zip(aug[r], aug[col])]
+    return [[aug[i][4+k] for k in range(4)] for i in range(4)]
+
+ibm = lee(sk['inverseBindMatrices'])
+sitio = {i: (lambda inv: (inv[0][3], inv[1][3], inv[2][3]))(inversa(m)) for i, m in enumerate(ibm)}
+def hueso(sufijo):
+    return sitio[next(k for k, n in enumerate(nombres) if n.endswith(sufijo))]
+dedo, tobillo = hueso('LeftToe_End'), hueso('LeftFoot')
+largo = math.hypot(dedo[0]-tobillo[0], dedo[2]-tobillo[2]) or 1.0
+FRENTE = ((dedo[0]-tobillo[0])/largo, (dedo[2]-tobillo[2])/largo)
+hombro = hueso('LeftShoulder')
+DETRAS = hombro[0]*FRENTE[0] + hombro[1-1]*0 + hombro[2]*FRENTE[1]
+ESPALDA = {i for i, n in enumerate(nombres) if n.endswith('Spine2') or n.endswith('Spine1')}
+
 prim = j['meshes'][0]['primitives'][0]
+pos = lee(prim['attributes']['POSITION'])
 uv = lee(prim['attributes']['TEXCOORD_0'])
 jo = lee(prim['attributes']['JOINTS_0'])
 we = lee(prim['attributes']['WEIGHTS_0'])
 idx = [v[0] for v in lee(prim['indices'])]
-esCapa = [sum(ww[k] for k in range(4) if jj[k] in capa) >= MINIMO for jj, ww in zip(jo, we)]
+esCapa = []
+for p3, jj, ww in zip(pos, jo, we):
+    vuelo = sum(ww[k] for k in range(4) if jj[k] in capa)
+    alto = sum(ww[k] for k in range(4) if jj[k] in ESPALDA)
+    detras = (p3[0]*FRENTE[0] + p3[2]*FRENTE[1]) < DETRAS - 0.01
+    esCapa.append(vuelo >= MINIMO or (alto >= MINIMO and detras))
 print(f'{sum(esCapa)} vértices son capa, de {len(esCapa)}')
 
 col = Image.open(color).convert('RGB')

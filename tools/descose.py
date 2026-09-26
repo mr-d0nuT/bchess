@@ -74,6 +74,17 @@ def cadena_brazo(lado):
     return out
 
 brazos = [cadena_brazo('Left'), cadena_brazo('Right')]
+
+# Hacia dónde mira la figura: se lo preguntamos a sus pies, que los dedos van delante del tobillo.
+# Hace falta para saber qué es «detrás», y detrás es donde está la capa.
+def hueso(sufijo):
+    return sitio[next(k for k, n in nombres.items() if n.endswith(sufijo))]
+_dedo, _tobillo = hueso('LeftToe_End'), hueso('LeftFoot')
+_largo = math.hypot(_dedo[0]-_tobillo[0], _dedo[2]-_tobillo[2]) or 1.0
+FRENTE = ((_dedo[0]-_tobillo[0])/_largo, 0.0, (_dedo[2]-_tobillo[2])/_largo)
+_hombro = hueso('LeftShoulder')
+DETRAS = _hombro[0]*FRENTE[0] + _hombro[2]*FRENTE[2]  # la línea del torso, proyectada al frente
+print(f'mira hacia ({FRENTE[0]:+.2f}, {FRENTE[2]:+.2f}); la espalda empieza en {DETRAS:.3f}')
 DE_BRAZO = {i for c in brazos for i in c}
 ESPALDA = next((i for i, n in nombres.items() if n.endswith('Spine2')),
                next((i for i, n in nombres.items() if n.endswith('Spine1')), CADERA))
@@ -125,7 +136,12 @@ for (pdir, p), (jdir, jj), (wdir, ww) in zip(pos, jo, we):
         tela += 1
     elif any(ww[k] > 0 and jj[k] in DE_PIERNA for k in range(4)):
         carne += 1
-    hecho = descoser(p, nj, nw, DE_BRAZO, brazos, RADIO_BRAZO, ESPALDA)
+    # Para los brazos, la prueba del tubo no basta. El borde de arriba de una capa se apoya SOBRE el
+    # hombro, o sea a un dedo del eje del brazo, así que el tubo lo cuenta como carne y se queda
+    # pegado: al bajar el brazo tira de toda la capa hacia dentro. Lo que está DETRÁS del torso es
+    # capa aunque esté pegado al hombro, porque un brazo no está detrás de la espalda.
+    detras = (p[0]*FRENTE[0] + p[2]*FRENTE[2]) < DETRAS - 0.01
+    hecho = descoser(p, nj, nw, DE_BRAZO, brazos, RADIO_BRAZO if not detras else -1, ESPALDA)
     if hecho:
         nw, nj = hecho
         telabrazo += 1
@@ -135,4 +151,5 @@ for (pdir, p), (jdir, jj), (wdir, ww) in zip(pos, jo, we):
     struct.pack_into('<ffff', b, wdir, *nw)
 print(f'{tela} vértices de tela descosidos de las piernas ({carne} se quedan: piernas y zapatos)')
 print(f'{telabrazo} vértices de tela descosidos de los brazos, a la espalda alta')
+pathlib.Path(salida).write_bytes(bytes(b))
 print('->', salida)
