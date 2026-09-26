@@ -116,6 +116,7 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
       horse.rest();
       return;
     }
+    knight.followGround = false;
     walk.paused = true;
     walk.time = knight.mount?.still?.time ?? 0; // el cuerpo, en un fotograma cualquiera del paseo
     // y cada pata, en la postura que tenía cuando le tocaba pisar a ella
@@ -524,6 +525,7 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     const walk = planWalk(from, to, horse.walkSpeed * speed);
     if (walk.distance < 1e-3) return;
     looseLegs();
+    knight.followGround = true; // andando pisa el tablero, no se hunde en él
     if (!backwards) await turnFigure(figure, walk.heading, 0.3);
     heading = { x: to.x, z: to.z };
     const action = horse.play('walk', { fade: 0.2 });
@@ -755,6 +757,7 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     const figure = knight.figure;
     const from = { x: figure.position.x, z: figure.position.z };
     looseLegs();
+    knight.followGround = true;
     await turnFigure(figure, Math.atan2(to.x - from.x, to.z - from.z), 0.2);
     heading = { x: to.x, z: to.z };
     const paso = horse?.play('walk', { fade: 0.15 });

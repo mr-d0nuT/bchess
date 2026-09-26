@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BOARD_EDGE, nearestEdgeExit, planWalk, pointAlong, shortestTurn, strideSpeed, REST_FACING, restFacingFor } from '../src/moves/walk.js';
+import { groundLift, BOARD_EDGE, nearestEdgeExit, planWalk, pointAlong, shortestTurn, strideSpeed, REST_FACING, restFacingFor } from '../src/moves/walk.js';
 
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} no es ≈ ${b}`);
 
@@ -50,4 +50,30 @@ test('nearestEdgeExit sale en línea recta por el borde más cercano del marco',
   assert.deepEqual(nearestEdgeExit({ x: -0.5, z: -3.9 }), { x: -0.5, z: -BOARD_EDGE });
   assert.deepEqual(nearestEdgeExit({ x: 1, z: 2.5 }), { x: 1, z: BOARD_EDGE });
   assert.deepEqual(nearestEdgeExit({ x: -2, z: 2 }), { x: -BOARD_EDGE, z: 2 });
+});
+
+// `groundLift` lleva al caballo a pisar el tablero mientras anda: la animación se hizo con su propio
+// suelo, y ni coincide con el nuestro ni se está quieta a lo largo del ciclo.
+
+test('groundLift sube lo que baja la pezuña, con el signo cambiado', () => {
+  assert.equal(groundLift([-0.08, -0.08, -0.08, -0.08], 0), 0.08);
+  assert.equal(groundLift([0, 0, 0, 0], 0.5), 0);
+});
+
+test('groundLift interpola entre dos medidas', () => {
+  assert.equal(groundLift([-1, -2], 0.25), 1.5); // a mitad de camino entre la primera y la segunda
+});
+
+test('groundLift cierra el ciclo: de la última vuelve a la primera', () => {
+  assert.equal(groundLift([-1, -3], 0.75), 2); // a mitad entre la segunda y la primera otra vez
+});
+
+test('groundLift da la vuelta al paseo sin salirse', () => {
+  assert.equal(groundLift([-1, -2], 1), groundLift([-1, -2], 0));
+  assert.equal(groundLift([-1, -2], -0.25), groundLift([-1, -2], 0.75));
+});
+
+test('groundLift no hace nada sin medidas', () => {
+  assert.equal(groundLift(null, 0.3), 0);
+  assert.equal(groundLift([], 0.3), 0);
 });
