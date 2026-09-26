@@ -84,6 +84,17 @@ _largo = math.hypot(_dedo[0]-_tobillo[0], _dedo[2]-_tobillo[2]) or 1.0
 FRENTE = ((_dedo[0]-_tobillo[0])/_largo, 0.0, (_dedo[2]-_tobillo[2])/_largo)
 _hombro = hueso('LeftShoulder')
 DETRAS = _hombro[0]*FRENTE[0] + _hombro[2]*FRENTE[2]  # la línea del torso, proyectada al frente
+# Y lo ancho que es: de la mitad del cuerpo a la articulación del hombro. Sirve para distinguir la
+# capa de la manga, que es lo que las dos tienen distinto: la capa va ENTRE los hombros y la manga,
+# por fuera. Sin esto, la hombrera y el brazo se iban con la tela y quedaba una membrana gris
+# colgando del sobaco.
+_LADO = (-FRENTE[2], FRENTE[0])  # perpendicular horizontal
+# El ancho lo marca `Arm`, no `Shoulder`: en Mixamo el hueso del hombro está pegado al cuello (es la
+# raíz de la clavícula) y el que está en la bola del hombro, donde empieza el brazo de verdad, es
+# `Arm`. Midiendo por el primero salía un ancho de cero y se iba con la capa hasta la hombrera.
+_brazo = hueso('LeftArm')
+ANCHO = abs(_brazo[0]*_LADO[0] + _brazo[2]*_LADO[1]) * 1.05
+print(f'los hombros llegan a {ANCHO:.3f} del eje')
 print(f'mira hacia ({FRENTE[0]:+.2f}, {FRENTE[2]:+.2f}); la espalda empieza en {DETRAS:.3f}')
 DE_BRAZO = {i for c in brazos for i in c}
 ESPALDA = next((i for i, n in nombres.items() if n.endswith('Spine2')),
@@ -140,7 +151,10 @@ for (pdir, p), (jdir, jj), (wdir, ww) in zip(pos, jo, we):
     # hombro, o sea a un dedo del eje del brazo, así que el tubo lo cuenta como carne y se queda
     # pegado: al bajar el brazo tira de toda la capa hacia dentro. Lo que está DETRÁS del torso es
     # capa aunque esté pegado al hombro, porque un brazo no está detrás de la espalda.
-    detras = (p[0]*FRENTE[0] + p[2]*FRENTE[2]) < DETRAS - 0.01
+    # Capa: detrás del torso Y entre los hombros. Lo que está detrás pero por fuera de los hombros
+    # es la manga o la hombrera, y esas sí son del brazo.
+    fuera = abs(p[0]*_LADO[0] + p[2]*_LADO[1]) > ANCHO
+    detras = (p[0]*FRENTE[0] + p[2]*FRENTE[2]) < DETRAS - 0.01 and not fuera
     hecho = descoser(p, nj, nw, DE_BRAZO, brazos, RADIO_BRAZO if not detras else -1, ESPALDA)
     if hecho:
         nw, nj = hecho

@@ -16,6 +16,8 @@ import { WIND_UP, bonePosition, facingTo, shout, victoryLap, windUp } from '../k
 // líquido.
 
 const SPELL = 'cast_a_spell';
+const SPELL_COLOR = '#9fd0ff'; // el azul frío de la magia del alfil
+const BOLT_SECONDS = 0.34; // lo que dura el rayo de la voluta al pecho
 const CAST_DISTANCE = 1.15; // lo cerca que se pone a lanzar el hechizo
 const CAST_GAP = 0.35; // y lo que se aparta de más si el rival es un vozarrón de piedra
 const STONE_SECONDS = 0.7; // lo que tarda en volverse piedra
@@ -179,24 +181,40 @@ export const bishopTurnsToStone = {
       giant.play('idle', { fade: 0.25 });
     }
 
-    // 2. El hechizo, a cámara lenta: fogonazo en la voluta del báculo.
+    // 2. El hechizo. Un fogonazo suelto no cuenta nada: un conjuro se lee cuando tiene sus tres
+    //    partes. Se CARGA —un sello de runas se abre a sus pies y la energía se junta en la voluta
+    //    del báculo, en espiral y cada vez más deprisa—, se LANZA —un rayo quebrado que va de la
+    //    voluta al pecho del rival— y ATERRIZA —otro sello bajo el rival, una onda por el suelo y
+    //    el fogonazo. Y todo a cámara lenta, que es cuando se ve.
     const strike = bishop.strikes?.[SPELL];
     const casting = bishop.playOnce('attack', { clip: SPELL, fade: 0.15 });
-    await slowToImpact(clock, strike?.body?.t ?? 1.1);
-    const tip = bishop.props.spear
+    // La punta del báculo, viva: la mano se mueve mientras conjura, y la carga tiene que ir con ella.
+    const voluta = () => (bishop.props.spear
       ? bishop.props.spear.localToWorld(new THREE.Vector3(0, bishop.spearEnds.top, 0))
-      : bonePosition(bishop, 'R_Hand');
-    fx.burst(tip, { size: 1.2, sparks: 30 });
-    hud.flash();
-    cinema.shake(0.12);
-    shout(bubbles, '¡ZAS!', tip);
+      : bonePosition(bishop, 'R_Hand'));
+    const cuando = strike?.body?.t ?? 1.1;
+    fx.sigil(home, { radius: 0.52, seconds: cuando + 0.9, color: SPELL_COLOR, spin: 1.4 });
+    fx.charge(voluta, { seconds: cuando, color: SPELL_COLOR, size: 0.34, motes: 14 });
+    await slowToImpact(clock, cuando);
 
     const victim = defender.kind === 'knight'
       ? defender.piece.object
       : (esTorre ? defender.piece.giant.object : defender.piece.object);
     const forma = defender.piece.figure;
     const at = forma.getWorldPosition(new THREE.Vector3());
-    fx.burst(at.clone().setY(1), { size: 1, sparks: 18 });
+    const pecho = at.clone().setY(defender.piece.height * 0.55);
+
+    const tip = voluta();
+    fx.bolt(tip, pecho, { seconds: BOLT_SECONDS, color: SPELL_COLOR, width: 0.05, kinks: 9 });
+    fx.burst(tip, { size: 1.2, sparks: 30 });
+    hud.flash();
+    cinema.shake(0.12);
+    shout(bubbles, '¡ZAS!', tip);
+    await clock.wait(BOLT_SECONDS * 0.6); // lo que tarda el rayo en llegar
+    fx.sigil(center, { radius: 0.7, seconds: 1.1, color: SPELL_COLOR, spin: -2.2 });
+    fx.shockwave(center, { radius: 1.9, seconds: 0.55, color: SPELL_COLOR });
+    fx.burst(pecho, { size: 1.4, sparks: 26 });
+    cinema.shake(0.16);
 
     if (esTorre) {
       // 3a. Al gigante el hechizo le abre el suelo: se tambalea y se lo traga el tablero.

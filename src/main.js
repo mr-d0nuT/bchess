@@ -27,6 +27,7 @@ import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestu
 import { createClock } from './combat/clock.js';
 import { measureStrikes } from './combat/strikes.js';
 import { createImpactFx } from './fx/impact.js';
+import { createSpellFx } from './fx/spell.js';
 import { createCinema } from './scene/cinema.js';
 import { createFade } from './scene/fade.js';
 import { pickStyle } from './combat/plan.js';
@@ -90,7 +91,18 @@ async function start() {
   const highlights = createHighlights(stage.scene, board);
   const dust = createDust(stage.scene);
   const clock = createClock();
-  const fx = createImpactFx(stage.scene);
+  // Los efectos: los golpes por un lado y los conjuros por otro, pero se pasan juntos a los gags
+  // como un solo `fx`, que a ellos les da igual de dónde salga cada cosa.
+  const impacts = createImpactFx(stage.scene);
+  const spells = createSpellFx(stage.scene);
+  const fx = {
+    ...impacts,
+    ...spells,
+    update(dt) {
+      impacts.update(dt);
+      spells.update(dt);
+    },
+  };
   const cinema = createCinema(stage);
   const rubble = createRubble(stage.scene);
   const debris = createDebris(stage.scene);

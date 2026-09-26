@@ -31,6 +31,7 @@ ORO = '--oro' in op
 RELIEVE = opcion('--relieve')
 METAL = opcion('--metal', 0.90)
 RUGOSO = opcion('--rugoso', 0.30)
+CABEZA = tuple(float(x) for x in op[op.index('--cabeza') + 1].split(',')) if '--cabeza' in op else None
 MATE = 0.90
 
 b = bytearray(pathlib.Path(modelo).read_bytes())
@@ -71,6 +72,32 @@ if CORONA is not None:
     print(f'corona: {n} triángulos por encima de {corte:.3f}')
 pa = alto.load()
 
+# La franja de la cara y el pelo, sacada de la geometría igual que la corona. Hace falta porque ahí
+# el color no separa nada: el pelo de un rey cano es del mismo gris que su corona de plata, y la piel
+# pálida se cuela por debajo del cerrojo de la carne. Por altura sí se separan, porque la corona está
+# por encima de la cabeza y la armadura, por debajo.
+cara = Image.new('L', (W, H), 0)
+if CABEZA is not None:
+    lapiz2 = ImageDraw.Draw(cara)
+    prim2 = j['meshes'][0]['primitives'][0]
+    pos2 = lee(prim2['attributes']['POSITION'])
+    uv2 = lee(prim2['attributes']['TEXCOORD_0'])
+    idx2 = [v[0] for v in lee(prim2['indices'])]
+    ys2 = [q[1] for q in pos2]
+    bajo2, alto2 = min(ys2), max(ys2)
+    desde = bajo2 + (alto2 - bajo2) * CABEZA[0]
+    hasta = bajo2 + (alto2 - bajo2) * CABEZA[1]
+    n2 = 0
+    for k2 in range(0, len(idx2), 3):
+        tri2 = idx2[k2:k2+3]
+        if any(pos2[v][1] < desde or pos2[v][1] > hasta for v in tri2):
+            continue
+        lapiz2.polygon([((uv2[v][0] % 1.0)*(W-1), (uv2[v][1] % 1.0)*(H-1)) for v in tri2], fill=255)
+        n2 += 1
+    cara = cara.filter(ImageFilter.MaxFilter(3))
+    print(f'cara y pelo: {n2} triángulos entre {desde:.3f} y {hasta:.3f}, sin metal')
+pcara = cara.load()
+
 # El relieve: cada téxel contra su entorno emborronado. Lo que sobresale, brilla.
 if RELIEVE is not None:
     gris = col.convert('L')
@@ -94,6 +121,8 @@ for y in range(H):
         # saturación de la carne; el oro, más amarillo y más saturado, pasa de largo.
         if h < 0.09 and 0.10 < s < 0.58 and v > 0.08:
             continue
+        if pcara[x, y]:
+            continue  # la cara y el pelo, nunca
         cual = None
         if CORONA is not None and pa[x, y] and v > 0.18:
             cual = 'corona'
