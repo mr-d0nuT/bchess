@@ -3,8 +3,8 @@ import { KING, armsDown } from '../../pieces/cast.js';
 import { afterImpact } from '../fight.js';
 import { twirl } from '../twirl.js';
 import { strikeSpot } from '../plan.js';
-import { facingTo, knockOut, shout, topple, victoryLap } from '../knight/common.js';
-import { ROYAL_COLOR, chestOf, faceAttacker, golpe, horseBolts, pose, poseTo, release, stepDown, suave, victimOf, wandTip } from './royal.js';
+import { facingTo, knockOut, shout, victoryLap } from '../knight/common.js';
+import { ROYAL_COLOR, chestOf, faceAttacker, fallClear, golpe, horseBolts, pose, poseTo, release, stepDown, suave, victimOf, wandTip } from './royal.js';
 
 // EL REY SENTENCIA. Se planta delante, levanta el báculo por encima de la cabeza y la joya se le
 // enciende; el suelo se le abre en un sello de runas mientras carga. Entonces descarga el báculo
@@ -31,7 +31,7 @@ export const kingSmites = {
   matches: (attacker) => attacker.kind === 'king',
   can: (attacker) => attacker.piece.armDrop > 0 || Boolean(attacker.piece.props?.spear),
 
-  async run({ attacker, defender, board, home, center, target, clock, fx, cinema, hud, bubbles, obstacles }) {
+  async run({ attacker, defender, board, home, center, target, clock, fx, cinema, hud, crowd, bubbles, obstacles, bodies }) {
     const king = attacker.piece;
     const reposo = armsDown(king.armDrop || 66);
     const lejos = Math.max(REACH, king.radius + defender.piece.radius + GAP);
@@ -98,11 +98,15 @@ export const kingSmites = {
 
       // 7. El rival cae fulminado y el rey se yergue.
       await Promise.all([
-        topple({ clock, figure: victimOf(defender).figure, forward: false }),
+        fallClear(defender, {
+          clock, at: center, from: home, crowd, bodies, owners: [attacker, defender],
+          rival: { ...attacker.piece.figure.position, radius: attacker.piece.radius },
+        }),
         poseTo(king, KING.smite, reposo, { clock, seconds: RECOVER_SECONDS, ease: suave }),
       ]);
       await knockOut({ clock, fx, fighter: victimOf(defender), seconds: KO_SECONDS });
       await (defender.kind === 'knight' ? defender.mover.defeated({ avoid: center }) : defender.mover.vanish());
+      bodies.length = 0; // ya no hay cuerpo que estorbe
 
       // 8. El rey ocupa la casilla.
       await victoryLap({

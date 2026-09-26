@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { QUEEN, armsDown } from '../../pieces/cast.js';
 import { afterImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
-import { facingTo, knockOut, shout, topple, victoryLap } from '../knight/common.js';
-import { ROYAL_COLOR, chestOf, faceAttacker, horseBolts, pose, poseTo, rebote, release, stepDown, suave, victimOf } from './royal.js';
+import { facingTo, knockOut, shout, victoryLap } from '../knight/common.js';
+import { ROYAL_COLOR, chestOf, faceAttacker, fallClear, horseBolts, pose, poseTo, rebote, release, stepDown, suave, victimOf } from './royal.js';
 
 // LA REINA CONJURA. No se acerca a pegar: se planta a distancia, abre los brazos y llama. Un sello
 // enorme se abre a sus pies y otro sobre el rival; la energía se le junta en las dos manos, en
@@ -27,7 +27,7 @@ export const queenCasts = {
   matches: (attacker) => attacker.kind === 'queen',
   can: (attacker) => attacker.piece.armDrop >= 0,
 
-  async run({ attacker, defender, board, home, center, target, clock, fx, cinema, hud, bubbles, obstacles }) {
+  async run({ attacker, defender, board, home, center, target, clock, fx, cinema, hud, crowd, bubbles, obstacles, bodies }) {
     const queen = attacker.piece;
     const reposo = armsDown(queen.armDrop || 0);
     const lejos = Math.max(REACH, queen.radius + defender.piece.radius + GAP);
@@ -91,11 +91,15 @@ export const queenCasts = {
 
       // 6. Cae, y ella baja los brazos sin despeinarse.
       await Promise.all([
-        topple({ clock, figure: victimOf(defender).figure, forward: false }),
+        fallClear(defender, {
+          clock, at: center, from: home, crowd, bodies, owners: [attacker, defender],
+          rival: { ...attacker.piece.figure.position, radius: attacker.piece.radius },
+        }),
         poseTo(queen, QUEEN.cast, reposo, { clock, seconds: RECOVER_SECONDS, ease: suave }),
       ]);
       await knockOut({ clock, fx, fighter: victimOf(defender), seconds: KO_SECONDS });
       await (defender.kind === 'knight' ? defender.mover.defeated({ avoid: center }) : defender.mover.vanish());
+      bodies.length = 0; // ya no hay cuerpo que estorbe
 
       // 7. Y ocupa la casilla.
       await victoryLap({

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CAST_BONES, armsDown, blend } from '../../pieces/cast.js';
-import { facingTo, fighterOf } from '../knight/common.js';
+import { facingTo, fallDirection, fighterOf, lyingBody, topple } from '../knight/common.js';
+import { shortestTurn } from '../../moves/walk.js';
 
 // Lo que comparten los ataques de los reyes y las reinas.
 //
@@ -41,6 +42,37 @@ export async function horseBolts(defender, at, from) {
 // Quien recibe el conjuro: el jinete de un caballero, el gigante de una torre, o la pieza misma.
 export function victimOf(defender) {
   return fighterOf(defender);
+}
+
+const FALL_SPREAD = Math.PI / 4; // lo que puede desviarse la caída para buscar hueco
+
+// Gira a quien va a caerse, sea lo que sea. A un caballero desmontado no se le puede pedir por su
+// mover: ahí `turnTo` gira el CABALLO, y el caballo ya no está.
+function turnFighter(defender, victima, angle, clock) {
+  if (defender.kind !== 'knight') return defender.mover.turnTo(angle, 0.12);
+  const desde = victima.figure.rotation.y;
+  const giro = shortestTurn(desde, angle);
+  return clock.tween(0.12, (t) => { victima.figure.rotation.y = desde + giro * t; });
+}
+
+// TUMBARLO SIN INVADIR LA CASILLA DE AL LADO. Un cuerpo de espaldas mide casi una casilla entera, así
+// que dejarlo caer en la línea del conjuro lo mete debajo del vecino. Se prueban tres direcciones
+// —la del conjuro y una a cada lado— y se queda la que deja más hueco a las piezas de alrededor; el
+// cuerpo tendido se apunta en `bodies`, que es de donde el resto del combate saca quién ocupa qué.
+export async function fallClear(defender, { clock, at, from, crowd, bodies, owners, rival }) {
+  const victima = fighterOf(defender);
+  const donde = { x: victima.figure.position.x, z: victima.figure.position.z };
+  const angle = fallDirection({
+    at: donde,
+    around: facingTo(from, at), // el conjuro lo echa hacia atrás; de ahí se busca hueco
+    spread: FALL_SPREAD,
+    length: victima.height,
+    rival,
+    overlap: (body) => crowd.overlap({ owners, bodies: [body] }),
+  });
+  bodies.push(lyingBody({ at: donde, angle, length: victima.height }));
+  await turnFighter(defender, victima, angle + Math.PI, clock);
+  await topple({ clock, figure: victima.figure, forward: false });
 }
 
 // Lleva a la figura de una postura a otra en `seconds`, con la curva que se le diga. `ease` por

@@ -76,9 +76,16 @@ const STILL_SAMPLES = 32; // fotogramas del paseo que se prueban
 const STILL_EVERY = 3; // un vértice de cada tantos
 const STILL_BITE = 0.012; // lo que se hunden los cascos en la peana, para que no parezcan flotar
 const STILL_NEAR = 0.3; // lo cerca que ha de estar un vértice del casco para ser de esa pata
-const STILL_COMPACT = 0.5; // cuánto pesa que las patas estén recogidas frente a que estén a la par
-const IK_ROUNDS = 10; // vueltas de la cinemática inversa
-const IK_BONES = 3; // huesos de cada pata que se giran: los de arriba, que los de abajo dan el casco
+const STILL_SLACK = 0.02; // lo que puede desnivelarse un fotograma frente al mejor y seguir valiendo
+const IK_ROUNDS = 30; // vueltas de la cinemática inversa
+// Para bajar un casco al suelo hay que ESTIRAR la pata, y una pata se estira por la RODILLA. Con solo
+// los huesos de arriba el casco no baja, se queda colgando; con toda la pata, la inversa cinemática
+// hace trampa por el camino más corto y tuerce el menudillo, que es la articulación de abajo del
+// todo: la pata llega, pero con la pezuña doblada hacia donde no va. Así que se le dan los cuatro
+// huesos de arriba —hasta la rodilla— y el menudillo y el casco se quedan como estén.
+const IK_TOP = 4; // huesos de cada pata que se giran, de arriba abajo
+const STILL_PASSES = 3; // veces que se mide y se corrige cada casco
+const STILL_FLOOR = 0.005; // altura por debajo de la cual un casco ya se da por apoyado
 
 // Baja un hueso (`tip`) hasta `target` (un punto del mundo) girando los huesos de `chain`, por
 // aproximaciones sucesivas y encima de lo que haga la animación. Devuelve los giros impuestos, para
@@ -115,6 +122,11 @@ function reachTo(piece, chain, tipName, target, { rounds = IK_ROUNDS, start = nu
 
 // Lo más bajo de la malla junto a cada casco y la altura de su hueso: la diferencia es lo que el casco
 // baja por debajo del hueso, distinta en las patas de delante y en las de detrás.
+//
+// Cada vértice cuenta para UN solo casco, el que tiene más cerca. Repartiéndolo a todos los que
+// caigan dentro del radio, un casco levantado que pase por encima del de al lado se queda con los
+// vértices del otro, que sí están en el suelo: entonces parece apoyado, no se le corrige nada, y el
+// caballo se pasa la partida con una mano en el aire.
 function hoofSoles(test, legs) {
   const v = new THREE.Vector3();
   const ankles = Object.fromEntries(Object.entries(legs).map(([name, bones]) => [
@@ -127,10 +139,17 @@ function hoofSoles(test, legs) {
     for (let i = 0; i < position.count; i += STILL_EVERY) {
       o.getVertexPosition(i, v);
       v.applyMatrix4(o.matrixWorld);
+      let suyo = null;
+      let cerca = STILL_NEAR;
       for (const [name, ankle] of Object.entries(ankles)) {
-        if (!ankle || Math.hypot(v.x - ankle.x, v.z - ankle.z) > STILL_NEAR) continue;
-        lowest[name] = Math.min(lowest[name], v.y);
+        if (!ankle) continue;
+        const d = Math.hypot(v.x - ankle.x, v.z - ankle.z);
+        if (d < cerca) {
+          cerca = d;
+          suyo = name;
+        }
       }
+      if (suyo) lowest[suyo] = Math.min(lowest[suyo], v.y);
     }
   });
   return Object.fromEntries(Object.entries(ankles).map(([name, ankle]) => [
@@ -173,9 +192,14 @@ function measureStill(horse, legs) {
   walk.paused = true;
   const duration = walk.getClip().duration;
 
-  // 1. El fotograma en que los cuatro cascos quedan más a la par y más recogidos: de nada sirve tenerlos
-  // a la misma altura si el caballo va con una mano estirada y el casco se sale de la peana.
-  let base = null;
+  // 1. El fotograma de partida: primero los que tienen los cuatro cascos MÁS A LA PAR y, de esos, el
+  // más recogido. Antes se sumaban las dos cosas en una sola nota y lo compacto acababa mandando: el
+  // caballo se quedaba quieto en un fotograma con las patas juntas y una mano en el aire un dedo por
+  // encima de la peana, que es demasiado para que lo arregle después la cinemática inversa (el
+  // objetivo le queda más lejos de lo que la pata da de sí, y entonces no baja nada). Ningún paseo
+  // tiene las cuatro pezuñas abajo a la vez —por eso hace falta la corrección—, pero hay bastante
+  // diferencia entre partir de la mejor postura o de la peor.
+  const muestras = [];
   for (let i = 0; i < STILL_SAMPLES; i++) {
     const time = (i / STILL_SAMPLES) * duration;
     walk.time = time;
@@ -184,26 +208,39 @@ function measureStill(horse, legs) {
     const hooves = Object.values(hoofSoles(test, legs));
     const soles = hooves.map((hoof) => hoof.sole);
     const zs = hooves.map((hoof) => hoof.ankle?.z ?? 0);
-    const spread = Math.max(...soles) - Math.min(...soles);
-    const length = Math.max(...zs) - Math.min(...zs); // lo que el caballo abre las patas a lo largo
-    const score = spread + STILL_COMPACT * length;
-    if (!base || score < base.score) base = { time, score, spread, floor: Math.min(...soles) };
+    muestras.push({
+      time,
+      spread: Math.max(...soles) - Math.min(...soles),
+      length: Math.max(...zs) - Math.min(...zs), // lo que el caballo abre las patas a lo largo
+      floor: Math.min(...soles),
+    });
   }
+  const masPar = Math.min(...muestras.map((m) => m.spread));
+  const base = muestras
+    .filter((m) => m.spread <= masPar + STILL_SLACK)
+    .reduce((mejor, m) => (m.length < mejor.length ? m : mejor));
   walk.time = base.time;
   test.update(0);
   test.object.updateMatrixWorld(true);
 
-  // 2. Cada casco, al suelo: se gira lo de arriba de la pata hasta que la suela llega al nivel del casco
-  // más bajo, sin mover el casco de sitio.
+  // 2. Cada casco, al suelo: se estira la pata hasta que la suela llega al nivel del casco más bajo.
+  // Se pasa varias veces volviendo a medir, porque estirar una pata mueve la malla de alrededor y lo
+  // que baja la suela no es exactamente lo que baja el hueso: a la primera se queda a medias.
   const turns = [];
-  for (const [name, bones] of Object.entries(legs)) {
-    const hoof = hoofSoles(test, legs)[name];
-    if (!hoof?.ankle) continue;
-    const drop = hoof.sole - base.floor;
-    if (drop < 0.005) continue;
-    const target = hoof.ankle.clone().setY(hoof.ankle.y - drop);
-    turns.push(...reachTo(test, bones.slice(0, IK_BONES), bones.at(-1), target));
+  const puesto = new Map(); // pata → giros ya impuestos, de los que parte la pasada siguiente
+  for (let pasada = 0; pasada < STILL_PASSES; pasada++) {
+    for (const [name, bones] of Object.entries(legs)) {
+      const hoof = hoofSoles(test, legs)[name];
+      if (!hoof?.ankle) continue;
+      const drop = hoof.sole - base.floor;
+      if (drop < STILL_FLOOR) continue;
+      const target = hoof.ankle.clone().setY(hoof.ankle.y - drop);
+      const chain = bones.slice(0, Math.min(IK_TOP, bones.length - 1));
+      const start = puesto.get(name);
+      puesto.set(name, reachTo(test, chain, bones.at(-1), target, { start: start?.map((t) => t.turn) }));
+    }
   }
+  for (const giros of puesto.values()) turns.push(...giros);
 
   // 3. Con la postura ya compuesta, lo que hay que subir o bajar el modelo para tocar la peana.
   test.update(0);
