@@ -67,6 +67,30 @@ function attachInWorld(prop, bone, { offset = [0, 0, 0], rotation = [0, 0, 0], s
   return prop;
 }
 
+// Por dónde pasa la vara de un bastón a la altura `y`: el centro de lo que tiene alrededor, medido
+// en la propia malla. Sirve para poner el origen en el eje de la vara y no en el centro de la caja
+// envolvente, que en un bastón con la cabeza labrada están en sitios distintos.
+function shaftCenter(model, y, length) {
+  const margen = length * 0.04; // una rodaja fina a esa altura
+  const punto = new THREE.Vector3();
+  let sx = 0;
+  let sz = 0;
+  let n = 0;
+  model.updateMatrixWorld(true);
+  model.traverse((o) => {
+    const position = o.isMesh ? o.geometry?.getAttribute('position') : null;
+    if (!position) return;
+    for (let i = 0; i < position.count; i++) {
+      punto.fromBufferAttribute(position, i).applyMatrix4(o.matrixWorld);
+      if (Math.abs(punto.y - y) > margen) continue;
+      sx += punto.x;
+      sz += punto.z;
+      n++;
+    }
+  });
+  return n ? new THREE.Vector3(sx / n, 0, sz / n) : new THREE.Vector3();
+}
+
 // Peana de reserva mientras no haya modelo 3D: un cilindro de madera clara con molduras.
 function createFallbackPedestal(height) {
   const wood = new THREE.MeshStandardMaterial({ color: 0xc9a77a, roughness: 0.6, metalness: 0 });
@@ -152,9 +176,15 @@ export async function loadPieceKit(spec, quality) {
     fitToHeight(spearModel, spec.spear.length);
     spearModel.updateMatrixWorld(true);
     const caja = new THREE.Box3().setFromObject(spearModel);
+    const agarre = caja.min.y + spec.spear.grip;
+    // El origen va donde lo coge la mano, y eso no es el centro de la caja: la caja la manda la
+    // cabeza labrada, que es mucho más ancha que la vara, así que centrando por ella el bastón
+    // queda colgando al lado del puño. Se centra por la VARA, mirando por dónde pasa a la altura
+    // justa del agarre.
     const grupo = new THREE.Group();
     grupo.name = 'báculo';
-    spearModel.position.y -= caja.min.y + spec.spear.grip; // el agarre, al origen
+    const eje = shaftCenter(spearModel, agarre, spec.spear.length);
+    spearModel.position.set(-eje.x, -agarre, -eje.z);
     grupo.add(spearModel);
     spearModel = grupo;
   }
@@ -372,9 +402,15 @@ export function spawnPiece(kit) {
   play('idle', { fade: 0 });
   mixer.update(0);
   object.updateMatrixWorld(true);
-  const boneFor = (side) => (kit.hands[side] ? model.getObjectByName(kit.hands[side]) : null);
+  // El hueso del que cuelga lo que se lleva en la mano. Por defecto, la mano; con `palm`, la base
+  // del dedo corazón, que está en mitad de la palma: el hueso de la mano de Mixamo está en la
+  // MUÑECA, y colgando de ahí un bastón lo atraviesa por el antebrazo en vez de quedar agarrado.
+  const boneFor = (side, palm = false) => {
+    const dedo = palm ? findBone(model, `${side === 'left' ? 'L' : 'R'}_HandMiddle1`) : null;
+    return dedo ?? (kit.hands[side] ? model.getObjectByName(kit.hands[side]) : null);
+  };
   const props = {};
-  const spearBone = spec.spear ? boneFor(spec.spear.hand ?? 'right') : null;
+  const spearBone = spec.spear ? boneFor(spec.spear.hand ?? 'right', Boolean(spec.spear.palm)) : null;
   const shieldBone = spec.shield ? boneFor(spec.shield.hand ?? 'left') : null;
   let spearEnds = null; // alturas del regatón y de la punta respecto al agarre
   if (spearBone) {

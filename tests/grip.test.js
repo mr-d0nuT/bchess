@@ -26,3 +26,4 @@ test('nunca desliza más del máximo', () => {
   assert.equal(slideAboveFloor({ lowY: -2, floorY: 0.26, axisY: 1, maxSlide: 0.5 }), 0.5);
   assert.equal(slideAboveFloor({ lowY: -2, floorY: 0.26, axisY: -1, maxSlide: 0.5 }), -0.5);
 });
+

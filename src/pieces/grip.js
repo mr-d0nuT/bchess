@@ -8,3 +8,9 @@ export function slideAboveFloor({ lowY, floorY, axisY, minAxis = 0.3, maxSlide =
   const slide = (floorY - lowY) / axisY;
   return Math.max(-maxSlide, Math.min(maxSlide, slide));
 }
+
+// NO hay aquí una postura de puño, y no por olvido. Cerrar los dedos pide girar cada falange sobre
+// SU eje, y lo que el juego sabe hacer (`turnBone`) gira los huesos en el espacio de la figura: eso
+// es justo lo que hace que el contoneo y el paso funcionen con esqueletos de nombres distintos,
+// pero a unos dedos, que cada uno apunta hacia un lado, los manda a paseo. Si algún día hace falta
+// un puño, lo primero es que `turnBone` sepa girar también en el espacio del hueso.

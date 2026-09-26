@@ -1122,8 +1122,8 @@
         "hand": "right",
         "offset": [
           0,
-          -0.05,
-          0.03
+          0,
+          0
         ],
         "rotation": [
           0,
@@ -1131,7 +1131,8 @@
           0
         ],
         "grip": 0.55,
-        "length": 1.75
+        "length": 1.75,
+        "palm": true
       }
     },
     "black-king": {
@@ -1173,8 +1174,8 @@
         "hand": "right",
         "offset": [
           0,
-          -0.05,
-          0.03
+          0,
+          0
         ],
         "rotation": [
           0,
@@ -1182,7 +1183,8 @@
           0
         ],
         "grip": 0.55,
-        "length": 1.75
+        "length": 1.75,
+        "palm": true
       }
     }
   }

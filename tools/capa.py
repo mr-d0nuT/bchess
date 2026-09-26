@@ -11,7 +11,25 @@ import json, struct, pathlib, sys, math
 # Cada vértice de la capa reparte su peso entre los DOS huesos más cercanos de la cadena, según a
 # qué altura esté: si se colgara de uno solo, se vería el pliegue donde acaba uno y empieza el otro.
 #
+# Y se lleva SOLO la tela, no todo lo que cuelgue de la cadera. Esto no es un detalle: hay figuras a
+# las que el aparejo automático no les cosió la capa a las piernas —se la dejó en la columna—, y en
+# esas `descose.py` no tiene nada que soltar. Si aquí se cogiera todo lo de la cadera, lo que se
+# subiría a los huesos de capa sería el peto y el faldón de la armadura, que se quedarían colgando
+# de una capa que no llevan. Pasó con el rey negro y se veía: la capa partida en cuchillos.
+#
+# La tela se reconoce igual que en `descose.py`: es lo que cae LEJOS del eje de las piernas. Un peto
+# está pegado al cuerpo; una capa, no.
+#
+# Y se la quita a quien la tenga, no solo a la cadera. Cada figura viene cosida a su manera: al rey
+# blanco le colgaron la capa de las piernas y al negro, de la columna. Mirando solo la cadera, al
+# negro no se le tocaba la capa y en cambio sí su faldón, que es lo contrario de lo que hace falta.
+#
+# Solo la parte de abajo, eso sí: de la cintura para arriba la capa tiene que seguir colgando de los
+# hombros, que es de donde cuelga una capa. Lo que se sube a la cadena es el vuelo.
+#
 # Uso: capa.py <entrada.glb> <salida.glb> [radio_pierna]
+#   `radio_pierna`: lo que mide de gordo una pierna. Lo que cuelga de la cadera y cae más lejos que
+#   eso del eje de las piernas es tela; lo que cae más cerca, cuerpo o armadura, y se queda.
 entrada, salida = sys.argv[1], sys.argv[2]
 RADIO = float(sys.argv[3]) if len(sys.argv) > 3 else 0.075
 ALTURAS = [0.52, 0.35, 0.18]  # dónde está el eje de cada hueso, de arriba abajo
@@ -90,6 +108,34 @@ j['accessors'].append({'bufferView': len(j['bufferViews'])-1, 'componentType': 5
                        'count': len(ibm), 'type': 'MAT4'})
 sk['inverseBindMatrices'] = len(j['accessors']) - 1
 
+# La cadena de cada pierna, de la cadera al dedo, como una polilínea; y la distancia de un punto a
+# ella. Es la misma medida con la que `descose.py` distingue la tela del cuerpo.
+def cadena(lado):
+    out = []
+    for parte in ('UpLeg', 'Leg', 'Foot', 'ToeBase', 'Toe_End'):
+        for i, n in nombres.items():
+            if n.endswith(lado + parte):
+                out.append(i)
+    return out
+
+piernas = [cadena('Left'), cadena('Right')]
+
+# Dónde está un hueso en la postura de enlace: la traslación de su matriz.
+def donde(i):
+    m = mundo[i]
+    return (m[0][3], m[1][3], m[2][3])
+
+def dist_polilinea(p, cad):
+    mejor = 1e9
+    for a_i, b_i in zip(cad, cad[1:]):
+        a, q = donde(a_i), donde(b_i)
+        ab = [q[k]-a[k] for k in range(3)]
+        ap = [p[k]-a[k] for k in range(3)]
+        ll = sum(x*x for x in ab)
+        t = 0.0 if ll == 0 else max(0.0, min(1.0, sum(ap[k]*ab[k] for k in range(3))/ll))
+        mejor = min(mejor, math.sqrt(sum((ap[k]-ab[k]*t)**2 for k in range(3))))
+    return mejor
+
 # Y ahora el reparto: cada vértice de la capa cuelga de los dos huesos entre los que cae.
 prim = j['meshes'][0]['primitives'][0]
 pos = lee(prim['attributes']['POSITION'])
@@ -99,9 +145,18 @@ jfmt = TIPOS[j['accessors'][prim['attributes']['JOINTS_0']]['componentType']][0]
 arriba, abajo = ALTURAS[0], ALTURAS[-1]
 paso = (arriba - abajo) / (len(ALTURAS) - 1)
 repartidos = 0
+# De quién se le puede quitar: la cadera y el tronco. De los brazos y la cabeza, no.
+TRONCO = {i for i, n in nombres.items()
+          if n.endswith('Hips') or n.endswith('Spine') or n.endswith('Spine1') or n.endswith('Spine2')}
+ARRIBA = ALTURAS[0]  # de aquí para arriba la capa sigue colgando de los hombros
+
+descartados = 0
 for (_, p), (jdir, jj), (wdir, ww) in zip(pos, jo, we):
-    suelto = sum(ww[k] for k in range(4) if jj[k] == CADERA)
+    suelto = sum(ww[k] for k in range(4) if jj[k] in TRONCO)
     if suelto <= 0.001:
+        continue
+    if p[1] > ARRIBA or min(dist_polilinea(p, c) for c in piernas) <= RADIO:
+        descartados += 1  # pegado al cuerpo, o por encima de la cintura: no es vuelo de capa
         continue
     u = max(0.0, min(len(ALTURAS) - 1.0001, (arriba - p[1]) / paso))
     i = int(u); f = u - i
@@ -110,7 +165,7 @@ for (_, p), (jdir, jj), (wdir, ww) in zip(pos, jo, we):
         reparto[nuevos[i+1]] = suelto * f
     nj = list(jj); nw = list(ww)
     for k in range(4):
-        if jj[k] == CADERA:
+        if jj[k] in TRONCO:
             nw[k] = 0.0
     for hueso, peso in reparto.items():
         hecho = False
@@ -126,7 +181,8 @@ for (_, p), (jdir, jj), (wdir, ww) in zip(pos, jo, we):
     struct.pack_into('<'+jfmt*4, binario, jdir, *nj)
     struct.pack_into('<ffff', binario, wdir, *nw)
     repartidos += 1
-print(f'{repartidos} vértices de capa repartidos entre los tres huesos')
+print(f'{repartidos} vértices de capa repartidos entre los tres huesos'
+      f' ({descartados} se quedan en la cadera: están pegados al cuerpo)')
 
 j['buffers'][0]['byteLength'] = len(binario)
 def rellena(x, relleno=b'\x00'):
