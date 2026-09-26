@@ -1111,7 +1111,28 @@
         },
         "height": 0.26
       },
-      "walkSpeed": 0.9
+      "walkSpeed": 0.9,
+      "spearModel": {
+        "files": {
+          "movil": "king-staff-movil.glb",
+          "ordenador": "king-staff-ordenador.glb"
+        }
+      },
+      "spear": {
+        "hand": "right",
+        "offset": [
+          0,
+          -0.05,
+          0.03
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "grip": 0.55,
+        "length": 1.75
+      }
     },
     "black-king": {
       "files": {
@@ -1141,7 +1162,28 @@
         },
         "height": 0.26
       },
-      "walkSpeed": 0.9
+      "walkSpeed": 0.9,
+      "spearModel": {
+        "files": {
+          "movil": "black-king-staff-movil.glb",
+          "ordenador": "black-king-staff-ordenador.glb"
+        }
+      },
+      "spear": {
+        "hand": "right",
+        "offset": [
+          0,
+          -0.05,
+          0.03
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "grip": 0.55,
+        "length": 1.75
+      }
     }
   }
 }

@@ -101,10 +101,11 @@ export async function loadPieceKit(spec, quality) {
 
   // El escudo y la peana son opcionales: sin peana, se usa la de reserva.
   const optional = (entry) => (entry ? loader.loadAsync(MODELS + entry.files[quality.name]) : null);
-  const [pieceGltf, shieldGltf, pedestalGltf, ...animationGltfs] = await Promise.all([
+  const [pieceGltf, shieldGltf, pedestalGltf, spearGltf, ...animationGltfs] = await Promise.all([
     loader.loadAsync(MODELS + spec.files[quality.name]),
     optional(spec.shieldModel),
     optional(spec.pedestalModel),
+    optional(spec.spearModel),
     ...(spec.animationFiles ?? []).map((file) => loader.loadAsync(MODELS + file)),
   ]);
   const clips = [...pieceGltf.animations, ...animationGltfs.flatMap((g) => g.animations)];
@@ -141,6 +142,22 @@ export async function loadPieceKit(spec, quality) {
   const radius = Math.max(footprint.max.x - footprint.min.x, footprint.max.z - footprint.min.z) / 2;
   const shield = shieldGltf ? withShadows(shieldGltf.scene) : null;
   if (shield) fitToHeight(shield, spec.shieldModel.height);
+  // Un báculo de verdad, en vez del que se hace en código. Se le da su largo y se le corre el origen
+  // hasta el punto de agarre, que es donde `attachInWorld` lo cose a la mano: así un modelo traído de
+  // fuera se comporta igual que el que dibuja `spear.js`, con su postura erguida, su resbalón en la
+  // mano y todo lo demás.
+  let spearModel = null;
+  if (spearGltf) {
+    spearModel = withShadows(spearGltf.scene);
+    fitToHeight(spearModel, spec.spear.length);
+    spearModel.updateMatrixWorld(true);
+    const caja = new THREE.Box3().setFromObject(spearModel);
+    const grupo = new THREE.Group();
+    grupo.name = 'báculo';
+    spearModel.position.y -= caja.min.y + spec.spear.grip; // el agarre, al origen
+    grupo.add(spearModel);
+    spearModel = grupo;
+  }
 
   const { moves, missing } = resolveMoves(clipNames, spec.moves ?? {});
   if (missing.length) console.warn(`[BChess] El manifiesto pide clips que no están en el GLB: ${missing.join(', ')}. Clips: ${clipNames.join(', ')}`);
@@ -193,6 +210,7 @@ export async function loadPieceKit(spec, quality) {
     pedestalHeight,
     radius,
     shield,
+    spearModel,
     clips,
     moves,
     walkSpeed,
@@ -360,7 +378,9 @@ export function spawnPiece(kit) {
   const shieldBone = spec.shield ? boneFor(spec.shield.hand ?? 'left') : null;
   let spearEnds = null; // alturas del regatón y de la punta respecto al agarre
   if (spearBone) {
-    const spear = createSpear({ length: spec.spear.length, grip: spec.spear.grip, crook: Boolean(spec.spear.crook) });
+    const spear = kit.spearModel
+      ? kit.spearModel.clone()
+      : createSpear({ length: spec.spear.length, grip: spec.spear.grip, crook: Boolean(spec.spear.crook) });
     spear.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(spear);
     spearEnds = { bottom: box.min.y, top: box.max.y };

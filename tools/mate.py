@@ -9,9 +9,12 @@ import json, struct, pathlib, sys, zlib
 # piel a manchas, y el de metal) dejándolos en un píxel, y se fijan los valores a mano. El de color
 # se queda, que es el que pinta.
 #
-# Uso: mate.py <entrada.glb> <salida.glb> [rugosidad]
+# Uso: mate.py <entrada.glb> <salida.glb> [rugosidad] [metal]
+#   con `metal` distinto de cero deja de ser mate: sirve para los objetos que SON de metal enteros
+#   (un báculo, una espada), donde no hace falta un mapa para decir qué parte brilla.
 entrada, salida = sys.argv[1], sys.argv[2]
 RUGOSIDAD = float(sys.argv[3]) if len(sys.argv) > 3 else 0.9
+METAL = float(sys.argv[4]) if len(sys.argv) > 4 else 0.0
 
 def png1x1(rgb=(255, 255, 255)):
     def trozo(tipo, datos):
@@ -36,9 +39,9 @@ if 'metallicRoughnessTexture' in pbr:
     sobran.append(pbr.pop('metallicRoughnessTexture')['index'])
 if 'normalTexture' in mat:
     sobran.append(mat.pop('normalTexture')['index'])
-pbr['metallicFactor'] = 0
+pbr['metallicFactor'] = METAL
 pbr['roughnessFactor'] = RUGOSIDAD
-print(f'color en la textura {color}; se vacían las texturas {sobran}; metal 0, rugosidad {RUGOSIDAD}')
+print(f'color en la textura {color}; se vacían las texturas {sobran}; metal {METAL}, rugosidad {RUGOSIDAD}')
 
 # Las texturas que sobran se quedan en un píxel: así no pesan y no hay que renumerar nada.
 minimo = png1x1()

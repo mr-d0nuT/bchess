@@ -54,7 +54,7 @@ const QUEEN_GAIT = 1; // y andando de verdad, hueso a hueso, porque su modelo no
 const QUEEN_CAPE = 1; // y con la capa colgando de su propia cadena de huesos (`cape.js`)
 const KING_FILES = 'e';
 const KING_SWAY = 0.35; // el rey no contonea: solo se acompaña
-const KING_ARMS = 78; // sus imágenes se hicieron con los brazos en cruz, como pide el aparejo
+const KING_ARMS = 66; // sus imágenes se hicieron con los brazos en cruz, como pide el aparejo
 const QUEEN_STILL = 0.35; // segundos del clip de andar en los que se queda quieta (su pose de reposo)
 const BUTTON_ACTIONS = ['attack', 'hit', 'fall'];
 const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar qué hay bajo el ratón
@@ -409,6 +409,10 @@ async function start() {
         for (const file of KING_FILES) {
           const piece = spawnPiece(kits[i]);
           piece.armDrop = KING_ARMS;
+          // El báculo, erguido. La postura de la lanza la dicen normalmente los clips ("spear":
+          // "upright" en el manifiesto), y el rey no trae ninguno: sin decírselo se queda en la
+          // postura de embestida, cruzado por delante del cuerpo.
+          piece.setSpearDefault('upright');
           piece.sway = KING_SWAY;
           piece.gait = QUEEN_GAIT;
           piece.cape = QUEEN_CAPE;

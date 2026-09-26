@@ -44,7 +44,12 @@ for level in "ordenador:$textura:0.001" "movil:$textura_movil:0.002"; do
   if [ "$quality" = movil ]; then r="$ratio_movil"; else r="$ratio"; fi
   g dedup "$input" "$t-1.glb"
   if [ -n "$r" ]; then
-    g simplify "$t-1.glb" "$t-1s.glb" --ratio "$r" --error "$max_error"
+    # Soldar antes de simplificar. Las mallas de Tripo vienen con cada triángulo por su cuenta —tres
+    # vértices propios, sin compartir ninguno con sus vecinos—, y sobre eso `simplify` no puede hacer
+    # nada: para quitar un triángulo hay que saber cuáles lo rodean. Sin este paso, el ratio se pide
+    # y no pasa nada.
+    g weld "$t-1.glb" "$t-1w.glb"
+    g simplify "$t-1w.glb" "$t-1s.glb" --ratio "$r" --error "$max_error"
     mv "$t-1s.glb" "$t-1.glb"
   fi
   if aparejado_sin_animar "$input"; then cp "$t-1.glb" "$t-2.glb"; else g prune "$t-1.glb" "$t-2.glb"; fi
