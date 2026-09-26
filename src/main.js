@@ -30,6 +30,7 @@ import { createImpactFx } from './fx/impact.js';
 import { createSpellFx } from './fx/spell.js';
 import { createCinema } from './scene/cinema.js';
 import { createFade } from './scene/fade.js';
+import { createFocus } from './scene/focus.js';
 import { pickStyle } from './combat/plan.js';
 import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
@@ -105,7 +106,14 @@ async function start() {
   const cinema = createCinema(stage);
   const rubble = createRubble(stage.scene);
   const debris = createDebris(stage.scene);
+  // El punto medio entre dos luchadores, que es a donde mira la cámara de cine y donde enfoca.
+  const midpoint = (a, b) => {
+    const uno = a.piece.figure.position;
+    const otro = b.piece.figure.position;
+    return { x: (uno.x + otro.x) / 2, y: Math.max(a.piece.height, b.piece.height) * 0.45, z: (uno.z + otro.z) / 2 };
+  };
   const fade = createFade(clock);
+  const focus = createFocus(stage.renderer, stage.scene, stage.camera, quality);
   const bubbles = createBubbles({ camera: stage.camera, canvas: stage.renderer.domElement, clock });
   const pieces = []; // { kind: 'pawn' | 'rook' | 'knight', color, piece, mover }
   const crowd = createCrowd({ board, entries: () => pieces });
@@ -156,7 +164,7 @@ async function start() {
     const dt = Math.min((now - previous) / 1000, 0.1);
     previous = now;
     if (!manual) frame(now, dt);
-    stage.renderer.render(stage.scene, stage.camera);
+    focus.render(dt);
     hud.tickFps(now);
   });
 
@@ -230,6 +238,9 @@ async function start() {
       const obstacles = pieces.filter((entry) => entry !== attacker && entry !== defender).map((entry) => board.squareToWorld(entry.mover.square));
       // Las que no pelean, translúcidas: si alguna queda delante de la cámara, no tapa el combate.
       fade.dim(pieces.filter((entry) => entry !== attacker && entry !== defender).map((entry) => entry.piece.object));
+      // Y la cámara enfoca a los que pelean: el resto del tablero se queda borroso. El punto se pide
+      // en cada fotograma, no se fija aquí, porque los dos se mueven durante todo el combate.
+      focus.on(() => midpoint(attacker, defender));
       const style = pickStyle(state.lastStyle);
       if (attacker.kind === 'pawn' && defender.kind === 'pawn' && canFight(attacker, defender, style)) {
         state.lastStyle = style;
@@ -253,6 +264,7 @@ async function start() {
       attacker.mover.placeOn(target);
     } finally {
       if (pieces.includes(defender)) removePiece(defender);
+      focus.off();
       await fade.restore();
       await Promise.race([crowd.settle(), clock.wait(SETTLE_LIMIT)]);
       state.fighting = false;
