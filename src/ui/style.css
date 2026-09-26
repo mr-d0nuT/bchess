@@ -29,30 +29,6 @@ html, body {
   font: 12px/1 ui-monospace, Menlo, monospace;
 }
 
-#acciones {
-  position: absolute;
-  left: 50%;
-  bottom: max(44px, calc(env(safe-area-inset-bottom) + 36px));
-  transform: translateX(-50%);
-  display: flex;
-  gap: 10px;
-  pointer-events: auto;
-}
-
-#acciones button {
-  min-width: 88px;
-  padding: 11px 18px;
-  border: 1px solid var(--borde-boton);
-  border-radius: 999px;
-  background: var(--fondo-boton);
-  color: var(--tinta);
-  font: 600 15px/1 system-ui, sans-serif;
-  cursor: pointer;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-#acciones button:disabled { opacity: 0.45; cursor: default; }
-#acciones button:not(:disabled):hover { border-color: var(--tinta); }
 
 #aviso {
   position: absolute;
@@ -133,6 +109,4 @@ html, body {
 }
 
 @media (max-width: 520px) {
-  #acciones button { min-width: 0; padding: 10px 14px; }
-  #creditos { max-width: 60vw; font-size: 10px; }
-}
+  

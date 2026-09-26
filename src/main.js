@@ -57,7 +57,6 @@ const KING_FILES = 'e';
 const KING_SWAY = 0.35; // el rey no contonea: solo se acompaña
 const KING_ARMS = 66; // sus imágenes se hicieron con los brazos en cruz, como pide el aparejo
 const QUEEN_STILL = 0.35; // segundos del clip de andar en los que se queda quieta (su pose de reposo)
-const BUTTON_ACTIONS = ['attack', 'hit', 'fall'];
 const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar qué hay bajo el ratón
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
 const hud = createHud();
@@ -194,20 +193,15 @@ async function start() {
   };
   const movesOf = (entry) => (entry.kind === 'pawn' ? pawnMoves(entry.mover.square, occupied(), entry.color) : reach(entry).moves);
   const capturesOf = (entry) => (entry.kind === 'pawn' ? pawnCaptures(entry.mover.square, enemiesOf(entry), entry.color) : reach(entry).captures);
-  // Atacar, Golpe y Caer solo actúan sobre peones.
-  const refreshButtons = () => hud.setBusy(state.busy || state.fighting || state.selected?.kind !== 'pawn');
-
   function select(entry) {
     state.selected = entry;
     highlights.select(entry ? entry.mover.square : null);
     highlights.showMoves(entry ? movesOf(entry) : []);
     highlights.showCaptures(entry ? capturesOf(entry) : []);
-    refreshButtons();
   }
 
   function onBusy(busy) {
     state.busy = busy;
-    refreshButtons();
   }
 
   function removePiece(entry) {
@@ -231,7 +225,6 @@ async function start() {
   async function capture(attacker, defender) {
     state.fighting = true;
     highlights.clear();
-    refreshButtons();
     const target = defender.mover.square;
     try {
       const obstacles = pieces.filter((entry) => entry !== attacker && entry !== defender).map((entry) => board.squareToWorld(entry.mover.square));
@@ -309,10 +302,6 @@ async function start() {
     handleHover,
   );
 
-  hud.onAction((action) => {
-    if (!state.busy && !state.fighting && state.selected?.kind === 'pawn') state.selected.mover.perform(action);
-  });
-
   function addPiece(entry, square) {
     stage.scene.add(entry.piece.object);
     entry.mover.placeOn(square);
@@ -333,10 +322,6 @@ async function start() {
           addPiece(entry, file + side.pawnRank);
         }
       });
-      for (const action of BUTTON_ACTIONS) {
-        if (!kits.some((kit) => kit.has(action))) hud.hideAction(action);
-      }
-      refreshButtons();
     } catch (err) {
       console.error('[BChess] No se pudieron cargar los peones:', err);
       hud.showMessage('No se pudieron cargar los peones', { retry: () => loadPawns(manifest) });
@@ -432,6 +417,10 @@ async function start() {
           const entry = { kind: 'king', color: side.color, piece };
           entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing: restFacingFor(side.color) });
           addPiece(entry, file + side.backRank);
+          // Y la mano se cierra sobre él. Va lo último: el puño se busca sobre la mano tal y como va
+          // a quedarse —con los brazos ya bajados y la pieza en su casilla—, no sobre la del modelo
+          // recién cargado, que viene con los brazos en cruz y el báculo cruzado por delante.
+          piece.closeHandOnSpear();
         }
       });
     } catch (err) {

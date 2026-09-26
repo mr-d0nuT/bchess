@@ -1,9 +1,8 @@
-// Interfaz: contador de fluidez, botones de acciones, avisos y el destello blanco del combate.
+// Interfaz: contador de fluidez, avisos y el destello blanco del combate.
 
 export function createHud() {
   const fpsEl = document.getElementById('fps');
   const aviso = document.getElementById('aviso');
-  const buttons = [...document.querySelectorAll('#acciones button')];
   const flashEl = document.createElement('div');
   flashEl.id = 'destello';
   document.body.append(flashEl);
@@ -20,20 +19,8 @@ export function createHud() {
     }
   }
 
-  function onAction(handler) {
-    for (const button of buttons) {
-      button.addEventListener('click', () => handler(button.dataset.accion));
-    }
-  }
 
-  function setBusy(busy) {
-    for (const button of buttons) button.disabled = busy;
-  }
 
-  function hideAction(action) {
-    const button = buttons.find((b) => b.dataset.accion === action);
-    if (button) button.hidden = true;
-  }
 
   function hideMessage() {
     aviso.hidden = true;
@@ -65,5 +52,5 @@ export function createHud() {
     flashEl.classList.add('encendido');
   }
 
-  return { tickFps, onAction, setBusy, hideAction, showMessage, hideMessage, flash };
+  return { tickFps, showMessage, hideMessage, flash };
 }

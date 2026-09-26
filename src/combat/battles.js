@@ -12,11 +12,14 @@ import { knightLancesPawn } from './knight/knight-lances-pawn.js';
 import { knightRunsThroughPawn } from './knight/knight-runs-through-pawn.js';
 import { knightSweepsGiant } from './knight/knight-sweeps-giant.js';
 import { pawnKicksKnight } from './knight/pawn-kicks-knight.js';
+import { kingSmites } from './royal/king-smites.js';
+import { queenCasts } from './royal/queen-casts.js';
 
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas
 const BATTLES = [
   pawnKicksKnight, knightRunsThroughPawn, knightLancesPawn, knightFightsKnight, knightSweepsGiant, giantCrushesKnight,
   bishopTurnsToStone, bishopSpellFizzles,
+  queenCasts, kingSmites,
 ];
 
 // Las que encajan con esta pareja y pueden hacerse ahora mismo. Cuando hay más de una (el caballero

@@ -7,6 +7,7 @@ import { pickHandBone } from './bones.js';
 import { createSpear } from './spear.js';
 import { createSword } from './sword.js';
 import { strideSpeed } from '../moves/walk.js';
+import { closeFistOn } from './fist.js';
 import { slideAboveFloor } from './grip.js';
 import { findBone } from './bone-names.js';
 import { CAPE_BONES, capePose, capeRest, capeStep } from './cape.js';
@@ -29,6 +30,10 @@ const SPEAR_POSES = {
   upright: new THREE.Quaternion(),
 };
 const SPEAR_TURN_SPEED = 7; // por segundo: la lanza tarda ~0,15 s en cambiar de postura
+// El eje sobre el que el báculo da vueltas cuando se le pide (`setSpearSpin`): perpendicular a la
+// vara, así que voltea de punta a regatón, no gira sobre sí mismo como un taladro —que en un palo
+// redondo casi no se ve. Y como su origen está en el agarre, voltea alrededor del PUÑO.
+const SPIN_AXIS = new THREE.Vector3(1, 0, 0);
 const SPEAR_FLOOR_MARGIN = 0.02; // lo que queda su extremo más bajo por encima del suelo
 const GRIP_SPEED = 4; // casillas por segundo que resbala la lanza cuando lo pide el combate
 const SPEAR_FLIGHT = 0.8; // segundos que tarda en desvanecerse la lanza que sale volando
@@ -295,6 +300,7 @@ export function spawnPiece(kit) {
   let spearDefault = null; // postura en combate de lo que no pide ninguna (reacciones, guardia)
   let currentVariant = null;
   let currentName = null; // qué acción suena ahora ('walk', 'idle'…)
+  let spearSpin = 0; // radianes que el báculo lleva volteados sobre el puño
   let gripTarget = 0; // lo que el combate pide que la lanza resbale hacia el regatón
   let grip = 0;
   let flying = null; // lanza que ha salido volando: { velocity, axis, age }
@@ -449,6 +455,7 @@ export function spawnPiece(kit) {
   const modelQuaternion = new THREE.Quaternion();
   const boneQuaternion = new THREE.Quaternion();
   const posed = new THREE.Quaternion();
+  const spinQuaternion = new THREE.Quaternion();
   const top = new THREE.Vector3();
   const bottom = new THREE.Vector3();
   const floor = new THREE.Vector3();
@@ -824,6 +831,8 @@ export function spawnPiece(kit) {
       // Fuera de la mano, la orientación de la lanza se fija respecto a la figura.
       poseNow.rotateTowards(spearPose, POSE_TURN_SPEED * dt);
       model.getWorldQuaternion(modelQuaternion).multiply(poseNow);
+      // El volteo se compone por la derecha: en el sistema del propio báculo, o sea sobre el puño.
+      if (spearSpin) modelQuaternion.multiply(spinQuaternion.setFromAxisAngle(SPIN_AXIS, spearSpin));
       spear.parent.getWorldQuaternion(boneQuaternion).invert();
       posed.copy(boneQuaternion).multiply(modelQuaternion);
       spear.quaternion.slerpQuaternions(spearHold, posed, spearBlend);
@@ -838,6 +847,10 @@ export function spawnPiece(kit) {
       spear.position.addScaledVector(axis, -grip / spear.parent.getWorldScale(boneScale).x);
     }
     spear.updateWorldMatrix(true, false);
+    // Volteando, el báculo se sale del suelo media vuelta de cada vuelta: dejarlo resbalar para que
+    // no lo atraviese lo haría correr por dentro del puño en cada giro, que es justo lo que NO se
+    // quiere ver. Mientras voltea, atraviesa lo que haga falta.
+    if (spearSpin) return;
     spear.localToWorld(top.set(0, spearEnds.top, 0));
     spear.localToWorld(bottom.set(0, spearEnds.bottom, 0));
     const slide = slideAboveFloor({
@@ -928,6 +941,11 @@ export function spawnPiece(kit) {
       spearDefault = name ?? null;
       applySpearPose();
     },
+    // Voltea el báculo sobre el puño: `radians` es lo que lleva girado, así que el combate lo
+    // tuerce con un tween de 0 a las vueltas que quiera. Con 0 vuelve a su postura.
+    setSpearSpin(radians) {
+      spearSpin = radians || 0;
+    },
     // Desliza la lanza en la mano: positivo, hacia el regatón; negativo, hacia la punta (sube).
     setGripSlide(amount) {
       gripTarget = Math.max(-1, amount);
@@ -935,6 +953,31 @@ export function spawnPiece(kit) {
     throwSpear,
     plantSpear,
     holdSpear,
+    // Cierra la mano sobre el báculo, dedo a dedo. Se pide desde fuera y no al cargar la pieza,
+    // porque hasta que no tiene puesta su postura de reposo —con los brazos bajados, que es cosa
+    // del juego y no del modelo— la mano no está donde va a estar, y el puño se cerraría sobre el
+    // aire. Una vez cerrada se queda así: nada de lo que impone el juego toca los dedos.
+    closeHandOnSpear() {
+      if (!props.spear) return null;
+      // Unos cuantos fotogramas antes de medir: la lanza llega a su postura (erguida, embestida…)
+      // girando hacia ella, no de golpe, y con la pieza recién nacida todavía está a medio camino.
+      // Cerrar el puño ahí orientaría la muñeca hacia una vara que aún se está moviendo.
+      for (let i = 0; i < 4; i++) update(0.3);
+      object.updateMatrixWorld(true);
+      // Lo que se guarda es el DESPLAZAMIENTO que encuentra el puño, no el sitio en que acaba la
+      // lanza: donde está ahora es `spearGripAt` más lo que le suma cada fotograma (el resbalón que
+      // la levanta para que no atraviese la peana). Copiar el sitio entero metería ese resbalón
+      // dentro del agarre, y al fotograma siguiente se volvería a sumar encima.
+      const partida = props.spear.position.clone();
+      const hecho = closeFistOn({
+        model,
+        prop: props.spear,
+        side: spec.spear?.hand ?? 'right',
+        center: figure.getWorldPosition(new THREE.Vector3()),
+      });
+      if (hecho && spearGripAt) spearGripAt.add(props.spear.position).sub(partida);
+      return hecho;
+    },
     // Gira un hueso `turn` grados ({ x, y, z }, en el espacio de la figura: +X a su izquierda, +Y arriba
     // y +Z delante) encima de lo que haga la animación; con null deja de girarlo.
     turnBone,

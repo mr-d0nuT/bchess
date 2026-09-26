@@ -128,17 +128,6 @@ export function createMover({ piece, board, dust, clock, onBusy = () => {}, rest
     });
   }
 
-  function perform(action) {
-    if (!piece.has(action)) return Promise.resolve(false);
-    return exclusive(async () => {
-      if (action === 'fall') {
-        await fall();
-        return;
-      }
-      await piece.playOnce(action);
-      piece.play('idle', { fade: 0.25 });
-    });
-  }
 
   // Gesto suelto en reposo; nunca mientras la pieza está en plena coreografía. Devuelve la
   // versión elegida, o null.
@@ -213,7 +202,6 @@ export function createMover({ piece, board, dust, clock, onBusy = () => {}, rest
   return {
     placeOn,
     goTo,
-    perform,
     fidget,
     turnTo,
     descend,
