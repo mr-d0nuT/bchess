@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GRIP_SPEED } from '../../pieces/piece.js';
 import { afterImpact, knockBack, slowToImpact, stanceOf } from '../fight.js';
 import {
   BODY_GAP, bonePosition, COMBAT_RAISE, facingTo, fallDirection, knockOut, lyingBody, PAWN_BODY, postOf,
@@ -54,13 +55,29 @@ export const knightLancesPawn = {
     rider.setSpearPose('forward');
     await clock.wait(0.25);
 
-    // 3. La carga: se para donde la punta se hunde BITE en el peón.
+    // 3. La carga: se para donde la punta se hunde BITE en el peón. Dos cosas tiran del sitio en
+    //    que se para, y hay que hacerles caso a las dos: el caballo, que es un animal entero por
+    //    delante y no puede empotrarse en el peón, y la lanza, que tiene que llegar. Cuando manda
+    //    el caballo, la lanza se queda corta —y se veía: la punta pasaba a un palmo—, así que se
+    //    la deja salir de la mano lo que falte. El jinete la agarra más atrás y la punta alcanza.
     knight.object.updateMatrixWorld(true);
     const ahead = lanceAhead(knight, rider, facing);
-    const stop = Math.max(knight.radius + PAWN_BODY + BODY_GAP, ahead + PAWN_BODY - BITE);
+    const pideElCaballo = knight.radius + PAWN_BODY + BODY_GAP;
+    const pideLaLanza = ahead + PAWN_BODY - BITE;
+    const stop = Math.max(pideElCaballo, pideLaLanza);
+    const falta = stop - pideLaLanza;
+    if (falta > 0) {
+      rider.setGripSlide(-falta);
+      await clock.wait(falta / GRIP_SPEED + 0.05); // que acabe de resbalar antes de arrancar
+    }
     const end = { x: center.x - away.x * stop, z: center.z - away.z * stop };
     const charging = attacker.mover.chargeTo(end, { seconds: CHARGE_SECONDS });
-    await slowToImpact(clock, CHARGE_SECONDS * 0.72);
+    // El fogonazo iba al 72 % de la carga, y ahí la punta todavía estaba a más de un cuerpo del
+    // peón: se veía el ¡ZAS! en el aire. La carga avanza a velocidad constante hasta `end`, que es
+    // donde la punta queda BITE dentro del peón, así que el momento de tocarlo es ese menos lo que
+    // se hunde, medido sobre lo que recorre.
+    const recorrido = Math.hypot(end.x - start.x, end.z - start.z) || 1;
+    await slowToImpact(clock, CHARGE_SECONDS * Math.max(0, 1 - BITE / recorrido));
     const tip = rider.props.spear.localToWorld(new THREE.Vector3(0, rider.spearEnds.top, 0));
     fx.burst(tip, { size: 1.1, sparks: 28 });
     hud.flash();
@@ -96,6 +113,7 @@ export const knightLancesPawn = {
 
     // 5. El caballero recoge la lanza, se planta en la casilla y lo celebra desde la silla.
     rider.setSpearPose(null);
+    rider.setGripSlide(0);
     pawn.setSpearDefault(null);
     stances.delete(attacker);
     await victoryLap({ entry: attacker, clock, cinema, at: center, obstacles, move: () => attacker.mover.rideOnto(target) });

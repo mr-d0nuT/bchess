@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { FRENA, twirl } from '../twirl.js';
 import { roomClearance } from '../../moves/room.js';
 import { findBone } from '../../pieces/bone-names.js';
 
@@ -144,20 +145,31 @@ export async function victoryLap({ entry, clock, cinema, at, obstacles = [], mov
   await cinema.frame(clock, at, at, obstacles); // primer plano de la casilla ganada
   cinema.follow(figure);
   try {
-    await celebrate(entry);
+    await celebrate(entry, clock);
   } finally {
     cinema.follow(null);
     await cinema.restore(clock);
   }
 }
 
-// Celebra la victoria: su animación o, si no la tiene, unos saltitos.
-export async function celebrate(entry) {
+// Celebra la victoria: su animación o, si no la tiene, unos saltitos. Quien lleva lanza la hace
+// girar antes, frenando hasta dejarla quieta y erguida.
+//
+// Lo de erguirla no es un adorno: con la lanza pegada a la mano, la animación de victoria la deja
+// apuntando AL SUELO. El clip levanta el brazo girando la muñeca, y el palo se va con ella; un
+// vencedor enseñando el regatón al cielo y la punta a sus propios pies no celebra nada.
+export async function celebrate(entry, clock) {
   const fighter = fighterOf(entry);
+  const lanza = Boolean(fighter.props?.spear);
+  if (lanza) {
+    fighter.setSpearPose('upright');
+    if (clock) await twirl(fighter, { clock, turns: 2, seconds: 0.6, ease: FRENA });
+  }
   if (fighter.has('victory')) {
     await fighter.playOnce('victory');
     fighter.play('idle', { fade: 0.3 });
   } else if (entry.mover.hop) {
     await entry.mover.hop(2);
   }
+  if (lanza) fighter.setSpearPose(null);
 }

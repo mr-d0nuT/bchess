@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { fightSpots, gripSlideForReach, planExchanges, usableStrikes } from './plan.js';
+import { FRENA, twirl } from './twirl.js';
 
 // Director del combate entre dos peones (diseño en docs/superpowers/specs/
 // 2026-09-14-bchess-combate-peones-design.md). Gana siempre el atacante.
@@ -15,6 +16,8 @@ const RECOVER = 0.3; // lo que tarda en bajar el arma y erguir la lanza antes de
 // En combate, las lanzas van erguidas y algo subidas en la mano, para que el regatón no barra
 // las peanas vecinas en los golpes recibidos.
 const COMBAT_RAISE = 0.3;
+const TWIRL_TURNS = 3; // vueltas de lanza del atacante al encarar, y del vencedor al celebrar
+const TWIRL_SECONDS = 0.7;
 
 function strikesFor(pawn, style) {
   return usableStrikes(pawn.piece.attacks, pawn.piece.strikes, style);
@@ -122,7 +125,9 @@ export async function runCombat({ attacker, defender, board, clock, fx, cinema, 
     attacker.mover.turnTo(spots.attackerFacing, 0.3),
     defender.mover.turnTo(spots.defenderFacing, 0.3),
   ]);
-  const opening = [framing];
+  // El atacante hace girar la lanza sobre el puño mientras provoca: un molinete no sirve para nada
+  // en una pelea, y por eso mismo se hace —es decirle al otro que tiene tiempo de sobra.
+  const opening = [framing, twirl(a, { clock, turns: TWIRL_TURNS, seconds: TWIRL_SECONDS })];
   if (a.has('taunt')) opening.push(a.playOnce('taunt'));
   if (random() < 0.5 && d.hasClip('fidget', 'frightened')) opening.push(d.playOnce('fidget', { clip: 'frightened' }));
   await Promise.all(opening);
@@ -152,6 +157,8 @@ export async function runCombat({ attacker, defender, board, clock, fx, cinema, 
   a.setSpearPose(null);
   a.setGripSlide(0);
   await Promise.all([cinema.restore(clock), attacker.mover.walkOnto(target)]);
+  // Y otro molinete para rematar, este frenando: acaba la vuelta con la lanza quieta y erguida.
+  await twirl(a, { clock, turns: 2, seconds: 0.6, ease: FRENA });
   if (a.has('victory')) {
     await a.playOnce('victory');
     a.play('idle', { fade: 0.3 });

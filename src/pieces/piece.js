@@ -35,7 +35,7 @@ const SPEAR_TURN_SPEED = 7; // por segundo: la lanza tarda ~0,15 s en cambiar de
 // redondo casi no se ve. Y como su origen está en el agarre, voltea alrededor del PUÑO.
 const SPIN_AXIS = new THREE.Vector3(1, 0, 0);
 const SPEAR_FLOOR_MARGIN = 0.02; // lo que queda su extremo más bajo por encima del suelo
-const GRIP_SPEED = 4; // casillas por segundo que resbala la lanza cuando lo pide el combate
+export const GRIP_SPEED = 4; // casillas por segundo que resbala la lanza cuando lo pide el combate
 const SPEAR_FLIGHT = 0.8; // segundos que tarda en desvanecerse la lanza que sale volando
 const SPEAR_GRAVITY = 6;
 const SPEAR_PLANT_DEPTH = 0.12; // lo que se clava en el tablero la lanza que se deja en el suelo
@@ -831,12 +831,14 @@ export function spawnPiece(kit) {
       // Fuera de la mano, la orientación de la lanza se fija respecto a la figura.
       poseNow.rotateTowards(spearPose, POSE_TURN_SPEED * dt);
       model.getWorldQuaternion(modelQuaternion).multiply(poseNow);
-      // El volteo se compone por la derecha: en el sistema del propio báculo, o sea sobre el puño.
-      if (spearSpin) modelQuaternion.multiply(spinQuaternion.setFromAxisAngle(SPIN_AXIS, spearSpin));
       spear.parent.getWorldQuaternion(boneQuaternion).invert();
       posed.copy(boneQuaternion).multiply(modelQuaternion);
       spear.quaternion.slerpQuaternions(spearHold, posed, spearBlend);
     }
+    // El molinete va al final y por la derecha, que es componer en el sistema del PROPIO palo: así
+    // da igual que el palo esté siguiendo a la mano (el peón) o puesto en una postura (el rey), y
+    // como el origen de un palo está en su agarre, las vueltas salen alrededor del puño.
+    if (spearSpin) spear.quaternion.multiply(spinQuaternion.setFromAxisAngle(SPIN_AXIS, spearSpin));
     // El combate puede pedir que la lanza resbale hacia el regatón (para no atravesar al
     // rival) y, si un extremo se hunde en la peana o en el tablero, resbala hacia arriba.
     const gripStep = GRIP_SPEED * dt;
