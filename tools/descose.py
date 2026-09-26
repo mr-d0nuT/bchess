@@ -59,6 +59,26 @@ def cadena(lado):
     return out
 piernas=[cadena('Left'), cadena('Right')]
 DE_PIERNA={i for c in piernas for i in c}
+
+# Los brazos, con su propia cadena y su propio destino. Las figuras se generan en cruz —es la pose
+# que pide el aparejo automático— y una capa que cae por la espalda pasa justo por debajo de los
+# brazos abiertos, así que se la cosen a los hombros. Al bajarlos a una pose de reposo, la capa se
+# va con ellos y se parte en cuchillos. Esa tela se pasa a la espalda alta, que es de donde cuelga
+# una capa de verdad.
+def cadena_brazo(lado):
+    out = []
+    for parte in ('Shoulder', 'Arm', 'ForeArm', 'Hand'):
+        for i, n in nombres.items():
+            if n.endswith(lado + parte):
+                out.append(i)
+    return out
+
+brazos = [cadena_brazo('Left'), cadena_brazo('Right')]
+DE_BRAZO = {i for c in brazos for i in c}
+ESPALDA = next((i for i, n in nombres.items() if n.endswith('Spine2')),
+               next((i for i, n in nombres.items() if n.endswith('Spine1')), CADERA))
+RADIO_BRAZO = RADIO * 0.8  # un brazo es más delgado que una pierna
+print('brazos:', [[nombres[i] for i in c] for c in brazos])
 print('piernas:', [[nombres[i] for i in c] for c in piernas])
 
 def dist_polilinea(p, cad):
@@ -79,27 +99,40 @@ we, wfmt, _ = lee(prim['attributes']['WEIGHTS_0'])
 if wfmt != 'f':
     raise SystemExit('los pesos no son float; habría que desnormalizar')
 
-tela=carne=0
-for (pdir,p),(jdir,jj),(wdir,ww) in zip(pos,jo,we):
-    if not any(ww[k] > 0 and jj[k] in DE_PIERNA for k in range(4)):
-        continue
-    d=min(dist_polilinea(p,c) for c in piernas)
-    if d <= RADIO:
-        carne+=1
-        continue
-    tela+=1
-    nj=list(jj); nw=list(ww); suelto=0.0
+def descoser(p, jj, ww, miembros, cadenas, radio, destino):
+    """El peso que este vértice tiene en esos miembros se pasa a `destino`, si el vértice cae fuera
+    del tubo del miembro (o sea, si es tela y no carne). Devuelve (pesos, huesos) o None."""
+    if not any(ww[k] > 0 and jj[k] in miembros for k in range(4)):
+        return None
+    if min(dist_polilinea(p, c) for c in cadenas) <= radio:
+        return None
+    nj = list(jj); nw = list(ww); suelto = 0.0
     for k in range(4):
-        if jj[k] in DE_PIERNA and ww[k] > 0:
-            suelto+=ww[k]; nw[k]=0.0; nj[k]=CADERA
-    # todo lo que se soltó se lo queda la cadera
+        if jj[k] in miembros and ww[k] > 0:
+            suelto += ww[k]; nw[k] = 0.0; nj[k] = destino
     for k in range(4):
-        if nj[k]==CADERA and nw[k] >= 0:
-            nw[k]+=suelto; suelto=0.0; break
-    s=sum(nw)
-    if s > 0: nw=[x/s for x in nw]
-    struct.pack_into('<'+jfmt*4, b, jdir, *nj)
+        if nj[k] == destino:
+            nw[k] += suelto; suelto = 0.0; break
+    s = sum(nw)
+    return ([x/s for x in nw], nj) if s > 0 else None
+
+tela = carne = telabrazo = 0
+for (pdir, p), (jdir, jj), (wdir, ww) in zip(pos, jo, we):
+    nj, nw = list(jj), list(ww)
+    hecho = descoser(p, nj, nw, DE_PIERNA, piernas, RADIO, CADERA)
+    if hecho:
+        nw, nj = hecho
+        tela += 1
+    elif any(ww[k] > 0 and jj[k] in DE_PIERNA for k in range(4)):
+        carne += 1
+    hecho = descoser(p, nj, nw, DE_BRAZO, brazos, RADIO_BRAZO, ESPALDA)
+    if hecho:
+        nw, nj = hecho
+        telabrazo += 1
+    if nj == list(jj) and nw == list(ww):
+        continue
+    struct.pack_into('<' + jfmt*4, b, jdir, *nj)
     struct.pack_into('<ffff', b, wdir, *nw)
-print(f'{tela} vértices de tela descosidos de las piernas; {carne} se quedan (piernas y zapatos)')
-pathlib.Path(salida).write_bytes(bytes(b))
+print(f'{tela} vértices de tela descosidos de las piernas ({carne} se quedan: piernas y zapatos)')
+print(f'{telabrazo} vértices de tela descosidos de los brazos, a la espalda alta')
 print('->', salida)
