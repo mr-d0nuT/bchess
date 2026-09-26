@@ -86,6 +86,13 @@ const STILL_STEADY = 0.01; // radianes de diferencia que ya no vale la pena impo
 const POSE_TRIES = 4; // veces que se impone un giro y se corrige lo que falta
 const STILL_STRETCH = 3; // veces que se mide y se alarga la pata que no llega al suelo
 const STILL_MAX = 0.12; // lo más que se alarga o se recoge una pata, pase lo que pase
+const STILL_REACH = 0.35; // y lo más que se le adelanta o se le atrasa la pezuña
+
+// Un paso hacia `pide` que ni se pasa del tope total (`tope`) ni corrige todo de golpe.
+const frena = (pide, llevado, tope) => {
+  const queda = Math.max(0, tope - Math.abs(llevado));
+  return Math.sign(pide) * Math.min(Math.abs(pide), queda);
+};
 const GROUND_SAMPLES = 24; // puntos del paseo en los que se mide dónde le queda el suelo
 const STILL_FLOOR = 0.005; // altura por debajo de la cual un casco ya se da por apoyado
 
@@ -347,41 +354,58 @@ function measureStill(horse, legs, radius) {
     else if (mejor.turn) turns.push({ bone: nombre, turn: mejor.turn });
   }
 
-  // 4. ALARGAR LA PATA QUE VIENE CORTA. Este caballo no es simétrico: su mano derecha no baja tanto
-  // como las otras tres EN NINGÚN momento del paseo —ocho centímetros de diferencia, medidos—, así
-  // que por bien que se elija la postura, esa pezuña se queda en el aire. Como no es cosa de la
-  // postura sino del modelo, se arregla donde está el problema: se le alarga la pata. El estirón se
-  // reparte entre todos sus huesos, de modo que cada hueso baja una pizca y el casco baja la suma;
-  // repartido así no se ve, mientras que hacerlo de golpe en el menudillo dejaría una cuartilla del
-  // doble de largo.
-  // El suelo es el de la MAYORÍA de las patas —la mediana—, y se fija antes de empezar. Dos motivos:
+  // 4. CADA PEZUÑA, A SU SITIO: a ras del suelo y bajo su propio hombro. Dos cosas que no arregla
+  // elegir bien el instante, porque no son de la postura sino del modelo y de la animación:
   //
-  //  - Si se toma la pata que más baja, basta con que una quede un poco más abajo (aplomarle la
-  //    pezuña la baja un palmo) para que las otras tres «falten» veinte centímetros.
-  //  - Y si además se recalcula en cada pasada, se realimenta: se alarga la que falta, con lo que su
-  //    pezuña baja, con lo que el suelo baja, con lo que ahora faltan las otras… y en cuatro vueltas
-  //    el caballo tiene medio metro de pata y está enterrado en la peana hasta los menudillos.
+  //  - Este caballo no es simétrico: su mano derecha no baja tanto como las otras tres en NINGÚN
+  //    momento del paseo. Sin corregirlo, esa pezuña se queda en el aire.
+  //  - Y hay patas cuyo único instante de apoyo las pilla estiradas hacia atrás —la trasera derecha
+  //    apoya veintinueve centímetros por detrás de su cadera, cuando las otras tres se quedan a
+  //    menos de ocho—, así que se sale de la peana.
   //
-  // Con la mediana, las que se quedan cortas se alargan y las que se pasan se recogen, y el cuerpo
-  // se queda donde el modelo lo puso. Pase lo que pase, ninguna se mueve más que `STILL_MAX`.
+  // Las dos se arreglan igual: moviendo los huesos de la pata, repartido entre todos, de modo que
+  // cada uno se desplaza una pizca y la pezuña se desplaza la suma. El hueso de arriba no se toca,
+  // así que la pata sigue colgando del cuerpo donde debe. Repartido no se ve; de golpe en el
+  // menudillo saldría una cuartilla del doble de largo.
+  //
+  // El suelo es la MEDIANA de las cuatro, no la más baja: si se toma la más baja, basta con que una
+  // quede un poco por debajo para que las otras tres «falten» un palmo, y recalculándola en cada
+  // vuelta se realimenta hasta dejar al caballo con medio metro de pata, enterrado en la peana.
+
   const lifts = [];
   const alturas = Object.values(hoofSoles(test, legs)).map((hoof) => hoof.sole).sort((a, b) => a - b);
   const suelo = (alturas[Math.floor((alturas.length - 1) / 2)] + alturas[Math.ceil((alturas.length - 1) / 2)]) / 2;
-  const movido = new Map(Object.keys(legs).map((name) => [name, 0]));
+  const movido = new Map(Object.keys(legs).map((name) => [name, new THREE.Vector3()]));
+  const paso = new THREE.Vector3();
   for (let vuelta = 0; vuelta < STILL_STRETCH; vuelta++) {
     const hooves = hoofSoles(test, legs);
     for (const [name, bones] of Object.entries(legs)) {
-      const pide = (hooves[name]?.sole ?? suelo) - suelo;
-      const tope = STILL_MAX - Math.abs(movido.get(name));
-      const falta = Math.sign(pide) * Math.min(Math.abs(pide), Math.max(0, tope));
-      if (Math.abs(falta) < STILL_FLOOR || bones.length < 2) continue;
-      movido.set(name, movido.get(name) + falta);
-      const cada = -falta / (bones.length - 1);
+      const casco = hooves[name]?.ankle;
+      const hombro = test.object.getObjectByName(bones[0])?.getWorldPosition(new THREE.Vector3());
+      if (!casco || bones.length < 2) continue;
+      // Adónde tiene que ir la pezuña: a ras del suelo y bajo su propio hombro (o su cadera).
+      paso.set(
+        hombro ? hombro.x - casco.x : 0,
+        suelo - (hooves[name]?.sole ?? suelo),
+        hombro ? hombro.z - casco.z : 0,
+      );
+      // Con freno, y sin pasarse de lo que se le puede mover a una pata en total.
+      const queda = movido.get(name);
+      paso.x = frena(paso.x, queda.x, STILL_REACH);
+      paso.y = frena(paso.y, queda.y, STILL_MAX);
+      paso.z = frena(paso.z, queda.z, STILL_REACH);
+      if (paso.lengthSq() < STILL_FLOOR * STILL_FLOOR) continue;
+      queda.add(paso);
       for (const nombre of bones.slice(1)) {
-        const previo = lifts.find((l) => l.bone === nombre);
-        if (previo) previo.lift.y += cada;
-        else lifts.push({ bone: nombre, lift: { x: 0, y: cada, z: 0 } });
-        test.liftBone(nombre, lifts.find((l) => l.bone === nombre).lift);
+        let previo = lifts.find((l) => l.bone === nombre);
+        if (!previo) {
+          previo = { bone: nombre, lift: { x: 0, y: 0, z: 0 } };
+          lifts.push(previo);
+        }
+        previo.lift.x += paso.x / (bones.length - 1);
+        previo.lift.y += paso.y / (bones.length - 1);
+        previo.lift.z += paso.z / (bones.length - 1);
+        test.liftBone(nombre, previo.lift);
       }
       test.update(0);
       test.object.updateMatrixWorld(true);
@@ -395,10 +419,13 @@ function measureStill(horse, legs, radius) {
   const piso = Math.min(...soles);
   if (globalThis.location?.search.includes('patas')) {
     console.log('[BChess] patas: ' + JSON.stringify(Object.fromEntries(Object.keys(legs).map((name) => {
+      const casco = hooves[name].ankle;
+      const hombro = test.object.getObjectByName(legs[name][0])?.getWorldPosition(new THREE.Vector3());
       return [name, {
         sobreElSuelo: +(hooves[name].sole - piso).toFixed(4),
         suelaApoyada: hooves[name].flat,
-        delCentro: +Math.hypot(hooves[name].ankle?.x ?? 0, hooves[name].ankle?.z ?? 0).toFixed(3),
+        bajoElHombro: casco && hombro ? +Math.hypot(casco.x - hombro.x, casco.z - hombro.z).toFixed(3) : null,
+        delCentro: +Math.hypot(casco?.x ?? 0, casco?.z ?? 0).toFixed(3),
       }];
     }))));
   }
