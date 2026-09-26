@@ -68,6 +68,10 @@ void main() {
     peso += 1.0;
   }
   gl_FragColor = suma / peso;
+  // La escena se ha pintado a una textura, y ahí three NO hace la conversión final de color que sí
+  // haría al pintar a la pantalla: sin esto, el combate sale oscurísimo. El mapeo de tonos ya se
+  // aplicó al pintar cada objeto, así que este material lo lleva desactivado para no repetirlo.
+  #include <colorspace_fragment>
 }
 `;
 
@@ -109,6 +113,7 @@ export function createFocus(renderer, scene, camera, quality) {
       },
       depthTest: false,
       depthWrite: false,
+      toneMapped: false,
     });
     // Un triángulo que tapa la pantalla: más barato que dos y sin costura en la diagonal.
     const geometry = new THREE.BufferGeometry();

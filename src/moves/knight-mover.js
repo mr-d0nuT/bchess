@@ -117,14 +117,18 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
       return;
     }
     walk.paused = true;
-    walk.time = knight.mount?.still?.time ?? 0; // el fotograma en que las cuatro patas quedan más a la par
-    for (const { bone, turn } of knight.mount?.still?.turns ?? []) horse.turnBone(bone, turn); // y cada pata, apoyada
+    walk.time = knight.mount?.still?.time ?? 0; // el cuerpo, en un fotograma cualquiera del paseo
+    // y cada pata, en la postura que tenía cuando le tocaba pisar a ella
+    for (const { bone, turn } of knight.mount?.still?.turns ?? []) horse.turnBone(bone, turn);
+    // más el estirón de la que viene corta de fábrica
+    for (const { bone, lift } of knight.mount?.still?.lifts ?? []) horse.liftBone(bone, lift);
   }
 
   // Suelta las patas de la postura de quieto: andando, saltando o encabritándose manda la animación.
   function looseLegs() {
     if (!horse) return;
     for (const { bone } of knight.mount?.still?.turns ?? []) horse.turnBone(bone, null);
+    for (const { bone } of knight.mount?.still?.lifts ?? []) horse.liftBone(bone, null);
   }
 
   function placeOn(target) {
