@@ -61,6 +61,16 @@ AIRES = {
         'alzada': {'front': 0.12, 'back': 0.08}, 'pliegue': 1.3,
         'vaiven': (0.02, 1, 0.45), 'tronco': (6, 1, 0.65), 'cuello': (1.3, 1, 0.65),
     },
+    # Girar en el sitio, a cuatro tiempos como al paso: el cuerpo gira `guinada` grados por segundo
+    # alrededor de su centro y los cascos apoyados se quedan clavados en el suelo, así que, respecto al
+    # cuerpo, cada uno recorre un arco: la pata se abre o se cierra de lado para seguirlo (abducción),
+    # con el casco siempre de plano. No avanza. Girando al otro lado, el juego lo pone del revés.
+    'turn': {
+        'ciclo': 0.6, 'zancada': 0.0, 'apoyo': 0.6, 'guinada': 120,
+        'pisadas': {'backLeft': 0.0, 'frontLeft': 0.25, 'backRight': 0.5, 'frontRight': 0.75},
+        'alzada': {'front': 0.04, 'back': 0.03}, 'pliegue': 0.7, 'despegue': (0.3, 15), 'recoge': 0.5,
+        'vaiven': (0.002, 2, 0.25), 'tronco': (0, 1, 0), 'cuello': (0.5, 2, 0.3),
+    },
 }
 FPS = 60
 DESPEGUE = 0.19  # fracción del apoyo, al final, en que el casco rueda sobre la punta
@@ -72,6 +82,11 @@ CENTRO = {'front': -0.05, 'back': 0.075}
 CABECEO = [3, 1.5, -1.5]  # grados que baja la cabeza cada hueso del cuello en el paso (el aire los escala)
 COLA = [4, 3, 2.5, 2, 1.5, 1]  # grados del vaivén de lado de la cola, del nacimiento a la punta
 PIVOTE = 0.6  # a qué altura del caballo (en alturas) está el punto sobre el que se mece el cuerpo
+# Quieto, el caballo recoge las patas bajo el cuerpo (en alturas; positivo, hacia delante), como un
+# caballo de circo en su pedestal: tal como sale de Tripo, con las traseras estiradas atrás, sus cascos
+# no caben en la peana.
+RECOGIDO = {'front': -0.06, 'back': 0.165}
+RECOGIDO_DENTRO = {'front': 0.0, 'back': 0.05}  # y las traseras, que salen muy abiertas, hacia dentro
 
 # Cada pata tiene cinco huesos, de arriba abajo. Delante: escápula, hombro, codo, rodilla (carpo) y
 # menudillo, que lleva la cuartilla y el casco. Detrás: cadera, babilla, corvejón, menudillo y casco.
@@ -106,6 +121,7 @@ PESO_CASCO_VUELO = 6  # en el vuelo, solo se le sugiere el ángulo
 RAMPA = 0.25  # fracción del vuelo en que se pasa de lo del apoyo a lo del vuelo, a cada extremo
 
 GRADOS = math.pi / 180
+ARRIBA = np.array([0.0, 1.0, 0.0])
 
 
 # --- El modelo -----------------------------------------------------------------------------------
@@ -317,6 +333,48 @@ class Pata:
         self.origen = puntos[0]
         self.punta = puntos[-1]
         self.topes = np.array(self.spec['topes'], float) * GRADOS
+        # En 3D, para abrirla de lado: las cabezas de sus huesos, la punta del casco y los ejes del cuerpo.
+        self.puntos3 = [np.array(esq.pos[h], float) for h in huesos]
+        self.punta3 = np.array(punta, float)
+        self.delante = delante
+        self.izquierda = np.cross(np.array([0.0, 1.0, 0.0]), delante)
+
+    # La punta del casco en 3D, con la pata girada `alpha` en su plano, abierta `beta` de lado (giro sobre
+    # el eje de delante por la cabeza del primer hueso) y el casco sin ladear: el último hueso deshace la
+    # apertura, para que la suela siga de plano.
+    def extremo3(self, alpha, beta, psi=0.0):
+        n = self.izquierda
+        p = self.puntos3[0].copy()
+        giro_total = 0.0
+        for k in range(4):
+            giro_total += alpha[k]
+            p = p + giro(n, giro_total) @ (self.puntos3[k + 1] - self.puntos3[k])
+        giro_total += alpha[4]
+        J = self.puntos3[0]
+        vuelta = giro(ARRIBA, psi)
+        ultimo = J + vuelta @ giro(self.delante, beta) @ (p - J)
+        return ultimo + vuelta @ giro(n, giro_total) @ (self.punta3 - self.puntos3[4])
+
+    # Como `resuelve`, pero con la punta del casco en un punto 3D, que puede salirse del plano de la pata:
+    # la apertura se calcula de una vez (el giro de lado que lleva la punta a su sitio conserva su distancia
+    # al eje) y lo que descuadra el casco al deshacerla se corrige en unas vueltas.
+    # `psi` gira la pata entera sobre el eje vertical que pasa por su primer hueso (como rota un caballo
+    # la pata desde el hombro o la cadera): con él, el casco apoyado no cambia de orientación en el suelo
+    # aunque el cuerpo gire encima.
+    def resuelve3(self, obj, T, alpha, psi=0.0):
+        J = self.puntos3[0]
+        w0 = (self.punta3 - J) @ self.izquierda  # lo que la punta queda de lado respecto al primer hueso
+        ajustado = T.copy()
+        beta = 0.0
+        for _ in range(6):
+            r = gira_y(ajustado - J, -psi)
+            w, y = r @ self.izquierda, r[1]
+            alto = -math.sqrt(max(1e-12, w * w + y * y - w0 * w0))
+            beta = math.atan2(w0 * y - alto * w, w0 * w + alto * y)
+            obj['punta'] = np.array([(J + r) @ self.delante, J[1] + alto])
+            alpha = self.resuelve(obj, alpha)
+            ajustado = ajustado + (T - self.extremo3(alpha, beta, psi))
+        return alpha, beta
 
     def extremo(self, alpha):
         p = self.origen.copy()
@@ -393,11 +451,12 @@ def objetivo(pata, s, aire, suelo, vaiven):
     u0 = centro + recorrido / 2  # donde pisa
     u1 = centro - recorrido / 2  # donde despega
     alto = suelo - vaiven
+    despegue, giro_despegue = aire.get('despegue', (DESPEGUE, GIRO_DESPEGUE))
     if s < apoyo:
-        rueda = suave((s / apoyo - (1 - DESPEGUE)) / DESPEGUE)
+        rueda = suave((s / apoyo - (1 - despegue)) / despegue)
         return {
             'punta': np.array([u0 - recorrido * s / apoyo, alto]),
-            'casco': GIRO_DESPEGUE * GRADOS * rueda,
+            'casco': giro_despegue * GRADOS * rueda,
             'peso_casco': PESO_CASCO,
             'preferido': [0] * 5,
             'pesos': spec['peso_apoyo'],
@@ -411,11 +470,37 @@ def objetivo(pata, s, aire, suelo, vaiven):
     rampa = suave(v / RAMPA) * suave((1 - v) / RAMPA)
     return {
         'punta': np.array([u, alto + aire['alzada'][pata.clase] * alto_caballo * math.sin(math.pi * v)]),
-        'casco': tramos(spec['casco'], v),
+        # Lo que se recoge el casco en mitad del vuelo; en pasos cortos (girando en el sitio), menos.
+        'casco': tramos([(0, giro_despegue)] + [(x, g * aire.get('recoge', 1)) for x, g in spec['casco'][1:]], v),
         'peso_casco': PESO_CASCO + (PESO_CASCO_VUELO - PESO_CASCO) * rampa,
         'preferido': [p * aire['pliegue'] * GRADOS * joroba(v) for p in spec['pliegue']],
         'pesos': [a + (b - a) * rampa for a, b in zip(spec['peso_apoyo'], spec['peso_vuelo'])],
     }
+
+
+def gira_y(p, a):  # como `rotation.y` de three: alrededor del eje vertical por el origen del modelo
+    c, sn = math.cos(a), math.sin(a)
+    return np.array([c * p[0] + sn * p[2], p[1], -sn * p[0] + c * p[2]])
+
+
+# Dónde va la punta del casco girando en el sitio, en el espacio del cuerpo: apoyada, clavada en el suelo
+# mientras el cuerpo gira (recorre un arco hacia atrás); en el aire, de vuelta hasta donde volverá a pisar.
+def punta_giro(pata, s, aire, suelo, vaiven):
+    apoyo, ciclo = aire['apoyo'], aire['ciclo']
+    w = aire['guinada'] * GRADOS
+    medio = w * apoyo * ciclo / 2  # lo que gira el cuerpo en medio apoyo
+    alto = suelo - vaiven
+    if s < apoyo:
+        angulo = medio - w * s * ciclo
+    else:
+        v = (s - apoyo) / (1 - apoyo)
+        m = -w * (1 - apoyo) * ciclo  # la misma velocidad que en el apoyo, en los dos extremos
+        h00, h10, h01, h11 = 2 * v**3 - 3 * v**2 + 1, v**3 - 2 * v**2 + v, -2 * v**3 + 3 * v**2, v**3 - v**2
+        angulo = h00 * -medio + h10 * m + h01 * medio + h11 * m
+        alto += aire['alzada'][pata.clase] * pata.alto_caballo * math.sin(math.pi * v)
+    punta = gira_y(pata.punta3, angulo)
+    punta[1] = pata.punta3[1] - pata.punta[1] + alto  # la punta 3D y la del plano miden lo mismo en altura
+    return punta, angulo
 
 
 def onda(amplitud_ciclos_bajo, fase):  # cos con su mínimo en el punto dado del ciclo
@@ -486,19 +571,28 @@ def compone(esq, cuerpo, patas, suelo, pivote, alto, aire):
 
     # Cada pata, fotograma a fotograma, en el espacio del cuerpo que cabecea: dos vueltas al ciclo, que
     # la segunda arranque de la primera y así el final empalme con el principio.
-    angulos = {}
+    gira = 'guinada' in aire
+    if gira and aire['tronco'][0]:
+        raise SystemExit('girando en el sitio el tronco no cabecea: el cálculo de la abertura no lo tiene en cuenta')
+    angulos, aperturas = {}, {}
     for nombre, pata in patas.items():
         alpha = np.zeros(5)
         for vuelta in range(2):
-            fila = []
+            fila, abre = [], []
             for k in range(n + 1):
                 s = (fase[k] - aire['pisadas'][nombre]) % 1
                 obj = objetivo(pata, s, aire, suelo, vaiven[k])
-                obj['punta'] = pivote + gira2(obj['punta'] - pivote, -tronco[k])
-                obj['casco'] -= tronco[k]
-                alpha = pata.resuelve(obj, alpha)
+                if gira:
+                    punta, psi = punta_giro(pata, s, aire, suelo, vaiven[k])
+                    alpha, beta = pata.resuelve3(obj, punta, alpha, psi)
+                else:
+                    obj['punta'] = pivote + gira2(obj['punta'] - pivote, -tronco[k])
+                    obj['casco'] -= tronco[k]
+                    alpha, beta, psi = pata.resuelve(obj, alpha), 0.0, 0.0
                 fila.append(alpha.copy())
+                abre.append((beta, psi))
         angulos[nombre] = np.array(fila)
+        aperturas[nombre] = np.array(abre)
 
     giros = {h: [] for h in esq.huesos}
     raiz = cuerpo['raiz']
@@ -507,8 +601,14 @@ def compone(esq, cuerpo, patas, suelo, pivote, alto, aire):
     for k in range(n + 1):
         movidos = {}
         for nombre, huesos in cuerpo['patas'].items():
-            for h, a in zip(huesos, angulos[nombre][k]):
+            alpha, (beta, psi) = angulos[nombre][k], aperturas[nombre][k]
+            for h, a in zip(huesos, alpha):
                 movidos[h] = giro(izquierda, a)
+            if beta or psi:
+                # Abierta de lado y girada sobre su eje desde el primer hueso; el último deshace la apertura
+                # para que el casco no se ladee (el giro sobre el eje, no: es el que lo deja quieto en el suelo).
+                movidos[huesos[0]] = giro(ARRIBA, psi) @ giro(delante, beta) @ movidos[huesos[0]]
+                movidos[huesos[-1]] = giro(izquierda, -alpha[:4].sum()) @ giro(delante, -beta) @ giro(izquierda, alpha.sum())
         # El cuello: la cabeza baja con cada pisada de las manos y, en el galope, con el tronco.
         nod = onda((1, cabeceo_cuello[1], cabeceo_cuello[2]), fase[k])
         for h, g in zip(cuerpo['cuello'], CABECEO):
@@ -523,17 +623,30 @@ def compone(esq, cuerpo, patas, suelo, pivote, alto, aire):
         p3 = np.array([0.0, pivote[1], 0.0]) + delante * pivote[0]
         base = esq.T[raiz]
         marcha.append(cabeceo @ (base - p3) + p3 + delante * avance * fase[k] + np.array([0, vaiven[k], 0]))
-    return {'tiempos': tiempos, 'giros': giros, 'marcha': np.array(marcha), 'raiz': raiz, 'angulos': angulos, 'avance': avance}
+    return {'tiempos': tiempos, 'giros': giros, 'marcha': np.array(marcha), 'raiz': raiz, 'angulos': angulos,
+            'aperturas': aperturas, 'avance': avance}
 
 
-# Quieto: los cuatro cascos de plano en el mismo suelo, bajo su sitio de reposo.
+# Quieto: los cuatro cascos de plano en el mismo suelo, recogidos bajo el cuerpo.
 def reposo(esq, cuerpo, patas, suelo):
+    delante, izquierda = cuerpo['delante'], cuerpo['izquierda']
     giros = {}
     for nombre, pata in patas.items():
-        obj = {'punta': np.array([pata.punta[0], suelo]), 'casco': 0.0, 'peso_casco': PESO_CASCO,
-               'preferido': [0] * 5, 'pesos': pata.spec['peso_apoyo']}
-        for h, a in zip(cuerpo['patas'][nombre], pata.resuelve(obj, np.zeros(5))):
-            giros[h] = giro(cuerpo['izquierda'], a)
+        alto = pata.alto_caballo
+        lado = 1 if pata.punta3 @ izquierda > 0 else -1
+        punta = (pata.punta3 + delante * RECOGIDO[pata.clase] * alto
+                 - izquierda * lado * RECOGIDO_DENTRO[pata.clase] * alto)
+        punta[1] = pata.punta3[1] - pata.punta[1] + suelo
+        obj = {'casco': 0.0, 'peso_casco': PESO_CASCO, 'preferido': [0] * 5, 'pesos': pata.spec['peso_apoyo']}
+        alpha, beta = pata.resuelve3(obj, punta, np.zeros(5))
+        huesos = cuerpo['patas'][nombre]
+        for h, a in zip(huesos, alpha):
+            giros[h] = giro(izquierda, a)
+        giros[huesos[0]] = giro(delante, beta) @ giros[huesos[0]]
+        giros[huesos[-1]] = giro(izquierda, -alpha[:4].sum()) @ giro(delante, -beta) @ giro(izquierda, alpha.sum())
+        error = np.linalg.norm(pata.extremo3(alpha, beta) - punta)
+        if error > 1e-4:
+            raise SystemExit(f'quieto: el casco de {nombre} no llega a su sitio (falta {error:.4f})')
     return {h: [local(esq, h, giros.get(h, np.eye(3)))] * 2 for h in esq.huesos}
 
 
@@ -564,7 +677,11 @@ def comprueba(esq, cuerpo, datos, malla, paso, aire, suelo):
         V = np.einsum('vk,vkij,vj->vi', W, piel[J], P)[:, :3]
         minimo.append(V[:, 1].min() - suelo)
         for nombre, d in datos.items():
-            huella[nombre].append((V[d['pisa']], V[d['vertices']]))
+            pisa = V[d['pisa']]
+            if 'guinada' in aire:  # en el mundo, el cuerpo va girando (un ciclo más, si el apoyo empezó en el anterior)
+                t = paso['tiempos'][k] + (aire['ciclo'] if fase[k] < aire['pisadas'][nombre] else 0)
+                pisa = np.array([gira_y(v, aire['guinada'] * GRADOS * t) for v in pisa])
+            huella[nombre].append((pisa, V[d['vertices']]))
 
     # En el suelo: con algún casco apoyado de plano, lo más bajo del caballo ha de estar justo en el
     # suelo; y nunca por debajo.
@@ -572,8 +689,9 @@ def comprueba(esq, cuerpo, datos, malla, paso, aire, suelo):
     informe = {'hundido_max': -min(minimo), 'flotando_max': max(m for m, a in zip(minimo, apoyado) if a)}
     for nombre, filas in huella.items():
         s = (fase - aire['pisadas'][nombre]) % 1
-        plano = [k for k in range(n - 1) if s[k] < apoyo * (1 - DESPEGUE)]
-        atras = paso['avance'] * delante  # el apoyo que empezó en el ciclo anterior, traído a este
+        despegue = aire.get('despegue', (DESPEGUE,))[0]
+        plano = [k for k in range(n - 1) if s[k] < apoyo * (1 - despegue)]
+        atras = paso['avance'] * delante if 'guinada' not in aire else 0  # el apoyo que empezó en el ciclo anterior
         pos = np.array([filas[k][0] + (atras if fase[k] < aire['pisadas'][nombre] else 0) for k in plano])
         altura = np.array([f[1][:, 1].min() - suelo for f in filas])
         vuelo = [k for k in range(n) if apoyo + 0.1 * (1 - apoyo) < s[k] < 1 - 0.1 * (1 - apoyo)]
@@ -608,12 +726,17 @@ def main():
     animaciones = []
     for clave, aire in AIRES.items():
         paso = compone(esq, cuerpo, patas, suelo, pivote, alto, aire)
-        print(f"\n{clave}: {aire['ciclo']:g} s por ciclo, avanza {paso['avance']:.3f} ({paso['avance'] / aire['ciclo']:.3f} por segundo)")
+        if 'guinada' in aire:
+            print(f"\n{clave}: {aire['ciclo']:g} s por ciclo, gira {aire['guinada']:g}° por segundo (turnRate en el manifiesto)")
+        else:
+            print(f"\n{clave}: {aire['ciclo']:g} s por ciclo, avanza {paso['avance']:.3f} ({paso['avance'] / aire['ciclo']:.3f} por segundo)")
         for parte, angulos in paso['angulos'].items():
             salto = np.abs(np.diff(angulos, axis=0)).max() / GRADOS
             cierre = np.abs(angulos[-1] - angulos[0]).max() / GRADOS
             rango = ' '.join(f'[{a:+.0f},{b:+.0f}]' for a, b in zip(angulos.min(axis=0) / GRADOS, angulos.max(axis=0) / GRADOS))
-            print(f'  {parte:11s} giros {rango}  salto máx {salto:.1f}°/fotograma, cierre {cierre:.3f}°')
+            abre = paso['aperturas'][parte][:, 0] / GRADOS
+            apertura = f' abierta [{abre.min():+.0f},{abre.max():+.0f}]' if abre.any() else ''
+            print(f'  {parte:11s} giros {rango}{apertura}  salto máx {salto:.1f}°/fotograma, cierre {cierre:.3f}°')
         informe = comprueba(esq, cuerpo, datos, malla, paso, aire, suelo)
         print('  suelo: hundido', mm(informe['hundido_max']), '· flotando con algún casco apoyado', mm(informe['flotando_max']), '(de su altura)')
         for parte in cuerpo['patas']:

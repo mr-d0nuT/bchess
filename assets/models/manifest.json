@@ -678,6 +678,12 @@
             {
               "clip": "gallop"
             }
+          ],
+          "turn": [
+            {
+              "clip": "turn",
+              "turnRate": 120
+            }
           ]
         }
       },
@@ -880,6 +886,12 @@
           "gallop": [
             {
               "clip": "gallop"
+            }
+          ],
+          "turn": [
+            {
+              "clip": "turn",
+              "turnRate": 120
             }
           ]
         }

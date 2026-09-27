@@ -18,6 +18,8 @@ const LEG_STRETCH = { front: -40, back: 35 }; // grados de las patas estiradas a
 const LEG_TUCK = { front: 55, back: -45 }; // y recogidas al bajar
 const LEAP_MAX_PEAK = 2.2; // por alto que sea lo de debajo, el arco no pasa de aquí
 const TROT = 1.7; // veces su paseo, cuando va al trote
+const HORSE_TURN = 200; // grados por segundo a los que, como mucho, gira un caballo en el sitio
+const TURN_STEPS = 10; // grados a partir de los que el caballo, al girar, da pasos
 const FIDGET_REAR = 0.6; // radianes que se levanta el caballo en su gesto de reposo
 const FIDGET_UP = 0.45; // segundos que tarda en levantarse
 const FIDGET_PAWS = 2; // manotazos al aire antes de bajar
@@ -91,11 +93,25 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     }
   }
 
+  // El caballo gira dando pasos —su aire de girar en el sitio, acompasado para que los cascos apoyados
+  // no patinen— y no más deprisa de lo que puede un caballo; el jinete a pie gira sin más.
   function turnFigure(figure, angle, seconds) {
     const from = figure.rotation.y;
     const delta = shortestTurn(from, angle);
+    let steps = null;
+    if (horse && figure === horse.figure && horse.turnRate && Math.abs(delta) > THREE.MathUtils.degToRad(TURN_STEPS)) {
+      seconds = Math.max(seconds, Math.abs(delta) / THREE.MathUtils.degToRad(HORSE_TURN));
+      steps = horse.play('turn', { fade: 0.12 });
+      if (steps) {
+        steps.paused = false;
+        steps.time = steps.getClip().duration / 2; // con una mano ya en el aire: el primer paso, enseguida
+        steps.timeScale = delta / seconds / THREE.MathUtils.degToRad(horse.turnRate);
+      }
+    }
     return clock.tween(seconds, (t) => {
       figure.rotation.y = from + delta * t;
+    }).then(() => {
+      if (steps && horse.playing === 'turn') stillHorse();
     });
   }
 

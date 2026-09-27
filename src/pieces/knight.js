@@ -244,6 +244,29 @@ function measureStill(horse, legs) {
   return { time: base.time, lift: -Math.min(...soles) - STILL_BITE, turns };
 }
 
+// Centra el caballo sobre sus cascos, tal como está quieto. `fitToHeight` lo centra por su caja, del
+// hocico a la cola, y como la cabeza sale mucho por delante, los cascos quedaban atrasados: los de
+// detrás, fuera de la peana y en el aire. Se mide en una pieza de prueba, que ya mira a +Z, y se
+// desplaza el modelo del kit (antes de su giro) lo que haga falta; todo lo que se mide después, y
+// cada caballo que se cree, sale ya centrado.
+function centerOnHooves(horse, legs, yaw) {
+  const test = spawnPiece(horse);
+  test.placeAt({ x: 0, z: 0 });
+  test.face(0);
+  if (!test.play('idle', { fade: 0 })) test.play('walk', { fade: 0 });
+  test.update(0);
+  test.object.updateMatrixWorld(true);
+  const soles = soleVertices(test, legs);
+  if (!soles.length) return;
+  const at = new THREE.Vector3();
+  const sum = new THREE.Vector3();
+  for (const { mesh, index } of soles) sum.add(mesh.getVertexPosition(index, at).applyMatrix4(mesh.matrixWorld));
+  sum.divideScalar(soles.length).setY(0).applyAxisAngle(new THREE.Vector3(0, 1, 0), -yaw);
+  horse.model.position.x -= sum.x;
+  horse.model.position.z -= sum.z;
+  horse.model.updateMatrixWorld(true);
+}
+
 // Lo que los cascos traseros quedan por detrás del centro, con el caballo en la postura en la que de
 // verdad se le ve. No vale medirlo en el modelo recién cargado: su esqueleto está en la postura de
 // enlace, que en este caballo sale al doble de tamaño, y encabritándose se levantaría el doble de lo
@@ -273,16 +296,21 @@ function measureHoofBack(horse, legs) {
 // - `height`: del tablero al penacho, peana incluida.
 function measureMount(horse, spec, hip, pedestalHeight) {
   const model = horse.model;
-  model.updateMatrixWorld(true);
-  const bones = [];
-  const point = new THREE.Vector3();
-  model.traverse((o) => {
-    if (!o.isBone) return;
-    o.getWorldPosition(point);
-    bones.push({ name: o.name, parent: o.parent?.isBone ? o.parent.name : null, x: point.x, y: point.y, z: point.z });
-  });
-  const { yaw, legs, seatZ, neck, tail } = findHorseBones(bones);
+  const bones = () => {
+    model.updateMatrixWorld(true);
+    const list = [];
+    const point = new THREE.Vector3();
+    model.traverse((o) => {
+      if (!o.isBone) return;
+      o.getWorldPosition(point);
+      list.push({ name: o.name, parent: o.parent?.isBone ? o.parent.name : null, x: point.x, y: point.y, z: point.z });
+    });
+    return list;
+  };
+  const { yaw, legs } = findHorseBones(bones());
   horse.spec.yaw = yaw; // `spawnPiece` lo aplica a cada caballo
+  centerOnHooves(horse, legs, yaw);
+  const { seatZ, neck, tail } = findHorseBones(bones()); // la silla, ya con el caballo centrado
   const hoofBack = measureHoofBack(horse, legs);
   const still = measureStill(horse, legs);
 
@@ -374,25 +402,35 @@ export function spawnKnight(kit) {
   // Ningún casco por debajo del suelo. Andando, trotando o galopando, los cascos apoyados pisan justo
   // donde deben —los aires se compusieron así—, pero al arrancar y al pararse la animación funde la
   // postura de quieto con la del aire, y a medio fundido una pata puede quedar más estirada que en
-  // las dos: el casco se hundía hasta dos centímetros y medio en el tablero. Mientras el caballo va
-  // derecho (sin encabritarse ni saltar), se le sube lo justo para que su suela más baja no pase de
-  // la altura de reposo.
+  // las dos: el casco se hundía hasta dos centímetros y medio en el tablero. Y al aterrizar de un
+  // salto, con el cuerpo aún inclinado hacia delante, las manos entraban diez. Cada fotograma se mira
+  // la suela más baja y, si pasa del suelo, se sube al caballo lo justo.
   const soles = horse && mount ? soleVertices(horse, mount.legs) : [];
   const sole = new THREE.Vector3();
-  const figureAt = new THREE.Vector3();
-  let lifted = 0;
+  const horseAt = new THREE.Vector3();
+  let lifted = 0; // lo subido, a lo largo del eje vertical de la figura
+  // El suelo bajo el caballo, en el mundo: su peana si está puesta y el caballo encima; si no, el tablero.
+  function groundUnder() {
+    if (!pedestal.visible) return 0;
+    horse.figure.getWorldPosition(horseAt);
+    const away = Math.hypot(horseAt.x - pedestal.position.x, horseAt.z - pedestal.position.z);
+    return away < kit.radius ? pedestal.position.y + kit.pedestalHeight * pedestal.scale.y : 0;
+  }
   function keepAboveGround() {
     let wanted = 0;
-    const level = !horse.figure.rotation.x && !horse.figure.rotation.z;
-    if (level && horse.object.visible) {
+    if (horse.object.visible) {
       horse.figure.updateMatrixWorld(true);
-      const base = horse.figure.getWorldPosition(figureAt).y;
-      let lowest = Infinity;
-      for (const { mesh, index } of soles) {
-        mesh.getVertexPosition(index, sole).applyMatrix4(mesh.matrixWorld);
-        lowest = Math.min(lowest, sole.y - base);
+      // Lo que sube de verdad el eje vertical de la figura, que en el aire va inclinada.
+      const upright = horse.figure.matrixWorld.elements[5];
+      if (upright > 0.2) {
+        let lowest = Infinity;
+        for (const { mesh, index } of soles) {
+          mesh.getVertexPosition(index, sole).applyMatrix4(mesh.matrixWorld);
+          lowest = Math.min(lowest, sole.y);
+        }
+        const sinLift = lowest - lifted * upright;
+        wanted = Math.max(0, (groundUnder() - STILL_BITE - GROUND_SLACK - sinLift) / upright);
       }
-      wanted = Math.max(0, -STILL_BITE - GROUND_SLACK - (lowest - lifted));
     }
     if (wanted === lifted) return;
     // El jinete no: lo lleva el lomo (`followBack`), que ya sube con el caballo.

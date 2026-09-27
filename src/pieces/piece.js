@@ -258,6 +258,8 @@ export async function loadPieceKit(spec, quality) {
     moves,
     walkSpeed,
     gaits,
+    // Grados por segundo a los que se compuso su paso de girar en el sitio (el caballo), si lo trae.
+    turnRate: moves.turn?.[0]?.turnRate ?? null,
     rootBone,
     hands,
     has: (action) => Boolean(moves[action]?.length),
@@ -886,6 +888,7 @@ export function spawnPiece(kit) {
     height: kit.spec.height + kit.pedestalHeight,
     walkSpeed: kit.walkSpeed,
     gaits: kit.gaits, // { aire: velocidad }, de los que trae
+    turnRate: kit.turnRate,
     has: (action) => Boolean(variants[action]?.length),
     // En qué punto del ciclo va la animación que suena ahora, de 0 a 1: sirve para colgarle encima
     // movimientos propios (el contoneo de la reina) al compás de los pasos.
