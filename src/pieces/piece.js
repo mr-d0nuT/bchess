@@ -377,6 +377,31 @@ export function spawnPiece(kit) {
     return next;
   }
 
+  // Otra versión de un movimiento con algunos huesos quietos en su postura de reposo: celebrar a caballo
+  // con el brazo del escudo en su sitio, por ejemplo. Quitarles la pista no vale: three mezclaría esos
+  // huesos con la postura de enlace (el brazo se abriría en cruz); se les deja el valor que tienen en el
+  // primer fotograma del reposo. `still` recibe el nombre de cada hueso. Se registra como `name`.
+  function addStillBones(name, from, still) {
+    const source = variants[from]?.[0];
+    const rest = variants.idle?.[0]?.action.getClip();
+    if (!source || !rest) return false;
+    const clip = source.action.getClip().clone();
+    clip.name = `${clip.name}:${name}`;
+    for (const track of clip.tracks) {
+      const bone = track.name.slice(0, track.name.lastIndexOf('.'));
+      const same = still(bone) && rest.tracks.find((t) => t.name === track.name);
+      if (!same) continue;
+      const size = track.getValueSize();
+      const value = same.values.slice(0, size);
+      track.times = new Float32Array([0, clip.duration]);
+      track.values = new Float32Array(size * 2);
+      track.values.set(value, 0);
+      track.values.set(value, size);
+    }
+    variants[name] = [{ ...source, action: mixer.clipAction(clip) }];
+    return true;
+  }
+
   // Una sola vez; se resuelve al terminar. Si la versión trae `seconds` (clips muy largos, como
   // una celebración de 12 s), se resuelve al llegar a ese momento y quien llama pasa a otra cosa.
   function playOnce(action, { fade = 0.2, clip } = {}) {
@@ -890,6 +915,7 @@ export function spawnPiece(kit) {
     gaits: kit.gaits, // { aire: velocidad }, de los que trae
     turnRate: kit.turnRate,
     has: (action) => Boolean(variants[action]?.length),
+    addStillBones,
     // En qué punto del ciclo va la animación que suena ahora, de 0 a 1: sirve para colgarle encima
     // movimientos propios (el contoneo de la reina) al compás de los pasos.
     // En qué instante se congela el reposo, para los modelos que no traen clip de reposo propio

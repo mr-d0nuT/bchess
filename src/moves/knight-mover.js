@@ -98,6 +98,9 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
   function turnFigure(figure, angle, seconds) {
     const from = figure.rotation.y;
     const delta = shortestTurn(from, angle);
+    // Si ya mira hacia allí, no se pierde tiempo: quien cronometra lo que viene después (el impacto de
+    // la carga con lanza) cuenta con que el movimiento empiece en el acto.
+    if (Math.abs(delta) < 1e-3) return Promise.resolve();
     let steps = null;
     if (horse && figure === horse.figure && horse.turnRate && Math.abs(delta) > THREE.MathUtils.degToRad(TURN_STEPS)) {
       seconds = Math.max(seconds, Math.abs(delta) / THREE.MathUtils.degToRad(HORSE_TURN));
@@ -771,15 +774,17 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
   }
 
   // Carga a caballo: cruza en línea recta hasta `to` ({x, z}) con el caballo lanzado, sin tocar la peana
-  // (ya la ha dejado quien llama). La usa la batalla de la lanza, en la que el caballero no desmonta.
-  async function chargeTo(to, { seconds = 0.7 } = {}) {
+  // (ya la ha dejado quien llama). La usa la batalla de la lanza, en la que el caballero no desmonta. Con
+  // `backwards`, va hacia atrás sin darse la vuelta: así toma carrerilla.
+  async function chargeTo(to, { seconds = 0.7, backwards = false } = {}) {
     knight.resting = false;
     const figure = knight.figure;
     const from = { x: figure.position.x, z: figure.position.z };
     looseLegs();
-    await turnFigure(figure, Math.atan2(to.x - from.x, to.z - from.z), 0.2);
+    if (!backwards) await turnFigure(figure, Math.atan2(to.x - from.x, to.z - from.z), 0.2);
     heading = { x: to.x, z: to.z };
-    const paso = gaitFor(Math.hypot(to.x - from.x, to.z - from.z) / seconds, 0.15);
+    const speed = Math.hypot(to.x - from.x, to.z - from.z) / seconds;
+    const paso = gaitFor(backwards ? -speed : speed, 0.15);
     try {
       await clock.tween(seconds, (t) => {
         const at = pointAlong(from, to, t);

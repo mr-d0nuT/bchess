@@ -165,8 +165,9 @@ export async function celebrate(entry, clock) {
     fighter.setSpearPose('upright');
     if (clock) await twirl(fighter, { clock, turns: 2, seconds: 0.6, ease: FRENA });
   }
-  if (fighter.has('victory')) {
-    await fighter.playOnce('victory');
+  const victory = entry.kind === 'knight' && entry.piece.mounted && fighter.has('victoryMounted') ? 'victoryMounted' : 'victory';
+  if (fighter.has(victory)) {
+    await fighter.playOnce(victory);
     fighter.play('idle', { fade: 0.3 });
   } else if (entry.mover.hop) {
     await entry.mover.hop(2);
