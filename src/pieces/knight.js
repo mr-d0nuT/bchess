@@ -15,15 +15,16 @@ import { measureBody, measureStrikes } from '../combat/strikes.js';
 const MODELS = 'assets/models/';
 const SEAT_LIFT = 0.06; // de la silla a la cadera del jinete sentado
 const SHIELD_ARM = /^L_(Clavicle|Upperarm|Forearm|Hand)/; // el brazo del escudo
+const RIDER_LEGS = /^(?:[LR]_(?:Thigh|Calf|Foot|ToeBase)|Hip$|Pelvis$)/; // las piernas del jinete y de dónde cuelgan
 const MOUNTED_STILL = /^L_(Clavicle|Upperarm|Forearm|Hand)|^[LR]_(Thigh|Calf|Foot|ToeBase)/; // quietos celebrando a caballo
 const HITBOX_RADIUS = 0.45;
 const PENNANT_SCALE = 0.7;
 const PENNANT_BELOW_TIP = 0.3; // del extremo de la lanza al banderín
 const MIN_HALF_WIDTH = 0.3; // el jinete, con el escudo y la lanza, es más ancho que el caballo
 // Estribos: se buscan con rayos verticales por fuera de la barriga del caballo, cerca de la silla. La
-// suela del estribo es una chapa fina que cuelga suelta: el rayo solo la atraviesa a ella (dos cortes,
-// separados menos de `plate`) y queda por debajo de la silla (`low`). De todas las que aparecen se
-// toman las más bajas (`band`), que son la suela; las demás son pliegues de la gualdrapa.
+// suela del estribo es una chapa fina que cuelga suelta: dos cortes separados menos de `plate`, por debajo
+// de la silla (`low`). De todas las que aparecen se toman las más bajas (`band`), que son la suela; las
+// demás son pliegues de la gualdrapa.
 const STIRRUP_SCAN = { x: [0.18, 0.46], z: [-0.2, 0.45], step: 0.015, from: 1.25, reach: 1.1, plate: 0.05, low: 0.8, band: 0.04 };
 const FOOT_ROUNDS = 14; // vueltas de la cinemática inversa de cada pierna del jinete
 const KNEE_FORWARD = 0.45; // cuánto pesa que la rodilla vaya adelante frente a que vaya hacia fuera
@@ -172,26 +173,84 @@ function soleVertices(horse, legs) {
   return soles;
 }
 
-// Busca el estribo de un lado (`side`: 1 izquierda, -1 derecha) en las mallas del caballo, con rayos
-// verticales. Devuelve el centro de la suela del estribo en el espacio de `figure`, o null.
-function findStirrup(meshes, figure, side) {
-  const down = new THREE.Vector3(0, -1, 0);
-  const found = [];
-  for (let x = STIRRUP_SCAN.x[0]; x <= STIRRUP_SCAN.x[1]; x += STIRRUP_SCAN.step) {
-    for (let z = STIRRUP_SCAN.z[0]; z <= STIRRUP_SCAN.z[1]; z += STIRRUP_SCAN.step) {
-      const from = figure.localToWorld(new THREE.Vector3(side * x, STIRRUP_SCAN.from, z));
-      const hits = new THREE.Raycaster(from, down, 0, STIRRUP_SCAN.reach).intersectObjects(meshes, false);
-      if (hits.length !== 2) continue;
-      const ys = hits.map((hit) => figure.worldToLocal(hit.point.clone()).y);
-      if (ys[0] - ys[1] > STIRRUP_SCAN.plate || ys[0] > STIRRUP_SCAN.low) continue;
-      found.push({ x: side * x, y: ys[0], z });
+// Busca los estribos en las mallas del caballo, con rayos verticales. Devuelve, para cada lado (1
+// izquierda, -1 derecha), el centro de la suela del estribo en el espacio de `figure`, o null.
+//
+// Rayos contra la malla quieta, no contra la de verdad. Un rayo contra una malla con esqueleto recalcula
+// la piel de cada triángulo que prueba, y aquí se echan unos 1.700 por caballero: la carga se iba a 41
+// segundos, y el tablero se quedaba sin la fila de atrás todo ese rato. Así que la piel se calcula una
+// vez, en la postura de ahora y en el espacio de la figura, solo con los triángulos de la zona de los
+// estribos, repartidos en una rejilla sobre el suelo: cada rayo prueba los de su celda.
+function findStirrups(meshes, figure) {
+  const { x: [x0, x1], z: [z0, z1], step, from, reach } = STIRRUP_SCAN;
+  const cell = step * 2;
+  const key = (x, z) => `${Math.floor(x / cell)}|${Math.floor(z / cell)}`;
+  figure.updateMatrixWorld(true);
+  const toFigure = new THREE.Matrix4().copy(figure.matrixWorld).invert();
+  const tris = [];
+  const grid = new Map();
+  for (const mesh of meshes) {
+    const { position } = mesh.geometry.attributes;
+    const index = mesh.geometry.index;
+    const toLocal = new THREE.Matrix4().multiplyMatrices(toFigure, mesh.matrixWorld);
+    const verts = [];
+    for (let i = 0; i < position.count; i++) verts.push(mesh.getVertexPosition(i, new THREE.Vector3()).applyMatrix4(toLocal));
+    const side = Array.isArray(mesh.material) ? THREE.DoubleSide : mesh.material.side;
+    const count = index ? index.count : position.count;
+    for (let k = 0; k < count; k += 3) {
+      let a = verts[index ? index.getX(k) : k];
+      const b = verts[index ? index.getX(k + 1) : k + 1];
+      let c = verts[index ? index.getX(k + 2) : k + 2];
+      if (Math.max(a.y, b.y, c.y) < from - reach || Math.min(a.y, b.y, c.y) > from) continue;
+      const lox = Math.min(a.x, b.x, c.x);
+      const hix = Math.max(a.x, b.x, c.x);
+      const loz = Math.min(a.z, b.z, c.z);
+      const hiz = Math.max(a.z, b.z, c.z);
+      if (hiz < z0 - cell || loz > z1 + cell || hix < -x1 - cell || lox > x1 + cell) continue;
+      if (side === THREE.BackSide) [a, c] = [c, a]; // como three: de espaldas, se prueba al revés
+      const t = tris.push({ a, b, c, cull: side !== THREE.DoubleSide }) - 1;
+      for (let gx = Math.floor(lox / cell); gx <= Math.floor(hix / cell); gx++) {
+        for (let gz = Math.floor(loz / cell); gz <= Math.floor(hiz / cell); gz++) {
+          const k2 = `${gx}|${gz}`;
+          if (!grid.has(k2)) grid.set(k2, []);
+          grid.get(k2).push(t);
+        }
+      }
     }
   }
-  if (!found.length) return null;
-  const lowest = Math.min(...found.map((p) => p.y));
-  const tread = found.filter((p) => p.y <= lowest + STIRRUP_SCAN.band);
-  const sum = tread.reduce((a, p) => ({ x: a.x + p.x, y: a.y + p.y, z: a.z + p.z }), { x: 0, y: 0, z: 0 });
-  return new THREE.Vector3(sum.x / tread.length, sum.y / tread.length, sum.z / tread.length);
+
+  const ray = new THREE.Ray(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
+  const hit = new THREE.Vector3();
+  const stirrups = {};
+  for (const side of [1, -1]) {
+    const found = [];
+    for (let x = x0; x <= x1; x += step) {
+      for (let z = z0; z <= z1; z += step) {
+        ray.origin.set(side * x, from, z);
+        const ys = [];
+        for (const t of grid.get(key(side * x, z)) ?? []) {
+          const { a, b, c, cull } = tris[t];
+          if (ray.intersectTriangle(a, b, c, cull, hit) && from - hit.y <= reach) ys.push(hit.y);
+        }
+        // De abajo arriba, la primera chapa fina (dos cortes muy juntos): la suela del estribo. No
+        // «exactamente dos cortes»: el estribo cuelga bajo el borde de la gualdrapa, y todo rayo que pasa
+        // por su suela atraviesa antes la tela; así se quedaba con la tela.
+        ys.sort((p, q) => p - q);
+        const suela = ys.findIndex((y, i) => i + 1 < ys.length && ys[i + 1] - y <= STIRRUP_SCAN.plate && ys[i + 1] <= STIRRUP_SCAN.low);
+        if (suela < 0) continue;
+        found.push({ x: side * x, y: ys[suela + 1], z });
+      }
+    }
+    if (!found.length) {
+      stirrups[side] = null;
+      continue;
+    }
+    const lowest = Math.min(...found.map((p) => p.y));
+    const tread = found.filter((p) => p.y <= lowest + STIRRUP_SCAN.band);
+    const sum = tread.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y, z: acc.z + p.z }), { x: 0, y: 0, z: 0 });
+    stirrups[side] = new THREE.Vector3(sum.x / tread.length, sum.y / tread.length, sum.z / tread.length);
+  }
+  return stirrups;
 }
 
 // Postura de quieto del caballo, que no tiene animación de reposo. Ningún fotograma del paseo tiene las
@@ -398,6 +457,9 @@ export function spawnKnight(kit) {
   // A caballo celebra alzando la lanza: el brazo del escudo y las piernas no siguen el clip (con los dos
   // brazos arriba, el escudo atravesaba la lanza, y los pies se salían de los estribos).
   rider.addStillBones('victoryMounted', 'victory', (bone) => MOUNTED_STILL.test(bone));
+  // Y sentado, en reposo, con las piernas quietas: el reposo de pie las balancea, y los pies, que se
+  // meten en los estribos al sentarse, se salían de ellos a los pocos segundos.
+  rider.addStillBones('idleMounted', 'idle', (bone) => RIDER_LEGS.test(bone));
   // Y ataca con la espada, con el escudo en guardia: en sus golpes (un tajo y dos puñetazos con la
   // espada en la mano) el brazo del escudo iba a su aire, y pegaba o remataba a escudazos.
   rider.holdBones('attack', (bone) => SHIELD_ARM.test(bone));
@@ -540,6 +602,7 @@ export function spawnKnight(kit) {
     if (!horse) return;
     mounted = true;
     rider.resetBones();
+    if (rider.has('idleMounted')) rider.play('idleMounted', { fade: 0 });
     seat(rider, spec.rider.seat);
     horse.figure.add(rider.figure);
     rider.figure.position.set(mount.riderOffset.x, mount.riderOffset.y, mount.riderOffset.z);
@@ -566,10 +629,8 @@ export function spawnKnight(kit) {
   // Sin esto el jinete va con las piernas colgando y abiertas, como sentado a horcajadas.
   function feetToStirrups(meshes) {
     if (!horse || !mount) return;
-    if (!stirrups) {
-      stirrups = {};
-      for (const side of [1, -1]) stirrups[side] = findStirrup(meshes, horse.figure, side);
-    }
+    // Los dos caballeros de un color comparten caballo, y sus estribos están en el mismo sitio.
+    if (!stirrups) stirrups = kit.stirrups ??= findStirrups(meshes, horse.figure);
     const target = new THREE.Vector3();
     for (const side of [1, -1]) {
       const stirrup = stirrups[side];

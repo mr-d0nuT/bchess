@@ -168,7 +168,7 @@ export async function celebrate(entry, clock) {
   const victory = entry.kind === 'knight' && entry.piece.mounted && fighter.has('victoryMounted') ? 'victoryMounted' : 'victory';
   if (fighter.has(victory)) {
     await fighter.playOnce(victory);
-    fighter.play('idle', { fade: 0.3 });
+    fighter.play(victory === 'victoryMounted' && fighter.has('idleMounted') ? 'idleMounted' : 'idle', { fade: 0.3 });
   } else if (entry.mover.hop) {
     await entry.mover.hop(2);
   }
