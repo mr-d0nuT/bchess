@@ -11,12 +11,12 @@ const ELEVATION = 0.65; // altura de la cámara por cada casilla de distancia: m
 const PIECE_TOP = 1.75; // altura de una pieza sobre su peana, para saber si tapa el encuadre
 const ANGLE_STEP = Math.PI / 6; // se prueban direcciones cada 30° alrededor de la de lado
 const TARGET_HEIGHT = 0.75; // a qué altura de la pieza mira la cámara
-// Primer plano de quien gana: de frente, a la altura de su pecho y un poco por encima, a la distancia
-// a la que su figura, de la cintura para arriba, llena la pantalla.
-const CLOSE_LOOK = 0.66; // a qué parte de su altura mira
-const CLOSE_RISE = 0.3; // lo que la cámara queda por encima de ese punto
-const CLOSE_FILL = 1.2; // alturas de la pieza a las que se pone: con aire para los brazos en alto
-const CLOSE_MIN = 1.5; // y nunca más cerca que esto
+// Plano de quien gana, de frente: entero y con algo de tablero alrededor. Más cerca (a 1,2 alturas),
+// al usuario le quedaba la cámara encima de la figura.
+const CLOSE_LOOK = 0.55; // a qué parte de su altura mira
+const CLOSE_RISE = 0.55; // lo que la cámara queda por encima de ese punto
+const CLOSE_FILL = 2.1; // alturas de la pieza a las que se pone
+const CLOSE_MIN = 2.6; // y nunca más cerca que esto
 const smooth = (t) => t * t * (3 - 2 * t);
 
 export function createCinema(stage) {
