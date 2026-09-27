@@ -65,13 +65,14 @@ export function createBoard() {
   frame.receiveShadow = true;
   group.add(frame);
 
+  // La mesa, negra del todo: sin luz que la saque de marrón, el tablero flota sobre el vacío y el
+  // borde de la mesa no se distingue del fondo.
   const table = new THREE.Mesh(
     new THREE.CircleGeometry(30, 64),
-    new THREE.MeshStandardMaterial({ color: 0x1b140f, roughness: 0.9 }),
+    new THREE.MeshBasicMaterial({ color: 0x000000 }),
   );
   table.rotation.x = -Math.PI / 2;
   table.position.y = -0.32;
-  table.receiveShadow = true;
   group.add(table);
 
   return {

@@ -11,7 +11,7 @@ html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #0d0b09;
+  background: #000;
   color: var(--tinta);
   font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -131,7 +131,7 @@ html, body {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: #0d0b09;
+  background: #000;
   transition: opacity 0.9s ease;
 }
 #carga.fuera { opacity: 0; pointer-events: none; }

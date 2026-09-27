@@ -18,7 +18,7 @@ export function createStage(canvas, quality) {
   renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0d0b09);
+  scene.background = new THREE.Color(0x000000);
 
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
   const controls = new OrbitControls(camera, canvas);
