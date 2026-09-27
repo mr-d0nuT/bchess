@@ -377,29 +377,46 @@ export function spawnPiece(kit) {
     return next;
   }
 
-  // Otra versión de un movimiento con algunos huesos quietos en su postura de reposo: celebrar a caballo
-  // con el brazo del escudo en su sitio, por ejemplo. Quitarles la pista no vale: three mezclaría esos
-  // huesos con la postura de enlace (el brazo se abriría en cruz); se les deja el valor que tienen en el
-  // primer fotograma del reposo. `still` recibe el nombre de cada hueso. Se registra como `name`.
-  function addStillBones(name, from, still) {
-    const source = variants[from]?.[0];
-    const rest = variants.idle?.[0]?.action.getClip();
-    if (!source || !rest) return false;
-    const clip = source.action.getClip().clone();
-    clip.name = `${clip.name}:${name}`;
-    for (const track of clip.tracks) {
+  // Un clip con algunos huesos quietos. Quitarles la pista no vale: three mezclaría esos huesos con la
+  // postura de enlace (un brazo se abriría en cruz); se les deja fijo el valor de un fotograma: el primero
+  // del reposo (`pose` 'idle') o el primero del propio clip ('self'). `still` recibe el nombre del hueso.
+  function stillClip(clip, still, pose) {
+    const copy = clip.clone();
+    const from = pose === 'self' ? clip : variants.idle?.[0]?.action.getClip();
+    if (!from) return copy;
+    for (const track of copy.tracks) {
       const bone = track.name.slice(0, track.name.lastIndexOf('.'));
-      const same = still(bone) && rest.tracks.find((t) => t.name === track.name);
+      const same = still(bone) && from.tracks.find((t) => t.name === track.name);
       if (!same) continue;
       const size = track.getValueSize();
       const value = same.values.slice(0, size);
-      track.times = new Float32Array([0, clip.duration]);
+      track.times = new Float32Array([0, copy.duration]);
       track.values = new Float32Array(size * 2);
       track.values.set(value, 0);
       track.values.set(value, size);
     }
+    return copy;
+  }
+
+  // Otra versión de un movimiento con algunos huesos quietos en su postura de reposo: celebrar a caballo
+  // con el brazo del escudo en su sitio, por ejemplo. Se registra como `name`.
+  function addStillBones(name, from, still) {
+    const source = variants[from]?.[0];
+    if (!source || !variants.idle?.length) return false;
+    const clip = stillClip(source.action.getClip(), still, 'idle');
+    clip.name = `${clip.name}:${name}`;
     variants[name] = [{ ...source, action: mixer.clipAction(clip) }];
     return true;
+  }
+
+  // Todas las versiones de un movimiento, con algunos huesos quietos en el primer fotograma de cada una:
+  // el caballero ataca con la espada y el brazo del escudo se queda en guardia, como empieza el golpe.
+  function holdBones(action, still) {
+    variants[action] = (variants[action] ?? []).map((variant) => {
+      const clip = stillClip(variant.action.getClip(), still, 'self');
+      clip.name = `${clip.name}:firme`;
+      return { ...variant, action: mixer.clipAction(clip) };
+    });
   }
 
   // Una sola vez; se resuelve al terminar. Si la versión trae `seconds` (clips muy largos, como
@@ -916,6 +933,7 @@ export function spawnPiece(kit) {
     turnRate: kit.turnRate,
     has: (action) => Boolean(variants[action]?.length),
     addStillBones,
+    holdBones,
     // En qué punto del ciclo va la animación que suena ahora, de 0 a 1: sirve para colgarle encima
     // movimientos propios (el contoneo de la reina) al compás de los pasos.
     // En qué instante se congela el reposo, para los modelos que no traen clip de reposo propio

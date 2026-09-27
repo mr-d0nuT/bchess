@@ -14,6 +14,7 @@ import { measureBody, measureStrikes } from '../combat/strikes.js';
 
 const MODELS = 'assets/models/';
 const SEAT_LIFT = 0.06; // de la silla a la cadera del jinete sentado
+const SHIELD_ARM = /^L_(Clavicle|Upperarm|Forearm|Hand)/; // el brazo del escudo
 const MOUNTED_STILL = /^L_(Clavicle|Upperarm|Forearm|Hand)|^[LR]_(Thigh|Calf|Foot|ToeBase)/; // quietos celebrando a caballo
 const HITBOX_RADIUS = 0.45;
 const PENNANT_SCALE = 0.7;
@@ -397,6 +398,9 @@ export function spawnKnight(kit) {
   // A caballo celebra alzando la lanza: el brazo del escudo y las piernas no siguen el clip (con los dos
   // brazos arriba, el escudo atravesaba la lanza, y los pies se salían de los estribos).
   rider.addStillBones('victoryMounted', 'victory', (bone) => MOUNTED_STILL.test(bone));
+  // Y ataca con la espada, con el escudo en guardia: en sus golpes (un tajo y dos puñetazos con la
+  // espada en la mano) el brazo del escudo iba a su aire, y pegaba o remataba a escudazos.
+  rider.holdBones('attack', (bone) => SHIELD_ARM.test(bone));
   const horse = kit.horse ? spawnPiece(kit.horse) : null;
   if (horse) object.add(horse.object);
   // Los cascos, a ras de peana: la postura de quieto no deja el caballo a la altura del modelo, así que

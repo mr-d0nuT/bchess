@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { bestStrike, strikeSpot } from '../plan.js';
 import {
-  bonePosition, dismountMode, facingTo, fighterOf, knockOut, lyingBody, shout, topple, victoryLap,
+  bladeStrikes, bonePosition, dismountMode, facingTo, fighterOf, knockOut, lyingBody, shout, topple, victoryLap,
 } from '../knight/common.js';
 
 // Se comen al alfil: el hechizo le sale rana (mismo espíritu de gag que las batallas del caballero). El
@@ -15,6 +15,23 @@ const FIZZLE_SECONDS = 0.9; // lo que se queda mirando el báculo apagado
 const HIT_GAP = 0.05;
 const FALL_SPREAD = Math.PI / 4;
 const DUST_Y = 0.05;
+
+// El golpe con que lo remata: con espada si la lleva (el caballero: un tajo), y si no, el de más alcance.
+// Devuelve la clave, lo que alcanza, cuándo llega y dónde mirar en ese momento.
+function blowOf(fighter) {
+  const slash = fighter.props?.sword ? bladeStrikes(fighter, { thrust: false })[0] ?? bladeStrikes(fighter)[0] : null;
+  if (slash) {
+    const { blade } = fighter.strikes[slash];
+    return { key: slash, reach: blade.reach, t: blade.t, point: () => swordTip(fighter) };
+  }
+  const key = bestStrike(fighter.attacks, fighter.strikes);
+  const { body } = fighter.strikes[key];
+  return { key, reach: body.reach, t: body.t, point: () => bonePosition(fighter, body.bone) };
+}
+
+function swordTip(fighter) {
+  return fighter.props.sword.localToWorld(new THREE.Vector3(0, fighter.swordEnds.top, 0));
+}
 
 // Deja al atacante en su sitio, listo para pegar, según lo que sea.
 async function bringUp(attacker, { at, facing, random }) {
@@ -42,9 +59,9 @@ export const bishopSpellFizzles = {
   async run({ attacker, defender, home, center, target, clock, fx, cinema, hud, crowd, dust, debris, bubbles, bodies, obstacles, random }) {
     const bishop = defender.piece;
     const fighter = fighterOf(attacker);
-    const blow = bestStrike(fighter.attacks, fighter.strikes);
+    const blow = blowOf(fighter);
     const facing = facingTo(center, home); // el alfil mira al que viene
-    const reach = fighter.strikes[blow].body.reach + HIT_GAP;
+    const reach = blow.reach + HIT_GAP;
     const spots = strikeSpot(home, center, { reach, torso: 0 });
 
     // 1. La cámara encuadra, el alfil baja de su peana y se encara, y el otro se planta delante.
@@ -69,9 +86,9 @@ export const bishopSpellFizzles = {
     await clock.wait(FIZZLE_SECONDS);
 
     // 3. El otro le arrea, a cámara lenta.
-    const hitting = fighter.playOnce('attack', { clip: blow, fade: 0.15 });
-    await slowToImpact(clock, fighter.strikes[blow].body.t);
-    const fist = bonePosition(fighter, fighter.strikes[blow].body.bone);
+    const hitting = fighter.playOnce('attack', { clip: blow.key, fade: 0.15 });
+    await slowToImpact(clock, blow.t);
+    const fist = blow.point();
     fx.burst(fist, { size: 1.1, sparks: 26 });
     hud.flash();
     cinema.shake(0.2);
