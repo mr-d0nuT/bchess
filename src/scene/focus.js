@@ -53,24 +53,24 @@ void main() {
   float lejos = distancia(texture2D(tDepth, vUv).x);
   float fuera = max(0.0, abs(lejos - focusDistance) - focusRange);
   float radio = maxBlur * strength * clamp(fuera / focusRange, 0.0, 1.0);
-  if (radio < texel.y) {
-    gl_FragColor = texture2D(tColor, vUv);
-    return;
-  }
   vec4 suma = texture2D(tColor, vUv);
   float peso = 1.0;
-  for (int i = 1; i <= ${taps}; i++) {
-    float t = float(i) / float(${taps});
-    float angulo = float(i) * GOLDEN;
-    vec2 salto = vec2(cos(angulo), sin(angulo)) * sqrt(t) * radio;
-    salto.x *= texel.x / texel.y; // el radio va en alturas de pantalla, no en anchuras
-    suma += texture2D(tColor, vUv + salto);
-    peso += 1.0;
+  if (radio >= texel.y) {
+    for (int i = 1; i <= ${taps}; i++) {
+      float t = float(i) / float(${taps});
+      float angulo = float(i) * GOLDEN;
+      vec2 salto = vec2(cos(angulo), sin(angulo)) * sqrt(t) * radio;
+      salto.x *= texel.x / texel.y; // el radio va en alturas de pantalla, no en anchuras
+      suma += texture2D(tColor, vUv + salto);
+      peso += 1.0;
+    }
   }
   gl_FragColor = suma / peso;
-  // La escena se ha pintado a una textura, y ahí three NO hace la conversión final de color que sí
-  // haría al pintar a la pantalla: sin esto, el combate sale oscurísimo. El mapeo de tonos ya se
-  // aplicó al pintar cada objeto, así que este material lo lleva desactivado para no repetirlo.
+  // La escena se ha pintado a una textura, y ahí three no hace nada de lo que sí haría al pintar a la
+  // pantalla: ni el mapeo de tonos ni la conversión final de color. Se hacen aquí, con sus mismos
+  // trozos de shader, y a TODOS los píxeles —también a los enfocados, que son los que pelean—: sin
+  // esto el combate sale oscuro y los dos luchadores, casi negros.
+  #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
 `;
@@ -113,7 +113,6 @@ export function createFocus(renderer, scene, camera, quality) {
       },
       depthTest: false,
       depthWrite: false,
-      toneMapped: false,
     });
     // Un triángulo que tapa la pantalla: más barato que dos y sin costura en la diagonal.
     const geometry = new THREE.BufferGeometry();

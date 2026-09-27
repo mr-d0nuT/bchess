@@ -487,7 +487,7 @@ async function start() {
   await loadPieces();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
-    stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles,
+    stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles,
     get pawns() {
       return pieces.filter((entry) => entry.kind === 'pawn');
     },
