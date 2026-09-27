@@ -11,6 +11,12 @@ const ELEVATION = 0.65; // altura de la cámara por cada casilla de distancia: m
 const PIECE_TOP = 1.75; // altura de una pieza sobre su peana, para saber si tapa el encuadre
 const ANGLE_STEP = Math.PI / 6; // se prueban direcciones cada 30° alrededor de la de lado
 const TARGET_HEIGHT = 0.75; // a qué altura de la pieza mira la cámara
+// Primer plano de quien gana: de frente, a la altura de su pecho y un poco por encima, a la distancia
+// a la que su figura, de la cintura para arriba, llena la pantalla.
+const CLOSE_LOOK = 0.66; // a qué parte de su altura mira
+const CLOSE_RISE = 0.3; // lo que la cámara queda por encima de ese punto
+const CLOSE_FILL = 1.2; // alturas de la pieza a las que se pone: con aire para los brazos en alto
+const CLOSE_MIN = 1.5; // y nunca más cerca que esto
 const smooth = (t) => t * t * (3 - 2 * t);
 
 export function createCinema(stage) {
@@ -22,6 +28,7 @@ export function createCinema(stage) {
   const offset = new THREE.Vector3();
   const behind = new THREE.Vector3(); // lo que la cámara se queda por detrás de a quien sigue
   const aim = new THREE.Vector3();
+  let aimHeight = TARGET_HEIGHT; // a qué altura mira mientras sigue a una pieza: la del encuadre que había
 
   // Si la ventana cambia de tamaño mientras encuadra, la cámara sigue donde está y, al terminar,
   // vuelve al encuadre de reposo del tamaño nuevo.
@@ -79,6 +86,34 @@ export function createCinema(stage) {
       return glide(clock, position, mid);
     },
 
+    // PRIMER PLANO de quien ha ganado, de frente: la cámara se le pone delante —hacia donde mira—, a la
+    // altura de su pecho, y lo mira. Si alguna pieza (`obstacles`, {x, z}) se mete en medio, prueba
+    // ladeándose de 30 en 30°, y se queda con la que menos tapa, mejor cuanto más de frente.
+    closeUp(clock, piece, obstacles = []) {
+      tracked = null;
+      if (!saved) saved = { position: camera.position.clone(), target: controls.target.clone() };
+      controls.enabled = false;
+      const at = piece.figure.getWorldPosition(new THREE.Vector3());
+      const facing = piece.figure.rotation.y;
+      const height = piece.height ?? PIECE_TOP;
+      const look = new THREE.Vector3(at.x, height * CLOSE_LOOK, at.z);
+      const distance = Math.max(CLOSE_MIN, height * CLOSE_FILL);
+      let best = null;
+      for (const step of [0, 1, -1, 2, -2]) {
+        const angle = facing + step * ANGLE_STEP;
+        const dir = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
+        const blockers = obstacles.filter((o) => {
+          const along = (o.x - at.x) * dir.x + (o.z - at.z) * dir.z;
+          const aside = Math.abs((o.x - at.x) * dir.z - (o.z - at.z) * dir.x);
+          return along > 0.3 && along < distance + 0.3 && aside < 0.5;
+        }).length;
+        const score = blockers + Math.abs(step) * 0.35;
+        if (!best || score < best.score) best = { score, dir };
+      }
+      const position = look.clone().addScaledVector(best.dir, distance).add(new THREE.Vector3(0, CLOSE_RISE, 0));
+      return glide(clock, position, look);
+    },
+
     // Sigue a una pieza que se mueve: la cámara mantiene el encuadre de ahora y viaja con ella, que
     // se queda en el centro. `at` devuelve dónde está ({x, z}); con null, deja de seguirla. Solo
     // mientras la cámara es del cine: si es la del usuario, no se la toca.
@@ -88,7 +123,8 @@ export function createCinema(stage) {
         return false;
       }
       const point = at();
-      aim.set(point.x, TARGET_HEIGHT, point.z);
+      aimHeight = controls.target.y;
+      aim.set(point.x, aimHeight, point.z);
       behind.copy(camera.position).sub(offset).sub(aim);
       tracked = at;
       return true;
@@ -110,7 +146,7 @@ export function createCinema(stage) {
     update(dt) {
       if (tracked) {
         const point = tracked();
-        aim.set(point.x, TARGET_HEIGHT, point.z);
+        aim.set(point.x, aimHeight, point.z);
         camera.position.copy(aim).add(behind);
         controls.target.copy(aim);
         camera.lookAt(aim);

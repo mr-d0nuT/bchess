@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { fightSpots, gripSlideForReach, planExchanges, usableStrikes } from './plan.js';
-import { FRENA, twirl } from './twirl.js';
+import { twirl } from './twirl.js';
+import { victoryLap } from './knight/common.js';
 
 // Director del combate entre dos peones (diseño en docs/superpowers/specs/
 // 2026-09-14-bchess-combate-peones-design.md). Gana siempre el atacante.
@@ -154,16 +155,10 @@ export async function runCombat({ attacker, defender, board, clock, fx, cinema, 
 
   // 5. Victoria: la cámara vuelve, el ganador ocupa la casilla y lo celebra con la lanza
   // erguida (si siguiera a la mano, al alzar los brazos barrería a las piezas vecinas).
+  // La celebración, con la cámara delante en primer plano (y otro molinete para rematar, frenando:
+  // acaba la vuelta con la lanza quieta y erguida).
   a.setSpearPose(null);
   a.setGripSlide(0);
-  await Promise.all([cinema.restore(clock), attacker.mover.walkOnto(target)]);
-  // Y otro molinete para rematar, este frenando: acaba la vuelta con la lanza quieta y erguida.
-  await twirl(a, { clock, turns: 2, seconds: 0.6, ease: FRENA });
-  if (a.has('victory')) {
-    await a.playOnce('victory');
-    a.play('idle', { fade: 0.3 });
-  } else {
-    await attacker.mover.hop(2);
-  }
+  await victoryLap({ entry: attacker, clock, cinema, obstacles, move: () => attacker.mover.walkOnto(target) });
   a.setSpearDefault(null);
 }

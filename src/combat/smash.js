@@ -4,6 +4,7 @@ import {
   afterImpact, choose, gripSlideToTarget, knockBack, overlapOf, planPunch, poseAhead, slowToImpact, stanceOf, standing, targetsOf, towardRival,
 } from './fight.js';
 import { skinnedMeshes } from './strikes.js';
+import { victoryLap } from './knight/common.js';
 import { findBone } from '../pieces/bone-names.js';
 import { CRUMBLE_SECONDS } from '../moves/rook-mover.js';
 
@@ -350,16 +351,10 @@ async function pawnFellsGiant({ attacker, defender, home, center, target, clock,
   a.setGripSlide(-COMBAT_RAISE);
   await crumbled;
 
-  // 3. Victoria: la cámara vuelve, el peón ocupa la casilla y lo celebra.
+  // 3. Victoria: el peón ocupa la casilla y lo celebra, con la cámara delante en primer plano.
   a.setSpearPose(null);
   a.setGripSlide(0);
-  await Promise.all([cinema.restore(clock), attacker.mover.walkOnto(target)]);
-  if (a.has('victory')) {
-    await a.playOnce('victory');
-    a.play('idle', { fade: 0.3 });
-  } else {
-    await attacker.mover.hop(2);
-  }
+  await victoryLap({ entry: attacker, clock, cinema, obstacles, move: () => attacker.mover.walkOnto(target) });
   a.setSpearDefault(null);
 }
 
