@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { afterImpact, slowToImpact } from '../fight.js';
-import { bestStrike, strikeSpot } from '../plan.js';
+import { strikeSpot } from '../plan.js';
+import { blowOf, bringUp, HIT_GAP } from '../blow.js';
 import {
-  bladeStrikes, bonePosition, dismountMode, facingTo, fighterOf, knockOut, lyingBody, shout, topple, victoryLap,
+  bonePosition, facingTo, fighterOf, knockOut, lyingBody, shout, topple, victoryLap,
 } from '../knight/common.js';
 
 // Se comen al alfil: el hechizo le sale rana (mismo espíritu de gag que las batallas del caballero). El
@@ -12,49 +13,13 @@ import {
 
 const SPELL = 'cast_a_spell';
 const FIZZLE_SECONDS = 0.9; // lo que se queda mirando el báculo apagado
-const HIT_GAP = 0.05;
 const FALL_SPREAD = Math.PI / 4;
 const DUST_Y = 0.05;
-
-// El golpe con que lo remata: con espada si la lleva (el caballero: un tajo), y si no, el de más alcance.
-// Devuelve la clave, lo que alcanza, cuándo llega y dónde mirar en ese momento.
-function blowOf(fighter) {
-  const slash = fighter.props?.sword ? bladeStrikes(fighter, { thrust: false })[0] ?? bladeStrikes(fighter)[0] : null;
-  if (slash) {
-    const { blade } = fighter.strikes[slash];
-    return { key: slash, reach: blade.reach, t: blade.t, point: () => swordTip(fighter) };
-  }
-  const key = bestStrike(fighter.attacks, fighter.strikes);
-  const { body } = fighter.strikes[key];
-  return { key, reach: body.reach, t: body.t, point: () => bonePosition(fighter, body.bone) };
-}
-
-function swordTip(fighter) {
-  return fighter.props.sword.localToWorld(new THREE.Vector3(0, fighter.swordEnds.top, 0));
-}
-
-// Deja al atacante en su sitio, listo para pegar, según lo que sea.
-async function bringUp(attacker, { at, facing, random }) {
-  if (attacker.kind === 'knight') {
-    await attacker.mover.leapTo(at);
-    await attacker.mover.dismount({ at, facing, mode: dismountMode(random) });
-    return;
-  }
-  if (attacker.kind === 'rook') {
-    await attacker.mover.awaken();
-    await attacker.mover.walkTo(at);
-    await attacker.mover.turnTo(facing, 0.3);
-    return;
-  }
-  await attacker.mover.descend(attacker.mover.square ? at : at);
-  await attacker.mover.walkTo(at);
-  await attacker.mover.turnTo(facing, 0.25);
-}
 
 export const bishopSpellFizzles = {
   matches: (attacker, defender) => defender.kind === 'bishop' && attacker.kind !== 'bishop',
   can: (attacker, defender) => Boolean(fighterOf(attacker)) && defender.piece.has('attack')
-    && Boolean(bestStrike(fighterOf(attacker).attacks, fighterOf(attacker).strikes)),
+    && Boolean(blowOf(fighterOf(attacker))),
 
   async run({ attacker, defender, home, center, target, clock, fx, cinema, hud, crowd, dust, debris, bubbles, bodies, obstacles, random }) {
     const bishop = defender.piece;
