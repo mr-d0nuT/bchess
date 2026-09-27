@@ -668,6 +668,16 @@
             {
               "clip": "walk"
             }
+          ],
+          "trot": [
+            {
+              "clip": "trot"
+            }
+          ],
+          "gallop": [
+            {
+              "clip": "gallop"
+            }
           ]
         }
       },
@@ -860,6 +870,16 @@
           "walk": [
             {
               "clip": "walk"
+            }
+          ],
+          "trot": [
+            {
+              "clip": "trot"
+            }
+          ],
+          "gallop": [
+            {
+              "clip": "gallop"
             }
           ]
         }

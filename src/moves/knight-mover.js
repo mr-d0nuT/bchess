@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { LEAP_GRAVITY, LEAP_MIN_PEAK, LEAP_SPEED, leapAt, planLeap } from './leap.js';
-import { BOARD_EDGE, nearestEdgeExit, planWalk, pointAlong, shortestTurn } from './walk.js';
+import { BOARD_EDGE, nearestEdgeExit, pickGait, planWalk, pointAlong, shortestTurn } from './walk.js';
 
 // Mover del caballero (diseño en docs/superpowers/specs/2026-09-15-bchess-caballero-design.md,
 // secciones 4 a 6), con la misma forma que los de los peones y las torres. Para ir a otra casilla, el
@@ -18,7 +18,6 @@ const LEG_STRETCH = { front: -40, back: 35 }; // grados de las patas estiradas a
 const LEG_TUCK = { front: 55, back: -45 }; // y recogidas al bajar
 const LEAP_MAX_PEAK = 2.2; // por alto que sea lo de debajo, el arco no pasa de aquí
 const TROT = 1.7; // veces su paseo, cuando va al trote
-const CHARGE = 2.8; // y cuando carga con la lanza
 const FIDGET_REAR = 0.6; // radianes que se levanta el caballo en su gesto de reposo
 const FIDGET_UP = 0.45; // segundos que tarda en levantarse
 const FIDGET_PAWS = 2; // manotazos al aire antes de bajar
@@ -116,7 +115,6 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
       horse.rest();
       return;
     }
-    knight.followGround = false;
     walk.paused = true;
     walk.time = knight.mount?.still?.time ?? 0; // el cuerpo, en un fotograma cualquiera del paseo
     // y cada pata, en la postura que tenía cuando le tocaba pisar a ella
@@ -384,8 +382,21 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     return leap({ figure: knight.figure, to, footprint: knight.mounted ? knight.mount : ON_FOOT, horseMoves: knight.mounted });
   }
 
-  // Trote hasta `to`: la peana encoge, el caballo cruza al trote con su paseo acelerado y se para. Va en
-  // línea recta, que es lo que hace un caballo cuando no tiene nada que librar.
+  // Pone al caballo al aire que va con `speed` (del tablero por segundo; negativa, hacia atrás): al paso,
+  // al trote o al galope, con su animación al compás de lo que avanza para que los cascos no patinen.
+  // Devuelve la acción, para devolverle después su ritmo.
+  function gaitFor(speed, fade) {
+    const { gait, timeScale } = pickGait(horse?.gaits, speed);
+    const action = horse?.play(gait, { fade }) ?? null;
+    if (action) {
+      action.paused = false;
+      action.timeScale = timeScale;
+    }
+    return action;
+  }
+
+  // Trote hasta `to`: la peana encoge, el caballo cruza al trote y se para. Va en línea recta, que es lo
+  // que hace un caballo cuando no tiene nada que librar.
   async function trot(figure, to) {
     looseLegs();
     const from = { x: figure.position.x, z: figure.position.z };
@@ -400,11 +411,7 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
       knight.pedestal.visible = false;
     }
     heading = { x: to.x, z: to.z };
-    const paso = horse?.play('walk', { fade: 0.2 });
-    if (paso) {
-      paso.paused = false;
-      paso.timeScale = TROT;
-    }
+    const paso = gaitFor(plan.distance / plan.duration, 0.2);
     await clock.tween(plan.duration, (t) => {
       const at = pointAlong(from, to, t);
       figure.position.set(at.x, 0, at.z);
@@ -472,6 +479,7 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
   // Si está sobre la peana, la peana encoge entre polvo mientras la figura baja al tablero.
   async function leavePedestal() {
     if (!knight.pedestal.visible) return;
+    knight.resting = false; // si respirase, la respiración lo devolvería cada fotograma a la altura de la peana
     const figure = knight.figure;
     const startY = figure.position.y;
     dust.puff(new THREE.Vector3(figure.position.x, DUST_Y, figure.position.z));
@@ -525,14 +533,9 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     const walk = planWalk(from, to, horse.walkSpeed * speed);
     if (walk.distance < 1e-3) return;
     looseLegs();
-    knight.followGround = true; // andando pisa el tablero, no se hunde en él
     if (!backwards) await turnFigure(figure, walk.heading, 0.3);
     heading = { x: to.x, z: to.z };
-    const action = horse.play('walk', { fade: 0.2 });
-    if (action) {
-      action.paused = false;
-      action.timeScale = backwards ? -speed : speed;
-    }
+    const action = gaitFor(backwards ? -walk.distance / walk.duration : walk.distance / walk.duration, 0.2);
     try {
       await clock.tween(walk.duration, (t) => {
         const p = pointAlong(from, to, t);
@@ -754,17 +757,13 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
   // Carga a caballo: cruza en línea recta hasta `to` ({x, z}) con el caballo lanzado, sin tocar la peana
   // (ya la ha dejado quien llama). La usa la batalla de la lanza, en la que el caballero no desmonta.
   async function chargeTo(to, { seconds = 0.7 } = {}) {
+    knight.resting = false;
     const figure = knight.figure;
     const from = { x: figure.position.x, z: figure.position.z };
     looseLegs();
-    knight.followGround = true;
     await turnFigure(figure, Math.atan2(to.x - from.x, to.z - from.z), 0.2);
     heading = { x: to.x, z: to.z };
-    const paso = horse?.play('walk', { fade: 0.15 });
-    if (paso) {
-      paso.paused = false;
-      paso.timeScale = CHARGE;
-    }
+    const paso = gaitFor(Math.hypot(to.x - from.x, to.z - from.z) / seconds, 0.15);
     try {
       await clock.tween(seconds, (t) => {
         const at = pointAlong(from, to, t);

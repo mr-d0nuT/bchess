@@ -5,7 +5,6 @@ import { fitToHeight, loadPieceKit, spawnPiece, withShadows } from './piece.js';
 import { createFlag, flagTexture } from './flag.js';
 import { findHorseBones } from './horse-bones.js';
 import { measureBody, measureStrikes } from '../combat/strikes.js';
-import { groundLift } from '../moves/walk.js';
 
 // El caballero (diseño en docs/superpowers/specs/2026-09-15-bchess-caballero-design.md, sección 3): una
 // peana con un caballo encima y el jinete sentado en la silla, con la lanza y su banderín, la espada
@@ -70,11 +69,10 @@ function measureHip(rider) {
   return hip;
 }
 
-// Postura de quieto del caballo: el fotograma del paseo en el que las cuatro patas quedan más a la par
-// (el primero deja una mano en el aire, como si cojeara) y lo que hay que subir o bajar el modelo para
-// que los cascos toquen la peana en esa postura. Este caballo no tiene animación de reposo.
+// Postura de quieto del caballo: la de su animación de reposo, o, si no la tiene, el fotograma del paseo
+// en el que las cuatro patas quedan más a la par (el primero deja una mano en el aire, como si cojeara);
+// y lo que hay que subir o bajar el modelo para que los cascos toquen la peana en esa postura.
 const STILL_SAMPLES = 32; // fotogramas del paseo que se prueban
-const GROUND_SAMPLES = 24; // puntos del paseo en los que se mide dónde le queda el suelo
 const STILL_EVERY = 3; // un vértice de cada tantos
 const STILL_BITE = 0.012; // lo que se hunden los cascos en la peana, para que no parezcan flotar
 const STILL_NEAR = 0.3; // lo cerca que ha de estar un vértice del casco para ser de esa pata
@@ -140,6 +138,38 @@ function hoofSoles(test, legs) {
   ]));
 }
 
+// Los vértices de la suela de cada casco del caballo: los más bajos de los que manda el último hueso de
+// cada pata, en la postura de enlace. Se toman por número y no por altura porque la malla optimizada
+// viene cuantizada y sus unidades no son las del modelo.
+const SOLE_VERTICES = 24; // por casco
+const GROUND_SLACK = 0.001; // lo que puede bajar una suela de su sitio antes de que se suba al caballo
+function soleVertices(horse, legs) {
+  const soles = [];
+  horse.figure.traverse((mesh) => {
+    if (!mesh.isSkinnedMesh) return;
+    const { skinIndex, skinWeight, position } = mesh.geometry.attributes;
+    for (const bones of Object.values(legs)) {
+      const bone = mesh.skeleton.bones.findIndex((b) => b.name === bones.at(-1));
+      if (bone < 0) continue;
+      const hoof = [];
+      for (let i = 0; i < position.count; i++) {
+        let best = -1;
+        let weight = -1;
+        for (let c = 0; c < 4; c++) {
+          if (skinWeight.getComponent(i, c) > weight) {
+            weight = skinWeight.getComponent(i, c);
+            best = skinIndex.getComponent(i, c);
+          }
+        }
+        if (best === bone) hoof.push(i);
+      }
+      hoof.sort((a, b) => position.getY(a) - position.getY(b));
+      for (const index of hoof.slice(0, SOLE_VERTICES)) soles.push({ mesh, index });
+    }
+  });
+  return soles;
+}
+
 // Busca el estribo de un lado (`side`: 1 izquierda, -1 derecha) en las mallas del caballo, con rayos
 // verticales. Devuelve el centro de la suela del estribo en el espacio de `figure`, o null.
 function findStirrup(meshes, figure, side) {
@@ -170,7 +200,7 @@ function measureStill(horse, legs) {
   const test = spawnPiece(horse);
   test.placeAt({ x: 0, z: 0 });
   test.face(0);
-  const walk = test.play('walk', { fade: 0 }) || test.play('idle', { fade: 0 });
+  const walk = test.play('idle', { fade: 0 }) || test.play('walk', { fade: 0 });
   if (!walk) return { time: 0, lift: 0, turns: [] };
   walk.paused = true;
   const duration = walk.getClip().duration;
@@ -214,31 +244,6 @@ function measureStill(horse, legs) {
   return { time: base.time, lift: -Math.min(...soles) - STILL_BITE, turns };
 }
 
-// EL SUELO DEL PASEO. La animación se hizo con su propio suelo, que no es el del tablero: andando,
-// las pezuñas se hunden en la madera entre cuatro y nueve centímetros, y además esa cantidad cambia
-// a lo largo del ciclo, así que el caballo va bamboleándose dentro del tablero. Se mide de antemano
-// cuánto baja la pezuña más baja en cada punto del paseo, para subirle luego justo eso en cada
-// fotograma. No le toca un hueso: sube o baja el caballo entero.
-function measureGround(horse, legs) {
-  const test = spawnPiece(horse);
-  test.placeAt({ x: 0, z: 0 });
-  test.face(0);
-  const walk = test.play('walk', { fade: 0 });
-  if (!walk) return null;
-  walk.paused = true;
-  const duration = walk.getClip().duration;
-  const base = test.figure.getWorldPosition(new THREE.Vector3()).y;
-  const suelo = [];
-  for (let i = 0; i < GROUND_SAMPLES; i++) {
-    walk.time = (i / GROUND_SAMPLES) * duration;
-    test.update(0);
-    test.object.updateMatrixWorld(true);
-    const soles = Object.values(hoofSoles(test, legs)).map((hoof) => hoof.sole);
-    suelo.push(Math.min(...soles) - base);
-  }
-  return suelo;
-}
-
 // Lo que los cascos traseros quedan por detrás del centro, con el caballo en la postura en la que de
 // verdad se le ve. No vale medirlo en el modelo recién cargado: su esqueleto está en la postura de
 // enlace, que en este caballo sale al doble de tamaño, y encabritándose se levantaría el doble de lo
@@ -280,7 +285,6 @@ function measureMount(horse, spec, hip, pedestalHeight) {
   horse.spec.yaw = yaw; // `spawnPiece` lo aplica a cada caballo
   const hoofBack = measureHoofBack(horse, legs);
   const still = measureStill(horse, legs);
-  const ground = measureGround(horse, legs);
 
   // Huella y silla, con el modelo girado para mirar a +Z.
   model.rotation.y = yaw;
@@ -297,7 +301,6 @@ function measureMount(horse, spec, hip, pedestalHeight) {
     neck,
     tail,
     still,
-    ground,
     hoofBack,
     halfLength: Math.max(-box.min.z, box.max.z),
     halfWidth: Math.max(-box.min.x, box.max.x, MIN_HALF_WIDTH),
@@ -367,9 +370,35 @@ export function spawnKnight(kit) {
   // Los cascos, a ras de peana: la postura de quieto no deja el caballo a la altura del modelo, así que
   // se le sube o baja dentro de su figura una sola vez y el resto del juego no tiene que saberlo.
   if (horse && mount?.still?.lift) for (const child of horse.figure.children) child.position.y += mount.still.lift;
-  // Y de ahí parte el seguimiento del suelo mientras anda.
-  if (horse) for (const child of horse.figure.children) child.userData.restY = child.position.y;
-  let followGround = false; // lo encienden el paseo y la carga; lo apaga pararse
+
+  // Ningún casco por debajo del suelo. Andando, trotando o galopando, los cascos apoyados pisan justo
+  // donde deben —los aires se compusieron así—, pero al arrancar y al pararse la animación funde la
+  // postura de quieto con la del aire, y a medio fundido una pata puede quedar más estirada que en
+  // las dos: el casco se hundía hasta dos centímetros y medio en el tablero. Mientras el caballo va
+  // derecho (sin encabritarse ni saltar), se le sube lo justo para que su suela más baja no pase de
+  // la altura de reposo.
+  const soles = horse && mount ? soleVertices(horse, mount.legs) : [];
+  const sole = new THREE.Vector3();
+  const figureAt = new THREE.Vector3();
+  let lifted = 0;
+  function keepAboveGround() {
+    let wanted = 0;
+    const level = !horse.figure.rotation.x && !horse.figure.rotation.z;
+    if (level && horse.object.visible) {
+      horse.figure.updateMatrixWorld(true);
+      const base = horse.figure.getWorldPosition(figureAt).y;
+      let lowest = Infinity;
+      for (const { mesh, index } of soles) {
+        mesh.getVertexPosition(index, sole).applyMatrix4(mesh.matrixWorld);
+        lowest = Math.min(lowest, sole.y - base);
+      }
+      wanted = Math.max(0, -STILL_BITE - GROUND_SLACK - (lowest - lifted));
+    }
+    if (wanted === lifted) return;
+    // El jinete no: lo lleva el lomo (`followBack`), que ya sube con el caballo.
+    for (const child of horse.figure.children) if (child !== rider.figure) child.position.y += wanted - lifted;
+    lifted = wanted;
+  }
   // Giran primero hacia donde miran y después se inclinan sobre su propio eje (encabritarse, caer).
   rider.figure.rotation.order = 'YXZ';
   if (horse) horse.figure.rotation.order = 'YXZ';
@@ -423,6 +452,38 @@ export function spawnKnight(kit) {
   let breath = Math.random() * BREATH_SECONDS; // cada caballo respira a su aire
 
   const hipBone = rider.object.getObjectByName('Hip'); // antes de que su figura cuelgue del caballo
+
+  // El jinete va con el lomo. Al trote y al galope el cuerpo del caballo sube, baja y cabecea con la
+  // raíz de su esqueleto, y el jinete, que cuelga de la figura y no de un hueso, se quedaría quieto
+  // encima, despegándose de la silla. Cada fotograma se le aplica lo que la raíz se ha movido desde el
+  // anterior: así sigue al caballo sin perder lo que otros le hagan (agacharse, tambalearse…).
+  let horseRoot = null;
+  horse?.figure.traverse((o) => { if (!horseRoot && o.isBone) horseRoot = o; }); // antes de sentarlo
+  const backBefore = new THREE.Matrix4(); // la raíz en el espacio de la figura, el fotograma anterior
+  const backNow = new THREE.Matrix4();
+  const riderMatrix = new THREE.Matrix4();
+  const riderScale = new THREE.Vector3();
+  // Se compone de padre en padre y no con las matrices del mundo: así, con el caballo cruzando el
+  // tablero, la raíz quieta da siempre la misma matriz y no se cuelan redondeos.
+  function backInFigure(target) {
+    target.identity();
+    for (let o = horseRoot; o && o !== horse.figure; o = o.parent) {
+      o.updateMatrix();
+      target.premultiply(o.matrix);
+    }
+    return target;
+  }
+  function anchorToBack() {
+    if (horseRoot) backInFigure(backBefore);
+  }
+  function followBack() {
+    backInFigure(backNow);
+    if (backNow.equals(backBefore)) return; // quieto: nada que sumar, ni redondeos que se acumulen
+    riderMatrix.compose(rider.figure.position, rider.figure.quaternion, riderScale.set(1, 1, 1));
+    riderMatrix.premultiply(backBefore.invert().premultiply(backNow));
+    riderMatrix.decompose(rider.figure.position, rider.figure.quaternion, riderScale);
+    backBefore.copy(backNow);
+  }
   const down = new THREE.Vector3(0, -1, 0);
   const isRider = (o) => { for (let at = o; at; at = at.parent) if (at === rider.figure) return true; return false; };
 
@@ -438,7 +499,7 @@ export function spawnKnight(kit) {
     rider.figure.position.set(mount.riderOffset.x, mount.riderOffset.y, mount.riderOffset.z);
     rider.figure.rotation.set(0, 0, 0);
     rider.figure.scale.setScalar(1);
-    if (!hipBone) return;
+    if (!hipBone) return anchorToBack();
     rider.holdRoot(); // sentado no se balancea de lado: iría a su aire y el escudo atravesaría al caballo
     horse.update(0); // primero el caballo en su postura de verdad: recién creado aún está en la de enlace
     rider.update(0);
@@ -451,6 +512,7 @@ export function spawnKnight(kit) {
     if (saddle) rider.figure.position.y += saddle.point.y + SEAT_LIFT - hip.y;
     uprightShield();
     feetToStirrups(meshes);
+    anchorToBack();
   }
 
   // Mete los pies del jinete en los estribos: busca dónde están (una vez), baja cada tobillo a la altura
@@ -672,23 +734,11 @@ export function spawnKnight(kit) {
     face(angle) {
       (horse ?? rider).figure.rotation.set(0, angle, 0);
     },
-    // Andando, el caballo se sube lo que haga falta para que la pezuña más baja pise el tablero en
-    // vez de hundirse en él. Parado no: entonces manda la postura de quieto.
-    set followGround(value) {
-      followGround = Boolean(value) && Boolean(mount?.ground);
-      if (!horse) return;
-      if (!followGround) for (const child of horse.figure.children) child.position.y = child.userData.restY;
-    },
-    get followGround() {
-      return followGround;
-    },
     update(dt) {
       if (resting) breathe(dt);
       horse?.update(dt);
-      if (horse && followGround) {
-        const sube = groundLift(mount.ground, horse.phase);
-        for (const child of horse.figure.children) child.position.y = child.userData.restY + sube;
-      }
+      if (soles.length) keepAboveGround();
+      if (mounted && horseRoot) followBack();
       rider.update(dt);
       pennant?.update(dt);
     },

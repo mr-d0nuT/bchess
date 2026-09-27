@@ -22,6 +22,7 @@ import { SWAY_BONES, hipShift, rockAngle, swayPose, uprightBend } from './sway.j
 THREE.Cache.enabled = true; // un fichero de animaciones compartido por dos colores se descarga una vez
 
 const MODELS = 'assets/models/';
+const GAITS = ['walk', 'trot', 'gallop']; // los aires, del más lento al más rápido: cada uno sabe lo que avanza
 const FALLBACK_PEDESTAL_HEIGHT = 0.26;
 // Posturas de la lanza respecto a la figura cuando deja de seguir a la mano: en estocada, su
 // eje (+Y) apunta al frente y un poco hacia abajo; erguida, hacia arriba.
@@ -209,18 +210,25 @@ export async function loadPieceKit(spec, quality) {
   // segundo. La reina va más despacio y lo dice en su ficha: con la capa hasta el suelo y la
   // zancada corta que eso obliga, al ritmo de todos le salían casi cuatro pasos por segundo, un
   // trotecillo impropio.
+  // Lo mismo con el trote y el galope, si los trae (el caballo): cada aire sabe a qué velocidad avanza,
+  // y quien lo ponga a andar ajusta su ritmo a lo que se mueva la figura, para que no patine.
   let walkSpeed = spec.walkSpeed ?? strideSpeed({ rootDistance: 0, clipDuration: 1, height: spec.height });
+  const gaits = {};
   const touched = new Set();
-  const walkClip = moves.walk[0] ? clipByName(moves.walk[0].clip) : null;
-  const walkRoot = walkClip ? rootTrack(walkClip) : null;
-  if (walkRoot) {
-    const { distance, values } = removeLinearDrift(walkRoot.track.times, walkRoot.track.values, walkRoot.upAxis);
-    walkRoot.track.values = values;
-    touched.add(walkClip.name);
-    const bone = model.getObjectByName(walkRoot.name.slice(0, -'.position'.length));
+  for (const gait of GAITS) {
+    const clip = moves[gait]?.[0] ? clipByName(moves[gait][0].clip) : null;
+    const root = clip && !touched.has(clip.name) ? rootTrack(clip) : null;
+    if (!root) continue;
+    const { distance, values } = removeLinearDrift(root.track.times, root.track.values, root.upAxis);
+    root.track.values = values;
+    touched.add(clip.name);
+    const bone = model.getObjectByName(root.name.slice(0, -'.position'.length));
     const parentScale = bone?.parent ? bone.parent.getWorldScale(new THREE.Vector3()).x : 1;
-    walkSpeed = strideSpeed({ rootDistance: distance * parentScale, clipDuration: walkClip.duration, height: spec.height });
+    const rootDistance = distance * parentScale;
+    if (gait === 'walk') walkSpeed = strideSpeed({ rootDistance, clipDuration: clip.duration, height: spec.height });
+    else if (rootDistance > 0.05 * spec.height) gaits[gait] = rootDistance / clip.duration;
   }
+  if (moves.walk?.[0]) gaits.walk = walkSpeed;
   for (const variants of Object.values(moves)) {
     for (const variant of variants) {
       if (variant.travel === undefined || touched.has(variant.clip)) continue;
@@ -249,6 +257,7 @@ export async function loadPieceKit(spec, quality) {
     clips,
     moves,
     walkSpeed,
+    gaits,
     rootBone,
     hands,
     has: (action) => Boolean(moves[action]?.length),
@@ -876,6 +885,7 @@ export function spawnPiece(kit) {
     radius: kit.radius,
     height: kit.spec.height + kit.pedestalHeight,
     walkSpeed: kit.walkSpeed,
+    gaits: kit.gaits, // { aire: velocidad }, de los que trae
     has: (action) => Boolean(variants[action]?.length),
     // En qué punto del ciclo va la animación que suena ahora, de 0 a 1: sirve para colgarle encima
     // movimientos propios (el contoneo de la reina) al compás de los pasos.

@@ -48,18 +48,13 @@ export function nearestEdgeExit(point, edge = BOARD_EDGE) {
   return { x: point.x, z: point.z < 0 ? -edge : edge };
 }
 
-// Lo que hay que subir un caballo en el punto `phase` (0..1) de su paseo para que la pezuña más baja
-// pise el suelo en vez de hundirse en él, interpolando entre las medidas de `ground` —lo que baja
-// esa pezuña en cada punto del ciclo, que se toma una vez al cargar el modelo—. La animación se hizo
-// con su propio suelo, y ni coincide con el del tablero ni se está quieta a lo largo del paseo: sin
-// esto el caballo camina hundido en la madera y bamboleándose dentro de ella.
-export function groundLift(ground, phase) {
-  if (!ground?.length) return 0;
-  const f = ((phase % 1) + 1) % 1;
-  const x = f * ground.length;
-  const i = Math.floor(x);
-  const t = x - i;
-  const a = ground[i % ground.length];
-  const b = ground[(i + 1) % ground.length];
-  return -(a + (b - a) * t) + 0; // el +0 quita el -0, que se cuela al negar un suelo plano
+// El aire que va con una velocidad: de los que tiene la pieza (`gaits`, { aire: velocidad }), el que
+// menos se aparta de ella en proporción —al paso, al trote o al galope—, y a qué ritmo ha de ir su
+// animación para que los cascos no patinen (negativo si va hacia atrás). Sin aires, el paso tal cual.
+export function pickGait(gaits, speed) {
+  const own = Object.entries(gaits ?? {}).filter(([, value]) => value > 0);
+  if (!own.length || !speed) return { gait: 'walk', timeScale: Math.sign(speed) || 1 };
+  const off = ([, value]) => Math.abs(Math.log(value / Math.abs(speed)));
+  const [gait, value] = own.reduce((best, entry) => (off(entry) < off(best) ? entry : best));
+  return { gait, timeScale: speed / value };
 }
