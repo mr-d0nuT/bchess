@@ -2,26 +2,27 @@ import * as THREE from 'three';
 import { QUEEN, armsDown } from '../../pieces/cast.js';
 import { afterImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
-import { facingTo, knockOut, shout, victoryLap } from '../knight/common.js';
-import { ROYAL_COLOR, chestOf, faceAttacker, fallClear, horseBolts, pose, poseTo, rebote, release, stepDown, suave, victimOf } from './royal.js';
+import { facingTo, shout, victoryLap } from '../knight/common.js';
+import { ROYAL_COLOR, chestOf, faceAttacker, horseBolts, pose, poseTo, rebote, release, stepDown, suave, victimOf } from './royal.js';
 
-// LA REINA CONJURA. No se acerca a pegar: se planta a distancia, abre los brazos y llama. Un sello
-// enorme se abre a sus pies y otro sobre el rival; la energía se le junta en las dos manos, en
-// espiral. Entonces lanza los brazos al frente y salen DOS rayos a la vez, uno de cada mano, que se
-// clavan en el pecho del rival. El suelo se abre en ondas, al rival se lo llevan hacia arriba
-// deshecho en motas y cae.
+// LA REINA HIELA. El rey sentencia con el báculo —mazazo, rayo, onda y el rival llevado por los aires—;
+// la reina, no: lo suyo es el frío, y se tenían que distinguir de un vistazo. No se acerca a pegar: se
+// planta a distancia y alza las manos, y el frío se le junta en ellas. Entonces las lanza al frente y la
+// escarcha corre por el suelo hasta el rival, le trepa por el cuerpo y lo encierra en cristal. Un
+// instante quieto, congelado… y ella cierra las manos: el hielo estalla en esquirlas y el rival con él.
 //
 // Hueso a hueso, como el andar: su modelo no trae ni una animación.
 
 const REACH = 2.05; // se queda LEJOS: una reina no se pelea, sentencia desde su sitio
 const GAP = 0.35;
-const SUMMON_SECONDS = 0.8; // lo que tarda en abrir los brazos
-const CHARGE_SECONDS = 0.85; // y lo que se le junta la energía en las manos
+const SUMMON_SECONDS = 0.8; // lo que tarda en alzar las manos
+const CHARGE_SECONDS = 0.7; // y lo que se le junta el frío en ellas
 const CAST_SECONDS = 0.18; // el latigazo de los brazos al frente
-const BOLT_SECONDS = 0.5;
-const HOLD_SECONDS = 0.45;
+const FROST_SECONDS = 0.45; // lo que tarda la escarcha en llegar al rival
+const FREEZE_SECONDS = 0.7; // y en encerrarlo en hielo
+const FROZEN_SECONDS = 0.55; // el rival congelado, quieto, antes de romperse
+const SNAP_SECONDS = 0.12; // ella cierra las manos
 const RECOVER_SECONDS = 0.55;
-const KO_SECONDS = 1;
 
 export const queenCasts = {
   matches: (attacker) => attacker.kind === 'queen',
@@ -53,53 +54,46 @@ export const queenCasts = {
       //     conjuro no cae hasta que el animal ha salido del tablero.
       await horseBolts(defender, center, home);
 
-      // 2. Abre los brazos y llama: su sello a los pies, y otro sobre el rival, que ya está
-      //    sentenciado antes de que salga nada de las manos.
-      const suyo = attacker.piece.figure.getWorldPosition(new THREE.Vector3());
-      fx.sigil(suyo, { radius: 0.8, seconds: SUMMON_SECONDS + CHARGE_SECONDS + 0.5, color, spin: 1.2 });
+      // 2. Alza las manos y el frío se le junta en ellas.
       await poseTo(queen, reposo, QUEEN.summon, { clock, seconds: SUMMON_SECONDS, ease: suave });
-      fx.sigil(center, { radius: 0.72, seconds: CHARGE_SECONDS + 0.9, color, spin: -1.8 });
+      fx.charge(mano('L'), { seconds: CHARGE_SECONDS, color, size: 0.26, motes: 14 });
+      fx.charge(mano('R'), { seconds: CHARGE_SECONDS, color, size: 0.26, motes: 14 });
+      await clock.wait(CHARGE_SECONDS);
 
-      // 3. La energía se junta en las dos manos, y a cámara lenta antes de soltarla.
-      fx.charge(mano('L'), { seconds: CHARGE_SECONDS, color, size: 0.34, motes: 12 });
-      fx.charge(mano('R'), { seconds: CHARGE_SECONDS, color, size: 0.34, motes: 12 });
-      await clock.wait(CHARGE_SECONDS * 0.55);
-      clock.timeScale = 0.3;
-      await clock.wait(CHARGE_SECONDS * 0.45);
-
-      // 4. EL CONJURO. Los brazos salen disparados al frente y con ellos los dos rayos.
+      // 3. Lanza las manos al frente y la escarcha corre por el suelo hasta el rival, le trepa por el
+      //    cuerpo y lo encierra en cristal.
       await poseTo(queen, QUEEN.summon, QUEEN.cast, { clock, seconds: CAST_SECONDS, ease: rebote });
-      clock.timeScale = 1;
+      const victima = victimOf(defender);
+      const suyo = queen.figure.getWorldPosition(new THREE.Vector3());
+      const pies = victima.figure.getWorldPosition(new THREE.Vector3());
+      const vida = FROST_SECONDS + FREEZE_SECONDS + FROZEN_SECONDS + 1.2;
+      fx.frost(suyo, pies, { seconds: vida, reach: FROST_SECONDS / vida, color });
+      await clock.wait(FROST_SECONDS);
+      const alto = (victima.height ?? defender.piece.height) * 1.05;
+      const hielo = fx.encase(pies, { height: alto, radius: Math.min(0.42, Math.max(0.28, defender.piece.radius * 0.8)), seconds: FREEZE_SECONDS, color });
+      await clock.wait(FREEZE_SECONDS * 0.6);
+      const quieto = victima.play?.('idle', { fade: 0.1 }); // se queda helado a medio respirar
+      await clock.wait(FREEZE_SECONDS * 0.4);
+      if (quieto) quieto.paused = true;
+      await clock.wait(FROZEN_SECONDS);
+
+      // 4. Cierra las manos: el hielo estalla en esquirlas y el rival se rompe con él.
+      await poseTo(queen, QUEEN.cast, QUEEN.summon, { clock, seconds: SNAP_SECONDS, ease: rebote });
       const pecho = chestOf(defender);
-      for (const lado of ['L', 'R']) {
-        const desde = mano(lado)();
-        fx.bolt(desde, pecho, { seconds: BOLT_SECONDS, color, width: 0.055, kinks: 10 });
-        fx.burst(desde, { size: 0.9, sparks: 16 });
-      }
+      hielo.shatter();
+      victima.figure.visible = false;
+      fx.burst(pecho, { size: 1.5, sparks: 32 });
       hud.flash();
-      cinema.shake(0.18);
-      shout(bubbles, '¡FUERA!', pecho);
-
-      // 5. Los rayos llegan: onda, fogonazo y el rival deshaciéndose hacia arriba.
-      await clock.wait(BOLT_SECONDS * 0.45);
-      fx.shockwave(center, { radius: 2.6, seconds: 0.6, color });
-      fx.burst(pecho, { size: 1.7, sparks: 34 });
-      fx.updraft(() => chestOf(defender), { seconds: 1.4, count: 40, color, radius: 0.5, height: 2.6 });
       cinema.shake(0.2);
+      shout(bubbles, '¡CRAC!', pecho);
       await afterImpact(clock);
-      await clock.wait(HOLD_SECONDS);
 
-      // 6. Cae, y ella baja los brazos sin despeinarse.
+      // 5. Baja los brazos sin despeinarse; del rival no queda nada.
       await Promise.all([
-        fallClear(defender, {
-          clock, at: center, from: home, crowd, bodies, owners: [attacker, defender],
-          rival: { ...attacker.piece.figure.position, radius: attacker.piece.radius },
-        }),
-        poseTo(queen, QUEEN.cast, reposo, { clock, seconds: RECOVER_SECONDS, ease: suave }),
+        poseTo(queen, QUEEN.summon, reposo, { clock, seconds: RECOVER_SECONDS, ease: suave }),
+        defender.kind === 'knight' ? defender.mover.defeated({ avoid: center }) : defender.mover.vanish(),
       ]);
-      await knockOut({ clock, fx, fighter: victimOf(defender), seconds: KO_SECONDS });
-      await (defender.kind === 'knight' ? defender.mover.defeated({ avoid: center }) : defender.mover.vanish());
-      bodies.length = 0; // ya no hay cuerpo que estorbe
+      bodies.length = 0;
 
       // 7. Y ocupa la casilla.
       await victoryLap({

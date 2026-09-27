@@ -253,6 +253,141 @@ export function createSpellFx(scene) {
     }
   }
 
+  // EL HIELO. Nada de rayos: el frío se arrastra por el suelo, trepa por el rival hasta encerrarlo en
+  // cristal y luego se rompe con él dentro. Los cristales son pirámides de seis caras, finas y
+  // translúcidas, con un brillo propio del color de quien conjura: así se leen como hielo de lejos.
+  function cristal(color) {
+    const geometry = new THREE.CylinderGeometry(0, 1, 1, 6, 1);
+    geometry.translate(0, 0.5, 0); // la base en el origen: crece hacia arriba
+    const tono = new THREE.Color(color);
+    const object = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+      color: tono.clone().lerp(new THREE.Color('#ffffff'), 0.5),
+      emissive: tono,
+      emissiveIntensity: 0.4,
+      roughness: 0.08,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.68,
+      depthWrite: false,
+      flatShading: true,
+    }));
+    object.renderOrder = 10;
+    scene.add(object);
+    return object;
+  }
+  const crece = (t) => 1 - (1 - t) ** 3;
+
+  // La escarcha: de `from` a `to` (puntos del suelo) brotan cristalitos al paso de un frente que tarda
+  // `reach` de la vida en llegar, con vaho frío por encima. Se funden al final.
+  function frost(from, to, { seconds = 1.6, reach = 0.35, color = '#bfe6ff', count = 28 } = {}) {
+    const a = new THREE.Vector3().copy(from).setY(0);
+    const b = new THREE.Vector3().copy(to).setY(0);
+    const lado = new THREE.Vector3().subVectors(b, a).cross(ARRIBA).normalize();
+    for (let i = 0; i < count; i++) {
+      const t = (i + Math.random()) / count;
+      const hielo = cristal(color);
+      hielo.position.copy(a).lerp(b, t).addScaledVector(lado, (Math.random() - 0.5) * 0.3);
+      hielo.rotation.set((Math.random() - 0.5) * 0.9, Math.random() * Math.PI, (Math.random() - 0.5) * 0.9);
+      const alto = 0.06 + Math.random() * 0.12;
+      const grueso = 0.018 + Math.random() * 0.022;
+      vive(hielo, seconds, (k) => {
+        const g = Math.max(0, Math.min(1, (k - t * reach) / 0.06));
+        hielo.scale.set(grueso * crece(g), alto * crece(g), grueso * crece(g));
+        hielo.material.opacity = 0.68 * (k > 0.8 ? (1 - k) / 0.2 : 1);
+      });
+    }
+    for (let i = 0; i < 10; i++) {
+      const t = i / 9;
+      const vaho = mota(brasa, color);
+      const sitio = new THREE.Vector3().copy(a).lerp(b, t).setY(0.08);
+      vive(vaho, seconds, (k) => {
+        const g = Math.max(0, Math.min(1, (k - t * reach) / 0.1));
+        vaho.position.copy(sitio).setY(0.08 + 0.12 * k);
+        vaho.scale.setScalar(0.35 + 0.25 * g);
+        vaho.material.opacity = 0.35 * g * (1 - k);
+      });
+    }
+  }
+
+  // El bloque: cristales que crecen alrededor de `at` (los pies del rival), de abajo arriba, hasta
+  // `height`, y un prisma de hielo que lo envuelve. Devuelve `shatter()`, que lo rompe en esquirlas
+  // que salen despedidas y caen. Hasta que se rompe, se queda.
+  function encase(at, { height = 1.6, radius = 0.3, seconds = 0.8, color = '#bfe6ff', count = 22 } = {}) {
+    const pie = new THREE.Vector3().copy(at).setY(0);
+    const piezas = [];
+    const bloque = cristal(color);
+    bloque.geometry.dispose();
+    bloque.geometry = new THREE.CylinderGeometry(radius, radius * 1.12, 1, 6, 1).translate(0, 0.5, 0);
+    bloque.material.opacity = 0.32;
+    bloque.position.copy(pie);
+    bloque.scale.set(1, 0.001, 1);
+    piezas.push(bloque);
+    const estado = { edad: 0, roto: false };
+    vive(bloque, 3600, (k, dt) => {
+      if (estado.roto) return;
+      estado.edad += dt;
+      bloque.scale.y = height * crece(Math.min(1, estado.edad / seconds));
+    });
+    for (let i = 0; i < count; i++) {
+      const hielo = cristal(color);
+      const angulo = (i / count) * Math.PI * 2 + Math.random() * 0.4;
+      const altura = Math.random() * height * 0.85;
+      const r = radius * (0.85 + Math.random() * 0.25);
+      hielo.position.set(pie.x + Math.cos(angulo) * r, altura, pie.z + Math.sin(angulo) * r);
+      // Hacia fuera y hacia arriba, más echados cuanto más altos.
+      const echa = 0.35 + (altura / height) * 0.6;
+      hielo.lookAt(pie.x + Math.cos(angulo) * (r + 1), altura + 1 / Math.tan(echa), pie.z + Math.sin(angulo) * (r + 1));
+      hielo.rotateX(Math.PI / 2);
+      const largo = (altura < 0.1 ? 0.35 : 0.18) + Math.random() * 0.25;
+      const grueso = 0.035 + Math.random() * 0.04;
+      const cuando = (altura / height) * 0.75;
+      hielo.scale.setScalar(0.001);
+      piezas.push(hielo);
+      vive(hielo, 3600, () => {
+        if (estado.roto) return;
+        const g = Math.max(0, Math.min(1, (estado.edad / seconds - cuando) / 0.25));
+        hielo.scale.set(grueso * crece(g), largo * crece(g), grueso * crece(g));
+      });
+    }
+    return {
+      // Se rompe: cada cristal y el bloque se van en esquirlas hacia fuera, girando, y caen.
+      shatter({ shards = 70 } = {}) {
+        estado.roto = true;
+        const donde = new THREE.Vector3();
+        for (const pieza of piezas) {
+          pieza.visible = false;
+          const item = vivos.find((v) => v.object === pieza);
+          if (item) item.life = item.age; // fuera en el próximo fotograma
+        }
+        for (let i = 0; i < shards; i++) {
+          const esquirla = cristal(color);
+          const angulo = Math.random() * Math.PI * 2;
+          donde.set(pie.x + Math.cos(angulo) * radius * Math.random(), Math.random() * height, pie.z + Math.sin(angulo) * radius * Math.random());
+          esquirla.position.copy(donde);
+          esquirla.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+          const tam = 0.03 + Math.random() * 0.06;
+          esquirla.scale.set(tam * 0.6, tam * 1.6, tam * 0.6);
+          const fuerza = 1.2 + Math.random() * 2.2;
+          const velocidad = new THREE.Vector3(Math.cos(angulo) * fuerza, 0.8 + Math.random() * 2.4, Math.sin(angulo) * fuerza);
+          const giro = new THREE.Vector3((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14);
+          vive(esquirla, 0.9 + Math.random() * 0.5, (k, dt) => {
+            velocidad.y -= 7 * dt;
+            esquirla.position.addScaledVector(velocidad, dt);
+            if (esquirla.position.y < 0.02) {
+              esquirla.position.y = 0.02;
+              velocidad.multiplyScalar(0.35);
+              velocidad.y = Math.abs(velocidad.y) * 0.3;
+            }
+            esquirla.rotation.x += giro.x * dt;
+            esquirla.rotation.y += giro.y * dt;
+            esquirla.rotation.z += giro.z * dt;
+            esquirla.material.opacity = 0.75 * (k > 0.6 ? (1 - k) / 0.4 : 1);
+          });
+        }
+      },
+    };
+  }
+
   function update(dt) {
     for (let i = vivos.length - 1; i >= 0; i--) {
       const item = vivos[i];
@@ -268,5 +403,5 @@ export function createSpellFx(scene) {
     }
   }
 
-  return { charge, sigil, bolt, shockwave, updraft, update };
+  return { charge, sigil, bolt, shockwave, updraft, frost, encase, update };
 }
