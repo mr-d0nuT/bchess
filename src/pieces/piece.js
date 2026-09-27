@@ -31,6 +31,8 @@ const SPEAR_POSES = {
   upright: new THREE.Quaternion(),
 };
 const SPEAR_TURN_SPEED = 7; // por segundo: la lanza tarda ~0,15 s en cambiar de postura
+const THRUST_BLEND = 0.15; // segundos del clip en que la espada pasa del agarre a la estocada, y vuelta
+const THRUST_ARM = 0.05; // lo que ha de distar de la mano el hueso que marca la línea del antebrazo
 // El eje sobre el que el báculo da vueltas cuando se le pide (`setSpearSpin`): perpendicular a la
 // vara, así que voltea de punta a regatón, no gira sobre sí mismo como un taladro —que en un palo
 // redondo casi no se ve. Y como su origen está en el agarre, voltea alrededor del PUÑO.
@@ -498,6 +500,40 @@ export function spawnPiece(kit) {
   for (const prop of [props.spear, props.sword]) if (prop) prop.userData.noPick = true;
 
   const spearHold = props.spear ? props.spear.quaternion.clone() : null;
+
+  // En las estocadas (las versiones de ataque marcadas `thrust`), la espada sigue la línea del antebrazo,
+  // como si el brazo se alargase en la hoja. Tal como se agarra, en esos golpes (puñetazos con la espada
+  // en la mano) apuntaba al cielo mientras el puño iba al frente, y la estocada parecía un empujón. La
+  // mezcla va con el tiempo del propio clip y no con el reloj, para que la medida de los golpes, que para
+  // el clip en cada instante, vea la misma espada que el combate.
+  const swordHold = props.sword ? props.sword.quaternion.clone() : null;
+  const swordTurn = { parent: new THREE.Quaternion(), world: new THREE.Quaternion(), aim: new THREE.Quaternion() };
+  const swordLine = { hand: new THREE.Vector3(), arm: new THREE.Vector3(), axis: new THREE.Vector3(), blade: new THREE.Vector3() };
+  function aimSword() {
+    const sword = props.sword;
+    if (!sword || !swordHold) return;
+    sword.quaternion.copy(swordHold);
+    if (currentName !== 'attack' || !currentVariant?.thrust || !current) return;
+    const end = currentVariant.seconds ?? current.getClip().duration;
+    const ramp = (x) => Math.min(1, Math.max(0, x / THRUST_BLEND));
+    const weight = ramp(current.time) * ramp(end - current.time);
+    if (weight <= 0) return;
+    const hand = sword.parent;
+    hand.updateWorldMatrix(true, false);
+    hand.getWorldPosition(swordLine.hand);
+    // El antebrazo: el primer hueso de más arriba que no esté pegado a la mano (los de giro, sí).
+    let arm = hand.parent;
+    while (arm?.parent?.isBone && arm.getWorldPosition(swordLine.arm).distanceTo(swordLine.hand) < THRUST_ARM) arm = arm.parent;
+    if (!arm) return;
+    arm.getWorldPosition(swordLine.arm);
+    swordLine.axis.subVectors(swordLine.hand, swordLine.arm).normalize();
+    hand.getWorldQuaternion(swordTurn.parent);
+    swordTurn.world.copy(swordTurn.parent).multiply(swordHold);
+    swordLine.blade.set(0, 1, 0).applyQuaternion(swordTurn.world);
+    swordTurn.aim.setFromUnitVectors(swordLine.blade, swordLine.axis).multiply(swordTurn.world);
+    swordTurn.aim.premultiply(swordTurn.parent.invert());
+    sword.quaternion.slerpQuaternions(swordHold, swordTurn.aim, weight);
+  }
   const spearGripAt = props.spear ? props.spear.position.clone() : null;
   const spearScale = props.spear ? props.spear.scale.clone() : null;
 
@@ -867,6 +903,7 @@ export function spawnPiece(kit) {
       cuts.splice(cuts.indexOf(cut), 1);
       cut.resolve(true);
     }
+    aimSword();
     const spear = props.spear;
     if (!spear) return;
     if (flying) {
