@@ -1,4 +1,7 @@
+import { DefaultLoadingManager } from 'three';
 import { pickQuality, qualityFromQuery } from './quality.js';
+import { createMusic } from './audio/music.js';
+import { createLoading } from './ui/loading.js';
 import { createStage } from './scene/stage.js';
 import { addLighting } from './scene/lighting.js';
 import { createBoard } from './scene/board.js';
@@ -79,8 +82,33 @@ function currentQuality() {
   });
 }
 
+// El botón de la música: la quita o la pone, y se acuerda.
+function wireMusicButton(music) {
+  const button = document.getElementById('musica');
+  if (!button) return;
+  const paint = () => {
+    button.setAttribute('aria-pressed', String(!music.muted));
+    button.title = music.muted ? 'Poner la música' : 'Quitar la música';
+  };
+  paint();
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    music.toggle();
+    paint();
+  });
+}
+
 async function start() {
+  // Lo primero, la pantalla de carga y su música, que el resto tarda unos segundos.
+  const loading = createLoading();
+  const music = createMusic({
+    onNeedGesture: () => loading.askForSound(true),
+    onGesture: () => loading.askForSound(false),
+  });
+  music.startIntro();
+  wireMusicButton(music);
   if (!webglAvailable()) {
+    loading.finish();
     hud.showMessage('Tu navegador no puede mostrar gráficos 3D (WebGL no está disponible). Prueba con Chrome, Safari o Firefox actualizados.');
     return;
   }
@@ -475,19 +503,45 @@ async function start() {
     // vez de quedarse vacío mientras los modelos compiten por la conexión. Primero los peones, que son
     // la mitad del tablero, y enseguida los caballeros y los alfiles, que son los que más se hacen
     // esperar.
-    await loadPawns(manifest);
-    await loadKnights(manifest);
-    await loadBishops(manifest);
-    await loadQueens(manifest);
-    await loadKings(manifest);
-    await loadRooks(manifest);
+    // La barra de la pantalla de carga: cada tipo de pieza pesa lo que suele tardar, y dentro de cada
+    // uno avanza con los ficheros que van llegando (hasta el 90 % de su parte: el resto es prepararlos).
+    const tipos = [
+      ['Formando a los peones', loadPawns, 0.12],
+      ['Ensillando a los caballos', loadKnights, 0.3],
+      ['Bendiciendo a los alfiles', loadBishops, 0.14],
+      ['Peinando a las reinas', loadQueens, 0.1],
+      ['Puliendo las coronas', loadKings, 0.12],
+      ['Despertando a los gigantes', loadRooks, 0.17],
+    ];
+    let hecho = 0.05;
+    let cuenta = { loaded: 0, total: 0 };
+    let tramo = null;
+    DefaultLoadingManager.onProgress = (url, loaded, total) => {
+      cuenta = { loaded, total };
+      if (!tramo) return;
+      const nuevos = cuenta.total - tramo.desde;
+      const f = nuevos > 0 ? (cuenta.loaded - tramo.desde) / nuevos : 0;
+      loading.progress(hecho + tramo.peso * Math.min(0.9, f));
+    };
+    for (const [label, carga, peso] of tipos) {
+      tramo = { desde: cuenta.loaded, peso };
+      loading.progress(hecho, label);
+      await carga(manifest);
+      hecho += peso;
+      loading.progress(hecho);
+    }
+    tramo = null;
   }
 
+  loading.progress(0.02, 'Encendiendo las antorchas');
   await addLighting(stage, quality);
   await loadPieces();
+  // Todo cargado: la intro se funde, la pantalla también, y empieza la música del juego.
+  music.endIntro();
+  await loading.finish();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
-    stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles,
+    stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music,
     get pawns() {
       return pieces.filter((entry) => entry.kind === 'pawn');
     },

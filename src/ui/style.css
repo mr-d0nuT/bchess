@@ -108,5 +108,74 @@ html, body {
   to { transform: translate(-50%, -100%) rotate(-6deg); }
 }
 
-@media (max-width: 520px) {
-  
+/* El botón de la música, arriba a la izquierda. Tachado cuando está quitada. */
+#musica {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--borde-boton);
+  border-radius: 50%;
+  background: var(--fondo-boton);
+  color: var(--tinta);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+#musica[aria-pressed="false"] { opacity: 0.55; text-decoration: line-through; }
+
+/* La pantalla de carga: la portada a toda pantalla y, abajo, la barra. */
+#carga {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #0d0b09;
+  transition: opacity 0.9s ease;
+}
+#carga.fuera { opacity: 0; pointer-events: none; }
+#carga picture, #carga img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+#carga img { object-fit: cover; object-position: center 30%; }
+#carga-pie {
+  position: absolute;
+  left: 50%;
+  bottom: max(28px, calc(env(safe-area-inset-bottom) + 16px));
+  width: min(560px, 84vw);
+  transform: translateX(-50%);
+  text-align: center;
+  text-shadow: 0 1px 3px #000, 0 0 12px rgba(0, 0, 0, 0.8);
+}
+#carga-barra {
+  height: 12px;
+  border: 1px solid rgba(255, 214, 140, 0.8);
+  border-radius: 7px;
+  background: rgba(20, 8, 6, 0.65);
+  box-shadow: 0 0 14px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+#carga-barra span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #8e1414, #d8a13a 70%, #ffe7a6);
+  transition: width 0.35s ease-out;
+}
+#carga-texto {
+  margin: 8px 0 0;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fff2d6;
+}
+#carga-sonido {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #ffe7a6;
+  animation: latido 1.6s ease-in-out infinite;
+}
+@keyframes latido { 50% { opacity: 0.45; } }

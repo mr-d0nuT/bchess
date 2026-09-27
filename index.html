@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>BChess · peones y torres</title>
+  <title>mr_donut Battle Chess</title>
   <meta name="description" content="BChess, homenaje 3D a Battle Chess (1988): peones y torres animados.">
   <meta name="theme-color" content="#0d0b09">
   <link rel="stylesheet" href="src/ui/style.css">
@@ -20,8 +20,21 @@
   <canvas id="escena" aria-label="Tablero de ajedrez en 3D con peones y torres"></canvas>
   <div id="hud">
     <div id="fps">-- fps</div>
+    <button id="musica" type="button" aria-pressed="true" aria-label="Música" title="Quitar o poner la música">♫</button>
     <div id="aviso" role="alert" hidden></div>
     <footer id="creditos">Homenaje a Battle Chess (Interplay, 1988)</footer>
+  </div>
+  <!-- La pantalla de carga: en el HTML, para que se vea antes de que llegue el JavaScript. -->
+  <div id="carga">
+    <picture>
+      <source media="(orientation: portrait)" srcset="assets/ui/carga-vertical.webp">
+      <img src="assets/ui/carga-horizontal.webp" alt="mr_donut Battle Chess" decoding="async" fetchpriority="high">
+    </picture>
+    <div id="carga-pie">
+      <div id="carga-barra" role="progressbar" aria-label="Carga" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
+      <p id="carga-texto" aria-live="polite">Preparando el tablero… 0%</p>
+      <p id="carga-sonido" hidden>Toca la pantalla para oír la música</p>
+    </div>
   </div>
   <script type="module" src="src/main.js"></script>
 <!-- ===== dOnuT badge · mr_d0nuT ===== -->
