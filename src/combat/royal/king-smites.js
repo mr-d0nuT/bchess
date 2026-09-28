@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { t } from '../../i18n.js';
 import { KING, armsDown } from '../../pieces/cast.js';
 import { afterImpact } from '../fight.js';
 import { twirl } from '../twirl.js';
@@ -83,7 +84,7 @@ export const kingSmites = {
       fx.burst(joya, { size: 1.5, sparks: 34 });
       hud.flash();
       cinema.shake(0.22);
-      shout(bubbles, '¡BASTA!', joya);
+      shout(bubbles, t('burbuja.basta'), joya);
 
       // 6. Y del báculo al pecho del rival: el rayo, su sello y las motas que se lo llevan.
       const pecho = chestOf(defender);

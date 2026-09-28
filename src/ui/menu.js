@@ -1,5 +1,10 @@
+import { LANGUAGES, currentLanguage, onLanguage, setLanguage, t } from '../i18n.js';
+import { TIME_CONTROLS } from '../chess/timecontrol.js';
+import { flagSvg } from './flags.js';
+
 // El menú de después de la carga: pantalla negra, el logo, cómo se juega (uno contra uno o contra la
-// CPU), el nivel de la CPU del 1 al 100 y JUGAR. Suena la misma melodía que en la carga; al pulsar
+// CPU, con qué piezas y a qué nivel), cuánto dura la partida (bala, blitz, rápida, diaria o sin
+// reloj), el idioma (la bandera de arriba) y JUGAR. Suena la misma melodía que en la carga; al pulsar
 // JUGAR se funde (eso lo hace quien llama, que es quien sabe de música).
 //
 // Todo se mueve: detrás suben chispas, el logo flota, la tarjeta elegida lleva un borde de neón que
@@ -7,27 +12,37 @@
 // se aleja hacia la cámara.
 
 const STORE = 'bchess.menu';
-const NIVELES = [
-  [10, 'Principiante'],
-  [25, 'Novato'],
-  [45, 'Aficionado'],
-  [65, 'Jugador de club'],
-  [80, 'Experto'],
-  [92, 'Maestro'],
-  [100, 'Gran maestro'],
-];
-export const levelName = (level) => NIVELES.find(([hasta]) => level <= hasta)?.[1] ?? 'Gran maestro';
+const NIVELES = [10, 25, 45, 65, 80, 92, 100]; // hasta qué nivel llega cada nombre (nivel.1 … nivel.7)
+export const levelName = (level) => t(`nivel.${NIVELES.findIndex((hasta) => level <= hasta) + 1 || NIVELES.length}`);
+
+// Cómo se lee un ritmo en el idioma de ahora: «3 min», «3 | 2», «1 día», «Sin reloj».
+export function timeLabel(option) {
+  if (!option || option.id === 'libre') return t('tiempo.sinreloj');
+  if (option.perMove) {
+    const dias = Math.round(option.perMove / 86400000);
+    return dias === 1 ? t('tiempo.dia') : t('tiempo.dias', { n: dias });
+  }
+  const minutos = Math.round(option.base / 60000);
+  return option.inc ? `${minutos} | ${Math.round(option.inc / 1000)}` : t('tiempo.min', { n: minutos });
+}
+
+const POR_DEFECTO = { mode: 'cpu', level: 30, color: 'white', time: 'libre:libre' };
 
 function leer() {
   try {
-    const guardado = JSON.parse(localStorage.getItem(STORE) ?? 'null');
-    if (guardado && (guardado.mode === 'pvp' || guardado.mode === 'cpu')) {
-      return { mode: guardado.mode, level: Math.max(1, Math.min(100, Math.round(guardado.level ?? 30))) };
+    const g = JSON.parse(localStorage.getItem(STORE) ?? 'null');
+    if (g && (g.mode === 'pvp' || g.mode === 'cpu')) {
+      return {
+        mode: g.mode,
+        level: Math.max(1, Math.min(100, Math.round(g.level ?? 30))),
+        color: ['white', 'black', 'random'].includes(g.color) ? g.color : 'white',
+        time: typeof g.time === 'string' ? g.time : POR_DEFECTO.time,
+      };
     }
   } catch {
     // sin almacenamiento (ventana privada, bloqueado): se empieza de cero
   }
-  return { mode: 'cpu', level: 30 };
+  return { ...POR_DEFECTO };
 }
 
 function guardar(eleccion) {
@@ -133,32 +148,126 @@ export function createMenu() {
   const root = document.getElementById('menu');
   const chispas = createSparks(root.querySelector('#menu-chispas'));
   const modos = [...root.querySelectorAll('.modo')];
-  const nivel = root.querySelector('.menu-nivel');
+  const cpuSub = root.querySelector('#menu-cpu-sub');
+  const bloqueCpu = root.querySelector('.menu-cpu');
+  const colores = [...root.querySelectorAll('.pieza-op')];
   const rango = root.querySelector('#menu-nivel-rango');
   const valor = root.querySelector('#menu-nivel-valor');
   const nombre = root.querySelector('#menu-nivel-nombre');
+  const categorias = root.querySelector('#menu-tiempo-categorias');
+  const opciones = root.querySelector('#menu-tiempo-opciones');
+  const elegido = root.querySelector('#menu-tiempo-elegido');
   const jugar = root.querySelector('#menu-jugar');
   const logo = root.querySelector('.menu-logo');
+  const idiomaBoton = root.querySelector('#menu-idioma-boton');
+  const idiomas = root.querySelector('#menu-idiomas');
   logo?.addEventListener('error', () => root.classList.add('sin-logo'));
   let eleccion = leer();
   let responder = null;
 
+  const categoriaDe = (key) => TIME_CONTROLS.find((c) => c.id === String(key).split(':')[0]) ?? TIME_CONTROLS[0];
+  const opcionDe = (key) => {
+    const c = categoriaDe(key);
+    return c.options.find((o) => o.id === String(key).split(':')[1]) ?? c.options[0];
+  };
+
+  // La duración: una pestaña por ritmo (bala, blitz…) y, debajo, sus tres tiempos.
+  function pintarTiempo() {
+    const cat = categoriaDe(eleccion.time);
+    const opt = opcionDe(eleccion.time);
+    categorias.replaceChildren(...TIME_CONTROLS.map((c) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tiempo-cat';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', String(c.id === cat.id));
+      b.textContent = t(`tiempo.${c.id}`);
+      b.addEventListener('click', () => {
+        const actual = categoriaDe(eleccion.time);
+        if (actual.id === c.id) return;
+        // Al cambiar de ritmo se queda con el tiempo del medio (el más típico: 3|2, 15|10, 1|1).
+        const o = c.options[Math.min(1, c.options.length - 1)];
+        eleccion = { ...eleccion, time: `${c.id}:${o.id}` };
+        pintarTiempo();
+      });
+      return b;
+    }));
+    opciones.hidden = cat.id === 'libre';
+    opciones.replaceChildren(...(cat.id === 'libre' ? [] : cat.options.map((o) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tiempo-op';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(o.id === opt.id));
+      b.textContent = timeLabel(o);
+      b.addEventListener('click', () => {
+        eleccion = { ...eleccion, time: `${cat.id}:${o.id}` };
+        pintarTiempo();
+      });
+      return b;
+    })));
+    elegido.textContent = cat.id === 'libre' ? t('tiempo.sinreloj') : `${t(`tiempo.${cat.id}`)} · ${timeLabel(opt)}`;
+  }
+
+  // La lista de idiomas, con sus banderas.
+  function pintarIdiomas() {
+    idiomaBoton.innerHTML = flagSvg(currentLanguage());
+    idiomas.replaceChildren(...LANGUAGES.map((l) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'idioma';
+      b.setAttribute('role', 'option');
+      b.setAttribute('aria-selected', String(l.id === currentLanguage()));
+      b.lang = l.id;
+      b.dir = l.rtl ? 'rtl' : 'ltr';
+      b.innerHTML = `${flagSvg(l.id)}<span></span>`;
+      b.querySelector('span').textContent = l.name;
+      b.addEventListener('click', () => {
+        abrirIdiomas(false);
+        setLanguage(l.id);
+      });
+      return b;
+    }));
+  }
+  function abrirIdiomas(abrir) {
+    idiomas.hidden = !abrir;
+    idiomaBoton.setAttribute('aria-expanded', String(abrir));
+    if (abrir) idiomas.querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
+  }
+  idiomaBoton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    abrirIdiomas(idiomas.hidden);
+  });
+  root.addEventListener('click', (event) => {
+    if (!idiomas.hidden && !idiomas.contains(event.target)) abrirIdiomas(false);
+  });
+  root.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !idiomas.hidden) abrirIdiomas(false);
+  });
+
   function pintar() {
     for (const boton of modos) {
-      const elegido = boton.dataset.modo === eleccion.mode;
-      boton.setAttribute('aria-checked', String(elegido));
-      boton.tabIndex = elegido ? 0 : -1;
+      const elegida = boton.dataset.modo === eleccion.mode;
+      boton.setAttribute('aria-checked', String(elegida));
+      boton.tabIndex = elegida ? 0 : -1;
     }
-    nivel.classList.toggle('abierto', eleccion.mode === 'cpu');
-    nivel.setAttribute('aria-hidden', String(eleccion.mode !== 'cpu'));
-    rango.disabled = eleccion.mode !== 'cpu';
+    for (const boton of colores) boton.setAttribute('aria-checked', String(boton.dataset.color === eleccion.color));
+    cpuSub.textContent = t(`menu.cpu.${eleccion.color}`);
+    const cpu = eleccion.mode === 'cpu';
+    bloqueCpu.classList.toggle('abierto', cpu);
+    bloqueCpu.setAttribute('aria-hidden', String(!cpu));
+    rango.disabled = !cpu;
+    for (const boton of colores) boton.tabIndex = cpu ? 0 : -1;
     rango.value = String(eleccion.level);
     const n = (eleccion.level - 1) / 99;
     root.style.setProperty('--nivel', `${n * 100}%`);
     root.style.setProperty('--tono-nivel', String(Math.round(190 - 190 * n))); // de cian a rojo
     valor.textContent = String(eleccion.level);
     nombre.textContent = levelName(eleccion.level);
+    pintarTiempo();
+    pintarIdiomas();
   }
+  onLanguage(pintar);
 
   for (const boton of modos) {
     boton.addEventListener('click', () => {
@@ -173,6 +282,12 @@ export function createMenu() {
       const otro = modos[(modos.indexOf(boton) + 1) % modos.length];
       otro.click();
       otro.focus();
+    });
+  }
+  for (const boton of colores) {
+    boton.addEventListener('click', () => {
+      eleccion = { ...eleccion, color: boton.dataset.color };
+      pintar();
     });
   }
   rango.addEventListener('input', () => {
@@ -194,17 +309,18 @@ export function createMenu() {
   });
 
   return {
-    // Enseña el menú y espera a JUGAR. Devuelve { mode: 'pvp' | 'cpu', level }.
+    // Enseña el menú y espera a JUGAR. Devuelve { mode, level, color, time }.
     show() {
       eleccion = leer();
       pintar();
+      abrirIdiomas(false);
       root.hidden = false;
       root.classList.remove('sale', 'entra');
       jugar.classList.remove('pulsado');
       void root.offsetWidth;
       root.classList.add('entra');
       chispas.start();
-      setTimeout(() => (eleccion.mode === 'cpu' ? rango : jugar).focus({ preventScroll: true }), 900);
+      setTimeout(() => jugar.focus({ preventScroll: true }), 900);
       return new Promise((resolve) => {
         responder = resolve;
       });

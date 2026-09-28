@@ -19,66 +19,91 @@
   </script>
 </head>
 <body>
-  <canvas id="escena" aria-label="Tablero de ajedrez en 3D con peones y torres"></canvas>
+  <canvas id="escena" aria-label="Tablero de ajedrez en 3D" data-i18n-attr="aria-label:escena"></canvas>
   <div id="hud">
     <div id="fps">-- fps</div>
     <!-- Los botones de arriba a la izquierda: música, configuración, dar la vuelta al tablero y
          acercarse a la pieza elegida. Iconos dibujados aquí mismo, sin tipografías de iconos. -->
     <div id="botones">
       <button id="musica" class="boton" type="button" aria-pressed="true" aria-label="Música" title="Quitar o poner la música">♫</button>
-      <button id="ajustes" class="boton" type="button" aria-label="Configuración" title="Configuración" aria-haspopup="dialog">
+      <button id="ajustes" class="boton" type="button" aria-label="Configuración" title="Configuración" aria-haspopup="dialog" data-i18n-attr="title:boton.ajustes;aria-label:boton.ajustes">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.13 10.44 L21.52 10.80 L21.52 13.20 L19.13 13.56 L18.15 15.94 L19.59 17.88 L17.88 19.59 L15.94 18.15 L13.56 19.13 L13.20 21.52 L10.80 21.52 L10.44 19.13 L8.06 18.15 L6.12 19.59 L4.41 17.88 L5.85 15.94 L4.87 13.56 L2.48 13.20 L2.48 10.80 L4.87 10.44 L5.85 8.06 L4.41 6.12 L6.12 4.41 L8.06 5.85 L10.44 4.87 L10.80 2.48 L13.20 2.48 L13.56 4.87 L15.94 5.85 L17.88 4.41 L19.59 6.12 L18.15 8.06 Z"/><circle cx="12" cy="12" r="3.2"/></svg>
       </button>
-      <button id="girar" class="boton" type="button" aria-label="Dar la vuelta al tablero" title="Dar la vuelta al tablero (180°)">
+      <button id="girar" class="boton" type="button" aria-label="Dar la vuelta al tablero" title="Dar la vuelta al tablero (180°)" data-i18n-attr="title:boton.girar;aria-label:boton.girar">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 10.5a7.6 7.6 0 0 1 13.4-3.4"/><path d="M18.6 3.4v4.3h-4.3"/><path d="M19.5 13.5a7.6 7.6 0 0 1-13.4 3.4"/><path d="M5.4 20.6v-4.3h4.3"/></svg>
       </button>
       <button id="acercar" class="boton" type="button" aria-pressed="false" aria-label="Acercarse a la pieza elegida" title="Acercarse a la pieza elegida" disabled>
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2"/><path d="M15.2 15.2l5.3 5.3"/><path d="M7.6 10.5h5.8"/><path class="mas" d="M10.5 7.6v5.8"/></svg>
       </button>
+      <button id="deshacer" class="boton" type="button" aria-label="Deshacer la última jugada" title="Deshacer la última jugada" disabled data-i18n-attr="title:boton.deshacer;aria-label:boton.deshacer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4.5 4 9.5l5 5"/><path d="M4.5 9.5h10a5.25 5.25 0 0 1 0 10.5H9"/></svg>
+      </button>
     </div>
     <div id="aviso" role="alert" hidden></div>
-    <footer id="creditos">Homenaje a Battle Chess (Interplay, 1988)</footer>
+    <footer id="creditos" data-i18n="creditos">Homenaje a Battle Chess (Interplay, 1988)</footer>
   </div>
   <!-- La configuración: de momento, el sitio donde irá el nivel de dificultad. -->
   <div id="ajustes-panel" role="dialog" aria-modal="true" aria-labelledby="ajustes-titulo" hidden>
     <div class="panel">
-      <h2 id="ajustes-titulo">Configuración</h2>
+      <h2 id="ajustes-titulo" data-i18n="ajustes.titulo">Configuración</h2>
       <section>
-        <h3>Partida</h3>
+        <h3 data-i18n="ajustes.partida">Partida</h3>
         <p id="ajustes-partida" class="ajustes-partida">—</p>
-        <button id="ajustes-menu" type="button" class="ajustes-accion">Volver al menú</button>
+        <button id="ajustes-menu" type="button" class="ajustes-accion" data-i18n="ajustes.menu">Volver al menú</button>
       </section>
-      <button id="ajustes-cerrar" type="button">Cerrar</button>
+      <button id="ajustes-cerrar" type="button" data-i18n="ajustes.cerrar">Cerrar</button>
     </div>
   </div>
   <!-- El menú de después de la carga (`ui/menu.js`). -->
   <div id="menu" hidden>
     <canvas id="menu-chispas" aria-hidden="true"></canvas>
     <div class="menu-luz" aria-hidden="true"></div>
+    <div class="menu-idioma">
+      <button id="menu-idioma-boton" class="idioma-boton" type="button" aria-haspopup="listbox" aria-expanded="false" data-i18n-attr="title:menu.idioma;aria-label:menu.idioma"></button>
+      <div id="menu-idiomas" class="idiomas" role="listbox" hidden></div>
+    </div>
     <div class="menu-caja">
       <img class="menu-logo" src="assets/ui/logo.webp" alt="Battle Chess" width="765" height="848" decoding="async">
       <h1 class="menu-titulo">Battle Chess</h1>
-      <div class="menu-modos" role="radiogroup" aria-label="Modo de juego">
+      <div class="menu-modos" role="radiogroup" data-i18n-attr="aria-label:menu.modo">
         <button class="modo" type="button" role="radio" aria-checked="false" data-modo="pvp">
           <svg class="modo-icono" viewBox="0 0 48 48" aria-hidden="true"><circle cx="16" cy="14" r="6"/><path d="M5 38c0-7 5-12 11-12s11 5 11 12"/><circle cx="32" cy="14" r="6"/><path d="M21 38c0-7 5-12 11-12s11 5 11 12"/></svg>
-          <span class="modo-titulo">1 contra 1</span>
-          <span class="modo-sub">Dos jugadores, un tablero</span>
+          <span class="modo-titulo" data-i18n="menu.pvp">1 contra 1</span>
+          <span class="modo-sub" data-i18n="menu.pvp.sub">Dos jugadores, un tablero</span>
         </button>
         <button class="modo" type="button" role="radio" aria-checked="false" data-modo="cpu">
           <svg class="modo-icono" viewBox="0 0 48 48" aria-hidden="true"><rect x="12" y="12" width="24" height="24" rx="4"/><rect x="18" y="18" width="12" height="12" rx="2"/><path d="M18 12V6M24 12V6M30 12V6M18 42v-6M24 42v-6M30 42v-6M12 18H6M12 24H6M12 30H6M42 18h-6M42 24h-6M42 30h-6"/></svg>
-          <span class="modo-titulo">1 contra CPU</span>
-          <span class="modo-sub">Tú llevas las blancas</span>
+          <span class="modo-titulo" data-i18n="menu.cpu">1 contra CPU</span>
+          <span class="modo-sub" id="menu-cpu-sub">Tú llevas las blancas</span>
         </button>
       </div>
-      <div class="menu-nivel" aria-hidden="true">
-        <div class="nivel-cabecera">
-          <label for="menu-nivel-rango">Nivel de la CPU</label>
-          <span class="nivel-numero"><span id="menu-nivel-valor">30</span><small>/100</small></span>
+      <div class="menu-cpu" aria-hidden="true">
+        <div class="menu-fila">
+          <span class="menu-etiqueta" data-i18n="menu.piezas">Tus piezas</span>
+          <div class="piezas" role="radiogroup" data-i18n-attr="aria-label:menu.piezas">
+            <button class="pieza-op" type="button" role="radio" data-color="white"><span class="pieza-ico">♔</span><span data-i18n="color.white">Blancas</span></button>
+            <button class="pieza-op" type="button" role="radio" data-color="black"><span class="pieza-ico">♚</span><span data-i18n="color.black">Negras</span></button>
+            <button class="pieza-op" type="button" role="radio" data-color="random"><span class="pieza-ico azar" aria-hidden="true"></span><span data-i18n="color.random">Al azar</span></button>
+          </div>
         </div>
-        <input type="range" id="menu-nivel-rango" min="1" max="100" step="1" value="30">
-        <div id="menu-nivel-nombre" class="nivel-nombre">Aficionado</div>
+        <div class="menu-nivel">
+          <div class="nivel-cabecera">
+            <label for="menu-nivel-rango" data-i18n="menu.nivel">Nivel de la CPU</label>
+            <span class="nivel-numero"><span id="menu-nivel-valor">30</span><small>/100</small></span>
+          </div>
+          <input type="range" id="menu-nivel-rango" min="1" max="100" step="1" value="30" dir="ltr">
+          <div id="menu-nivel-nombre" class="nivel-nombre">Aficionado</div>
+        </div>
       </div>
-      <button id="menu-jugar" class="jugar" type="button"><span>JUGAR</span></button>
+      <div class="menu-tiempo">
+        <div class="menu-fila">
+          <span class="menu-etiqueta" data-i18n="menu.duracion">Duración</span>
+          <span class="tiempo-elegido" id="menu-tiempo-elegido"></span>
+        </div>
+        <div class="tiempo-categorias" id="menu-tiempo-categorias" role="tablist"></div>
+        <div class="tiempo-opciones" id="menu-tiempo-opciones" role="radiogroup"></div>
+      </div>
+      <button id="menu-jugar" class="jugar" type="button"><span data-i18n="menu.jugar">JUGAR</span></button>
     </div>
   </div>
   <!-- La pantalla de carga: en el HTML, para que se vea antes de que llegue el JavaScript. -->
@@ -90,7 +115,7 @@
     <div id="carga-pie">
       <div id="carga-barra" role="progressbar" aria-label="Carga" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
       <p id="carga-texto" aria-live="polite">Preparando el tablero… 0%</p>
-      <p id="carga-sonido" hidden>Toca la pantalla para oír la música</p>
+      <p id="carga-sonido" hidden data-i18n="carga.sonido">Toca la pantalla para oír la música</p>
     </div>
   </div>
   <script type="module" src="src/main.js"></script>

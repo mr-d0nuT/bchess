@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { t } from '../../i18n.js';
 import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js';
 import { strikeSpot } from '../plan.js';
 import { cutLimb } from '../../pieces/limbs.js';
@@ -17,7 +18,7 @@ const LIMBS = ['R_Upperarm', 'L_Upperarm', 'R_Thigh', 'L_Thigh']; // en este ord
 const SHRINK = 0.001; // a lo que encoge el hueso del trozo cortado
 const CLASHES = 2; // golpes parados antes del primer corte
 const CUT_SPEED = { x: 1.1, y: 2.6 }; // con lo que sale volando cada trozo
-const SCRATCH = '¡Solo es un rasguño!';
+const SCRATCH = () => t('burbuja.rasguno');
 const SCRATCH_SECONDS = 1.6;
 const STUMP_SECONDS = 0.5; // lo que se mira el muñón
 const TAP_SECONDS = 0.35;
@@ -102,7 +103,7 @@ export const knightFightsKnight = {
         const toe = bonePosition(his, his.strikes[kick].body.bone);
         fx.burst(toe, { size: 0.8, sparks: 16 });
         cinema.shake(0.12);
-        shout(bubbles, '¡TOMA!', toe);
+        shout(bubbles, t('burbuja.toma'), toe);
         if (mine.has('hit')) mine.playOnce('hit', { fade: 0.1 });
         await afterImpact(clock);
         await kicking;
@@ -117,7 +118,7 @@ export const knightFightsKnight = {
 
     // 4. El tronco aún le planta cara, con su bocadillo; un toquecito en el yelmo y cae.
     const head = boneOf(his, 'Head');
-    const bocadillo = bubbles.say(SCRATCH, head, { seconds: SCRATCH_SECONDS });
+    const bocadillo = bubbles.say(SCRATCH(), head, { seconds: SCRATCH_SECONDS });
     await clock.wait(SCRATCH_SECONDS * 0.6);
     const tap = mine.playOnce('attack', { clip: slashes[0], fade: 0.15 });
     await clock.wait(TAP_SECONDS);

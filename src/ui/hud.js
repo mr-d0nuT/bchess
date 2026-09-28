@@ -1,3 +1,5 @@
+import { t } from '../i18n.js';
+
 // Interfaz: contador de fluidez, avisos y el destello blanco del combate.
 
 export function createHud() {
@@ -34,7 +36,7 @@ export function createHud() {
     if (retry) {
       const button = document.createElement('button');
       button.type = 'button';
-      button.textContent = 'Reintentar';
+      button.textContent = t('reintentar');
       button.addEventListener('click', () => {
         hideMessage();
         retry();

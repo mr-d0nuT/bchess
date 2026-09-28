@@ -10,11 +10,11 @@ import { chooseMove, createEngine } from './engine.js';
 const engine = createEngine();
 
 self.onmessage = ({ data }) => {
-  const { id, fen, moves, level } = data;
+  const { id, fen, moves, level, maxMs } = data;
   try {
     const p = fen ? Position.fromFEN(fen) : Position.initial();
     for (const uci of moves) p.playUci(uci);
-    const m = chooseMove(p, level, { engine });
+    const m = chooseMove(p, level, { engine, maxMs });
     self.postMessage({ id, move: m === null ? null : Position.uci(m) });
   } catch (err) {
     self.postMessage({ id, error: String(err?.message ?? err) });

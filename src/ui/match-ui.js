@@ -1,21 +1,11 @@
-// Lo que la partida le dice al jugador: de quién es el turno, el «¡JAQUE!», el final (mate o tablas,
-// con revancha o vuelta al menú) y a qué se corona un peón. Se crea aquí y no en el HTML porque no
-// se ve hasta que empieza la partida.
+import { t } from '../i18n.js';
+
+// Lo que la partida le dice al jugador: de quién es el turno, el «¡JAQUE!», el final (mate, tablas o
+// tiempo, con revancha o vuelta al menú) y a qué se corona un peón. Se crea aquí y no en el HTML
+// porque no se ve hasta que empieza la partida. Todo en el idioma elegido.
 
 const PIEZA = { white: '♔', black: '♚' };
-const COLOR = { white: 'blancas', black: 'negras' };
-const TABLAS = {
-  stalemate: 'Rey ahogado',
-  fifty: 'Cincuenta jugadas sin comer ni mover un peón',
-  repetition: 'La misma posición, tres veces',
-  material: 'No queda material para dar mate',
-};
-const CORONAS = [
-  ['queen', '♛', 'Dama'],
-  ['rook', '♜', 'Torre'],
-  ['bishop', '♝', 'Alfil'],
-  ['knight', '♞', 'Caballo'],
-];
+const CORONAS = [['queen', '♛'], ['rook', '♜'], ['bishop', '♝'], ['knight', '♞']];
 
 function el(tag, clase, texto) {
   const e = document.createElement(tag);
@@ -49,8 +39,8 @@ export function createMatchUi(root = document.getElementById('hud')) {
   const finalTitulo = el('h2', 'final-titulo');
   const finalTexto = el('p', 'final-texto');
   const finalBotones = el('div', 'final-botones');
-  const revancha = el('button', 'final-boton principal', 'Revancha');
-  const menu = el('button', 'final-boton', 'Menú');
+  const revancha = el('button', 'final-boton principal');
+  const menu = el('button', 'final-boton');
   revancha.type = 'button';
   menu.type = 'button';
   finalBotones.append(revancha, menu);
@@ -62,27 +52,33 @@ export function createMatchUi(root = document.getElementById('hud')) {
   const corona = el('div', 'corona');
   corona.setAttribute('role', 'dialog');
   corona.setAttribute('aria-modal', 'true');
-  corona.setAttribute('aria-label', 'Coronar el peón');
   corona.hidden = true;
   const coronaCaja = el('div', 'corona-caja');
-  coronaCaja.append(el('p', 'corona-titulo', '¡Corona!'));
+  const coronaTitulo = el('p', 'corona-titulo');
   const coronaBotones = el('div', 'corona-botones');
-  coronaCaja.append(coronaBotones);
+  coronaCaja.append(coronaTitulo, coronaBotones);
   corona.append(coronaCaja);
   document.body.append(corona);
 
   let cartelTimer = 0;
+  let ultimoTurno = null;
 
-  return {
-    // De quién es el turno. `mode` 'pvp' o 'cpu'; `human`, el color del jugador contra la CPU.
-    turn({ side, mode, human, thinking = false, hidden = false }) {
+  const api = {
+    // De quién es el turno. `mode` 'pvp' o 'cpu'; `human`, el color del jugador contra la CPU;
+    // `press`, que el que acaba de mover tiene que pulsar el reloj.
+    turn(estado) {
+      ultimoTurno = estado;
+      const { side, mode, human, thinking = false, hidden = false, press = null } = estado;
       turno.hidden = hidden;
       if (hidden) return;
-      turno.dataset.lado = side;
-      turnoPieza.textContent = PIEZA[side];
-      let texto = `Mueven las ${COLOR[side]}`;
-      if (mode === 'cpu') texto = side === human ? 'Tu turno' : 'La CPU piensa';
-      turno.classList.toggle('piensa', mode === 'cpu' && side !== human && thinking);
+      const lado = press ?? side;
+      turno.dataset.lado = lado;
+      turnoPieza.textContent = PIEZA[lado];
+      let texto = t(`turno.${side}`);
+      if (mode === 'cpu') texto = side === human ? t('turno.tuyo') : t('turno.cpu');
+      if (press) texto = t('turno.pulsa');
+      turno.classList.toggle('piensa', mode === 'cpu' && side !== human && thinking && !press);
+      turno.classList.toggle('pulsa', Boolean(press));
       if (turnoTexto.textContent !== texto) {
         turnoTexto.textContent = texto;
         turno.classList.remove('cambia');
@@ -102,19 +98,27 @@ export function createMatchUi(root = document.getElementById('hud')) {
       cartelTimer = setTimeout(() => cartel.classList.remove('sale'), ms);
     },
 
-    // El final. `status` como lo da `Position.status()`; `winner` el color que gana (o null).
-    // Devuelve una promesa con 'rematch' o 'menu'.
-    gameOver({ status, winner, mode, human }) {
-      let titulo = 'Tablas';
-      let texto = TABLAS[status] ?? '';
-      if (status === 'checkmate') {
-        titulo = '¡Jaque mate!';
-        if (mode === 'cpu') texto = winner === human ? '¡Has ganado a la CPU!' : 'Gana la CPU. ¿La revancha?';
-        else texto = `Ganan las ${COLOR[winner]}`;
+    // El final. `status`: el de `Position.status()` o 'time' (se le acabó el tiempo a `flagged`);
+    // `winner`, el color que gana (o null si son tablas). Devuelve 'rematch' o 'menu'.
+    gameOver({ status, winner, mode, human, flagged = null }) {
+      let titulo = t('final.tablas');
+      let texto = t(`tablas.${status}`);
+      let tipo = 'tablas';
+      if (status === 'time') {
+        titulo = t('final.tiempo');
+        texto = winner ? t(`final.sintiempo.${flagged}`) : t('tablas.time');
+      }
+      if (status === 'checkmate') titulo = t('final.mate');
+      if (winner) {
+        if (mode === 'cpu') texto = winner === human ? t('final.ganaste') : t('final.perdiste');
+        else texto = status === 'time' ? `${t(`final.sintiempo.${flagged}`)}. ${t(`final.gana.${winner}`)}` : t(`final.gana.${winner}`);
+        tipo = mode === 'cpu' && winner !== human ? 'pierde' : 'gana';
       }
       finalTitulo.textContent = titulo;
       finalTexto.textContent = texto;
-      final.dataset.tipo = status === 'checkmate' ? (mode === 'cpu' && winner !== human ? 'pierde' : 'gana') : 'tablas';
+      revancha.textContent = t('final.revancha');
+      menu.textContent = t('final.menu');
+      final.dataset.tipo = tipo;
       final.hidden = false;
       final.classList.remove('entra');
       void final.offsetWidth;
@@ -134,14 +138,16 @@ export function createMatchUi(root = document.getElementById('hud')) {
 
     // Pregunta a qué se corona. Devuelve 'queen' | 'rook' | 'bishop' | 'knight'.
     promotion(color) {
+      coronaTitulo.textContent = t('corona.titulo');
+      corona.setAttribute('aria-label', t('corona.aria'));
       coronaBotones.textContent = '';
       corona.dataset.lado = color;
       corona.hidden = false;
       return new Promise((resolve) => {
-        for (const [kind, simbolo, nombre] of CORONAS) {
+        for (const [kind, simbolo] of CORONAS) {
           const boton = el('button', 'corona-boton');
           boton.type = 'button';
-          boton.append(el('span', 'corona-simbolo', simbolo), el('span', 'corona-nombre', nombre));
+          boton.append(el('span', 'corona-simbolo', simbolo), el('span', 'corona-nombre', t(`pieza.${kind}`)));
           boton.addEventListener('click', () => {
             corona.hidden = true;
             resolve(kind);
@@ -152,6 +158,11 @@ export function createMatchUi(root = document.getElementById('hud')) {
       });
     },
 
+    // Vuelve a escribir lo que se ve (al cambiar de idioma).
+    refresh() {
+      if (ultimoTurno) api.turn(ultimoTurno);
+    },
+
     closeAll() {
       final.hidden = true;
       corona.hidden = true;
@@ -159,4 +170,5 @@ export function createMatchUi(root = document.getElementById('hud')) {
       cartel.classList.remove('sale');
     },
   };
+  return api;
 }

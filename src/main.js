@@ -22,8 +22,11 @@ import { restFacingFor } from './moves/walk.js';
 import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
 import { createCpu } from './chess/cpu.js';
-import { createMenu, levelName } from './ui/menu.js';
+import { createMenu, levelName, timeLabel } from './ui/menu.js';
 import { createMatchUi } from './ui/match-ui.js';
+import { createChessClockUi } from './ui/chess-clock.js';
+import { createChessClock, findTimeControl } from './chess/timecontrol.js';
+import { initLanguage, onLanguage, t } from './i18n.js';
 import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
 import { createClock } from './combat/clock.js';
 import { measureStrikes } from './combat/strikes.js';
@@ -117,9 +120,11 @@ function wireMusicButton(music) {
   if (!button) return;
   const paint = () => {
     button.setAttribute('aria-pressed', String(!music.muted));
-    button.title = music.muted ? 'Poner la música' : 'Quitar la música';
+    button.title = music.muted ? t('boton.musica.poner') : t('boton.musica.quitar');
+    button.setAttribute('aria-label', t('boton.musica'));
   };
   paint();
+  onLanguage(paint);
   button.addEventListener('click', (event) => {
     event.stopPropagation();
     music.toggle();
@@ -128,7 +133,9 @@ function wireMusicButton(music) {
 }
 
 async function start() {
-  // Lo primero, la pantalla de carga y su música, que el resto tarda unos segundos.
+  // Lo primero, el idioma (el de la última vez o el del navegador) y la pantalla de carga con su
+  // música, que el resto tarda unos segundos.
+  initLanguage();
   const loading = createLoading();
   const music = createMusic({
     onNeedGesture: () => loading.askForSound(true),
@@ -139,7 +146,7 @@ async function start() {
   wireSettings();
   if (!webglAvailable()) {
     loading.finish();
-    hud.showMessage('Tu navegador no puede mostrar gráficos 3D (WebGL no está disponible). Prueba con Chrome, Safari o Firefox actualizados.');
+    hud.showMessage(t('error.webgl'));
     return;
   }
   const quality = currentQuality();
@@ -189,10 +196,20 @@ async function start() {
   const state = { selected: null, busy: false, fighting: false, lastStyle: null, phase: 'menu' };
   // La partida: las reglas (`Position`), las jugadas hechas (la CPU y las repeticiones las necesitan),
   // cómo se juega y a qué nivel. `id` cambia con cada partida nueva, para tirar lo que llegue tarde.
-  const game = { start: INITIAL_FEN, position: Position.initial(), moves: [], mode: 'cpu', level: 30, human: 'white', id: 0, thinking: false, animating: false };
+  const game = {
+    start: INITIAL_FEN, position: Position.initial(), moves: [], mode: 'cpu', level: 30, human: 'white', color: 'white',
+    id: 0, thinking: false, animating: false, control: null, clock: null, press: null,
+  };
   const cpu = createCpu();
   const menu = createMenu();
   const ui = createMatchUi();
+  const clockUi = createChessClockUi(document.getElementById('hud'));
+  const controlName = () => (game.control ? `${t(`tiempo.${game.control.key.split(':')[0]}`)} · ${timeLabel(game.control)}` : '');
+  onLanguage(() => {
+    ui.refresh();
+    clockUi.refresh();
+    paintSettings();
+  });
   // De tanto en tanto, una sola pieza del tablero hace un gesto especial (un peón, o el caballo de un
   // caballero encabritándose); nunca dos a la vez.
   const gesture = { performer: null, last: null, lastVariant: -1, at: performance.now() + nextGestureDelay() };
@@ -220,6 +237,7 @@ async function start() {
   // combate no se pueden tocar (la cámara es de la de cine), y acercarse pide una pieza elegida.
   const flipButton = document.getElementById('girar');
   const zoomButton = document.getElementById('acercar');
+  const undoButton = document.getElementById('deshacer');
   flipButton?.addEventListener('click', (event) => {
     event.stopPropagation();
     view.flip();
@@ -229,17 +247,26 @@ async function start() {
     if (view.zoomed) view.zoomOut();
     else if (state.selected) view.zoomTo(state.selected);
   });
+  undoButton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    undoMove();
+  });
   function paintViewButtons() {
     const quieta = !state.fighting && !view.moving;
     if (flipButton && flipButton.disabled !== !quieta) flipButton.disabled = !quieta;
+    if (undoButton) {
+      const puede = canUndo();
+      if (undoButton.disabled !== !puede) undoButton.disabled = !puede;
+    }
     if (!zoomButton) return;
     const puede = quieta && (view.zoomed || Boolean(state.selected));
     if (zoomButton.disabled !== !puede) zoomButton.disabled = !puede;
     const pulsado = String(view.zoomed);
-    if (zoomButton.getAttribute('aria-pressed') !== pulsado) {
+    const titulo = view.zoomed ? t('boton.alejar') : t('boton.acercar');
+    if (zoomButton.getAttribute('aria-pressed') !== pulsado || zoomButton.title !== titulo) {
       zoomButton.setAttribute('aria-pressed', pulsado);
-      zoomButton.title = view.zoomed ? 'Volver al tablero entero' : 'Acercarse a la pieza elegida';
-      zoomButton.setAttribute('aria-label', zoomButton.title);
+      zoomButton.title = titulo;
+      zoomButton.setAttribute('aria-label', titulo);
     }
   }
 
@@ -260,6 +287,7 @@ async function start() {
     cinema.update(dt);
     bubbles.update();
     paintViewButtons();
+    tickClock();
   }
 
   let previous = performance.now();
@@ -386,7 +414,7 @@ async function start() {
 
   // ¿Puede tocar ahora el jugador? Ni en el menú, ni con algo moviéndose, ni en el turno de la CPU.
   function canPlay() {
-    if (state.phase !== 'playing' || state.busy || state.fighting || game.animating || game.thinking) return false;
+    if (state.phase !== 'playing' || state.busy || state.fighting || game.animating || game.thinking || game.press) return false;
     return game.mode === 'pvp' || game.position.side === game.human;
   }
 
@@ -504,13 +532,29 @@ async function start() {
   async function afterMove() {
     const status = game.position.status();
     const side = game.position.side;
+    const movio = side === 'white' ? 'black' : 'white';
     const enJaque = status === 'check' || status === 'checkmate';
     highlights.check(enJaque ? squareName(game.position.kings[game.position.turn >> 3]) : null);
     if (status !== 'playing' && status !== 'check') {
       await gameOver(status);
       return;
     }
-    if (status === 'check') ui.banner('¡JAQUE!');
+    if (status === 'check') ui.banner(t('cartel.jaque'));
+    // Con reloj, el que ha movido lo pulsa para parar su tiempo y arrancar el del otro. La CPU lo
+    // pulsa sola; el jugador, con su mano (y mientras no lo pulse, su tiempo sigue corriendo).
+    if (game.clock) {
+      const id = game.id;
+      if (game.mode === 'cpu' && movio !== game.human) {
+        clockUi.press(movio);
+      } else {
+        game.press = movio;
+        paintTurn();
+        const pulsado = await clockUi.awaitPress(movio);
+        game.press = null;
+        if (pulsado === false || id !== game.id || state.phase !== 'playing') return;
+      }
+      game.clock.press(movio, performance.now());
+    }
     paintTurn();
     if (game.mode === 'pvp') await view.flipTo(side === 'black');
     else if (side !== game.human) cpuTurn();
@@ -518,44 +562,184 @@ async function start() {
 
   async function cpuTurn() {
     const id = game.id;
+    const token = (game.token = (game.token ?? 0) + 1);
     game.thinking = true;
     paintTurn();
     const inicio = performance.now();
     let uci = null;
     try {
-      uci = await cpu.think({ fen: game.start, moves: game.moves.slice() }, game.level);
+      // Con reloj, la CPU se administra: nunca más de una parte de lo que le queda (más el incremento).
+      let maxMs = null;
+      if (game.clock) {
+        const queda = game.clock.remaining(game.position.side, performance.now());
+        maxMs = Math.max(120, Math.min(queda / 25 + (game.control.inc ?? 0) * 0.7, queda * 0.5));
+      }
+      uci = await cpu.think({ fen: game.start, moves: game.moves.slice(), maxMs }, game.level);
     } catch (err) {
       console.error('[BChess] La CPU no ha podido pensar:', err);
     }
     const falta = CPU_MIN_MS - (performance.now() - inicio);
     if (falta > 0) await new Promise((resolve) => setTimeout(resolve, falta));
     game.thinking = false;
-    if (id !== game.id || state.phase !== 'playing') return; // otra partida, o de vuelta en el menú
+    if (id !== game.id || game.token !== token || state.phase !== 'playing') return; // otra partida, deshecha, o en el menú
     const m = (uci && game.position.findUci(uci)) ?? game.position.legalMoves()[0];
     if (m === undefined || m === null) return;
     paintTurn();
     await playMove(m);
   }
 
-  async function gameOver(status) {
+  // Se acabó. `status`: el de las reglas, o 'time' si al que mueve (`flagged`) se le acabó el tiempo:
+  // pierde, salvo que al otro no le quede con qué dar mate, que entonces son tablas.
+  async function gameOver(status, flagged = null) {
     state.phase = 'over';
+    game.press = null;
+    clockUi.cancel();
+    game.clock?.pause(performance.now());
     select(null);
     paintTurn();
-    const winner = status === 'checkmate' ? (game.position.side === 'white' ? 'black' : 'white') : null;
-    ui.banner(status === 'checkmate' ? '¡JAQUE MATE!' : 'TABLAS', { tipo: status === 'checkmate' ? 'jaque' : 'tablas', ms: 1700 });
+    let winner = status === 'checkmate' ? (game.position.side === 'white' ? 'black' : 'white') : null;
+    if (status === 'time') {
+      const otro = flagged === 'white' ? 'black' : 'white';
+      winner = game.position.hasMatingMaterial(otro) ? otro : null;
+    }
+    const cartel = status === 'checkmate' ? t('cartel.mate') : status === 'time' ? t('cartel.tiempo') : t('cartel.tablas');
+    ui.banner(cartel, { tipo: winner ? 'jaque' : 'tablas', ms: 1700 });
     await new Promise((resolve) => setTimeout(resolve, 1700));
-    const que = await ui.gameOver({ status, winner, mode: game.mode, human: game.human });
-    if (que === 'rematch') await newGame({ mode: game.mode, level: game.level });
+    const que = await ui.gameOver({ status, winner, mode: game.mode, human: game.human, flagged });
+    if (que === 'rematch') await newGame({ mode: game.mode, level: game.level, color: game.color, time: game.control?.key ?? 'libre:libre' });
     else await toMenu();
   }
 
   function paintTurn() {
-    ui.turn({ side: game.position.side, mode: game.mode, human: game.human, thinking: game.thinking, hidden: state.phase !== 'playing' });
+    ui.turn({ side: game.position.side, mode: game.mode, human: game.human, thinking: game.thinking, hidden: state.phase !== 'playing', press: game.press });
   }
 
   function paintSettings() {
     const texto = document.getElementById('ajustes-partida');
-    if (texto) texto.textContent = game.mode === 'cpu' ? `1 contra CPU · nivel ${game.level} (${levelName(game.level)})` : '1 contra 1';
+    if (!texto) return;
+    let linea = game.mode === 'cpu' ? t('ajustes.cpu', { n: game.level, nombre: levelName(game.level) }) : t('ajustes.pvp');
+    if (game.control) linea += ` · ${controlName()}`;
+    texto.textContent = linea;
+  }
+
+  // El reloj en cada fotograma: corre solo mientras el que mueve puede mover (las animaciones y los
+  // combates no cuentan), se pinta, y si a alguien se le acaba el tiempo, se acabó la partida.
+  function tickClock() {
+    const reloj = game.clock;
+    if (!reloj) return;
+    const ahora = performance.now();
+    const vivo = state.phase === 'playing' && !game.animating && !state.fighting && !view.moving;
+    if (vivo) reloj.resume(ahora);
+    else reloj.pause(ahora);
+    clockUi.render({ white: reloj.remaining('white', ahora), black: reloj.remaining('black', ahora), running: reloj.running, paused: reloj.paused });
+    const sinTiempo = state.phase === 'playing' ? reloj.flagged(ahora) : null;
+    if (sinTiempo) {
+      game.id += 1; // lo que estuviera en marcha (la CPU pensando) ya no cuenta
+      cpu.cancel();
+      gameOver('time', sinTiempo);
+    }
+  }
+
+  // DESHACER. Uno contra uno, la última jugada; contra la CPU, hasta que vuelva a tocarle al jugador
+  // (su jugada y la respuesta de la CPU, o solo la suya si la CPU aún está pensando). Las reglas se
+  // rehacen desde el principio sin esas jugadas, y el tablero se pone como dicen: la pieza que se
+  // movió vuelve a su casilla, la comida reaparece y la coronada vuelve a ser peón.
+  function pliesToUndo() {
+    if (!game.moves.length) return 0;
+    if (game.mode === 'pvp') return 1;
+    // Contra la CPU: se deshace hacia atrás hasta que mueva el jugador, y al menos una jugada suya.
+    let n = 0;
+    const p = Position.fromFEN(game.start);
+    const lados = [];
+    for (const uci of game.moves) {
+      lados.push(p.side);
+      p.playUci(uci);
+    }
+    for (let i = lados.length - 1; i >= 0; i--) {
+      n += 1;
+      if (lados[i] === game.human) return n;
+    }
+    return 0; // solo ha movido la CPU: no hay jugada del jugador que deshacer
+  }
+
+  function canUndo() {
+    return state.phase === 'playing' && !game.animating && !state.fighting && !view.moving && !state.busy && pliesToUndo() > 0;
+  }
+
+  async function undoMove() {
+    if (!canUndo()) return;
+    const n = pliesToUndo();
+    game.token = (game.token ?? 0) + 1; // si la CPU estaba pensando, su jugada ya no vale
+    cpu.cancel();
+    game.thinking = false;
+    game.press = null;
+    clockUi.cancel();
+    select(null);
+    await view.zoomOut();
+    game.moves = game.moves.slice(0, -n);
+    const p = Position.fromFEN(game.start);
+    for (const uci of game.moves) p.playUci(uci);
+    game.position = p;
+    restoreBoard();
+    const status = game.position.status();
+    highlights.check(status === 'check' ? squareName(game.position.kings[game.position.turn >> 3]) : null);
+    game.clock?.switchTo(game.position.side, performance.now());
+    paintTurn();
+    if (game.mode === 'pvp') await view.flipTo(game.position.side === 'black');
+  }
+
+  // Pone el tablero como dicen las reglas: lo que ya está bien se queda; lo que se movió vuelve a su
+  // casilla (la más cercana de las que esperan una pieza como ella), lo que falta aparece y lo que
+  // sobra se va, todo entre polvo.
+  function restoreBoard() {
+    const falta = new Map();
+    for (let rank = 1; rank <= 8; rank++) {
+      for (const file of FILES) {
+        const debe = game.position.pieceAt(file + rank);
+        if (debe) falta.set(file + rank, debe);
+      }
+    }
+    const sueltas = [];
+    for (const entry of pieces) {
+      const debe = falta.get(entry.mover.square);
+      if (debe && debe.kind === entry.kind && debe.color === entry.color) falta.delete(entry.mover.square);
+      else sueltas.push(entry);
+    }
+    const puff = (square) => {
+      const at = board.squareToWorld(square);
+      dust.puff(new Vector3(at.x, 0.05, at.z), { count: 10, radius: 0.45, duration: 0.5 });
+    };
+    for (const [square, debe] of falta) {
+      const at = board.squareToWorld(square);
+      let mejor = -1;
+      let cerca = Infinity;
+      sueltas.forEach((entry, i) => {
+        if (entry.kind !== debe.kind || entry.color !== debe.color) return;
+        const donde = board.squareToWorld(entry.mover.square);
+        const d = Math.hypot(donde.x - at.x, donde.z - at.z);
+        if (d < cerca) {
+          cerca = d;
+          mejor = i;
+        }
+      });
+      if (mejor >= 0) {
+        const [entry] = sueltas.splice(mejor, 1);
+        puff(entry.mover.square);
+        entry.mover.placeOn(square);
+      } else {
+        const entry = spawnEntry(debe.kind, debe.color, square);
+        if (entry) {
+          const object = entry.piece.object;
+          object.scale.setScalar(0.01);
+          clock.tween(0.45, (k) => object.scale.setScalar(Math.max(0.01, 1 - (1 - k) ** 3))).then(() => object.scale.setScalar(1));
+        }
+      }
+      puff(square);
+    }
+    for (const entry of sueltas) {
+      puff(entry.mover.square);
+      removePiece(entry);
+    }
   }
 
   // Tablero nuevo: fuera todas las piezas y cada una otra vez en su casilla de salida.
@@ -569,9 +753,10 @@ async function start() {
     }
   }
 
-  async function newGame({ mode, level }) {
+  async function newGame({ mode, level, color = 'white', time = 'libre:libre' }) {
     game.id += 1;
     cpu.cancel();
+    clockUi.cancel();
     ui.closeAll();
     select(null);
     highlights.check(null);
@@ -581,12 +766,21 @@ async function start() {
     game.moves = [];
     game.mode = mode;
     game.level = level;
+    game.color = color;
+    // Contra la CPU, el jugador lleva las piezas que ha elegido (o las que le toquen a suertes).
+    game.human = mode === 'cpu' ? (color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color) : 'white';
     game.thinking = false;
+    game.press = null;
+    game.control = findTimeControl(time);
+    game.clock = game.control ? createChessClock(game.control) : null;
+    clockUi.show(game.control, controlName);
     await view.zoomOut();
-    await view.flipTo(false); // las blancas empiezan, y se juega desde su lado
+    await view.flipTo(game.human === 'black'); // cada uno mira el tablero desde su lado
     state.phase = 'playing';
+    game.clock?.start('white', performance.now());
     paintTurn();
     paintSettings();
+    if (game.mode === 'cpu' && game.human === 'black') cpuTurn(); // las blancas son de la CPU: empieza ella
   }
 
   // Al menú: vuelve la melodía de la carga y, al pulsar JUGAR, se funde y empieza la partida elegida.
@@ -594,6 +788,10 @@ async function start() {
     state.phase = 'menu';
     game.id += 1;
     cpu.cancel();
+    clockUi.cancel();
+    clockUi.show(null);
+    game.clock = null;
+    game.press = null;
     ui.closeAll();
     select(null);
     music.backToIntro();
@@ -719,7 +917,7 @@ async function start() {
       });
     } catch (err) {
       console.error(`[BChess] No se pudieron cargar ${NOMBRES[kind]}:`, err);
-      hud.showMessage(`No se pudieron cargar ${NOMBRES[kind]}`, { retry: () => loadKind(manifest, kind, load, { strikes }) });
+      hud.showMessage(t(`error.${kind}`), { retry: () => loadKind(manifest, kind, load, { strikes }) });
     }
   }
 
@@ -729,7 +927,7 @@ async function start() {
       manifest = await loadManifest();
     } catch (err) {
       console.error('[BChess] No se pudo leer el manifiesto:', err);
-      hud.showMessage('No se pudieron cargar las piezas', { retry: loadPieces });
+      hud.showMessage(t('error.piezas'), { retry: loadPieces });
       return;
     }
     // Uno detrás de otro, no todos a la vez: así el tablero se va llenando desde el primer momento en
@@ -739,12 +937,12 @@ async function start() {
     // La barra de la pantalla de carga: cada tipo de pieza pesa lo que suele tardar, y dentro de cada
     // uno avanza con los ficheros que van llegando (hasta el 90 % de su parte: el resto es prepararlos).
     const tipos = [
-      ['Formando a los peones', (m) => loadKind(m, 'pawn', loadPieceKit), 0.12],
-      ['Ensillando a los caballos', (m) => loadKind(m, 'knight', loadKnightKit, { strikes: false }), 0.3],
-      ['Bendiciendo a los alfiles', (m) => loadKind(m, 'bishop', loadPieceKit), 0.14],
-      ['Peinando a las reinas', (m) => loadKind(m, 'queen', loadPieceKit), 0.1],
-      ['Puliendo las coronas', (m) => loadKind(m, 'king', loadPieceKit), 0.12],
-      ['Despertando a los gigantes', (m) => loadKind(m, 'rook', loadRookKit, { strikes: false }), 0.17],
+      [t('carga.peones'), (m) => loadKind(m, 'pawn', loadPieceKit), 0.12],
+      [t('carga.caballos'), (m) => loadKind(m, 'knight', loadKnightKit, { strikes: false }), 0.3],
+      [t('carga.alfiles'), (m) => loadKind(m, 'bishop', loadPieceKit), 0.14],
+      [t('carga.reinas'), (m) => loadKind(m, 'queen', loadPieceKit), 0.1],
+      [t('carga.coronas'), (m) => loadKind(m, 'king', loadPieceKit), 0.12],
+      [t('carga.gigantes'), (m) => loadKind(m, 'rook', loadRookKit, { strikes: false }), 0.17],
     ];
     let hecho = 0.05;
     let cuenta = { loaded: 0, total: 0 };
@@ -766,7 +964,7 @@ async function start() {
     tramo = null;
   }
 
-  loading.progress(0.02, 'Encendiendo las antorchas');
+  loading.progress(0.02, t('carga.antorchas'));
   await addLighting(stage, quality);
   await loadPieces();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).

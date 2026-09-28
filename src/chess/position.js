@@ -479,6 +479,23 @@ export class Position {
     return minors === 1 && bishopColors.size === 0;
   }
 
+  // ¿Puede `color` dar mate con lo que le queda? Solo cuenta para cuando al otro se le acaba el
+  // tiempo: si el que queda no puede ganar ni con ayuda, son tablas. Con un peón, una torre, una dama
+  // o dos piezas menores, sí; con el rey solo o con un alfil o un caballo sueltos, no.
+  hasMatingMaterial(color) {
+    const us = color === 'black' ? BLACK : WHITE;
+    let menores = 0;
+    for (let s = 0; s < 128; s++) {
+      if (s & 0x88) continue;
+      const piece = this.board[s];
+      if (!piece || (piece & BLACK) !== us) continue;
+      const type = piece & 7;
+      if (type === PAWN || type === ROOK || type === QUEEN) return true;
+      if (type === KNIGHT || type === BISHOP) menores += 1;
+    }
+    return menores >= 2;
+  }
+
   // Cómo está la partida: 'checkmate', 'stalemate', 'fifty', 'repetition', 'material' (se acabó) o
   // 'check' / 'playing' (sigue).
   status() {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { currentLanguage } from '../i18n.js';
 
 // Bocadillos de cómic sobre la escena (diseño, sección 7): un globo con texto que sigue a un punto de la
 // escena mientras dura, con el tiempo de juego. Con `shout`, una onomatopeya grande y amarilla
@@ -23,6 +24,8 @@ export function createBubbles({ camera, canvas, clock }) {
   // Muestra `text` sobre `anchor` (un objeto de la escena o una función que devuelve un Vector3),
   // `lift` casillas más arriba, durante `seconds` de juego. Se resuelve al quitarse.
   function say(text, anchor, { seconds = 1.5, shout = false, lift = 0.25 } = {}) {
+    // Los signos de apertura («¡», «¿») son del español y del catalán; en los demás idiomas, fuera.
+    if (!['es', 'ca'].includes(currentLanguage())) text = String(text).replace(/[¡¿]/g, '');
     const element = document.createElement('div');
     element.className = shout ? 'onomatopeya' : 'bocadillo';
     element.textContent = text;

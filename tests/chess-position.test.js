@@ -156,3 +156,11 @@ test('la huella de la posición es la misma venga por donde venga', () => {
   const c = Position.fromFEN(a.toFEN());
   assert.equal(c.hashLo, a.hashLo);
 });
+
+test('material para dar mate: cuenta cuando al rival se le acaba el tiempo', () => {
+  const p = Position.fromFEN('4k3/8/8/8/8/8/4P3/3NK3 w - - 0 1');
+  assert.equal(p.hasMatingMaterial('white'), true, 'con un peón, sí');
+  assert.equal(p.hasMatingMaterial('black'), false, 'el rey solo, no');
+  assert.equal(Position.fromFEN('4k3/8/8/8/8/8/8/2BNK3 w - - 0 1').hasMatingMaterial('white'), true, 'dos menores, sí');
+  assert.equal(Position.fromFEN('4k3/8/8/8/8/8/8/3NK3 w - - 0 1').hasMatingMaterial('white'), false, 'un caballo suelto, no');
+});

@@ -26,11 +26,11 @@ export function createCpu() {
     worker = null;
   }
 
-  async function enEsteHilo({ fen, moves }, level) {
+  async function enEsteHilo({ fen, moves, maxMs }, level) {
     const [{ Position }, { chooseMove }] = await Promise.all([import('./position.js'), import('./engine.js')]);
     const p = fen ? Position.fromFEN(fen) : Position.initial();
     for (const uci of moves) p.playUci(uci);
-    const m = chooseMove(p, level);
+    const m = chooseMove(p, level, { maxMs });
     return m === null ? null : Position.uci(m);
   }
 
@@ -41,7 +41,7 @@ export function createCpu() {
       const id = siguiente++;
       return new Promise((resolve, reject) => {
         pendientes.set(id, { resolve, reject });
-        worker.postMessage({ id, fen: partida.fen, moves: partida.moves, level });
+        worker.postMessage({ id, fen: partida.fen, moves: partida.moves, level, maxMs: partida.maxMs ?? null });
       }).catch(() => enEsteHilo(partida, level));
     },
     // Lo que estuviera pensando ya no importa (partida nueva): se contesta null.

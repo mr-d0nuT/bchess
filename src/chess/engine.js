@@ -384,8 +384,9 @@ export function createEngine() {
 }
 
 // La jugada de la CPU para un nivel. `random` (0-1) para poder repetirlo en las pruebas.
-export function chooseMove(p, level, { random = Math.random, clock, engine = createEngine() } = {}) {
+export function chooseMove(p, level, { random = Math.random, clock, engine = createEngine(), maxMs = null } = {}) {
   const ajustes = levelSettings(level);
+  if (maxMs > 0) ajustes.timeMs = Math.min(ajustes.timeMs, maxMs); // con reloj, lo que se pueda permitir
   const legales = p.legalMoves();
   if (!legales.length) return null;
   if (ajustes.random > 0 && random() < ajustes.random) return legales[Math.floor(random() * legales.length)];
