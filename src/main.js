@@ -455,7 +455,6 @@ async function start() {
     }
     game.position.make(m);
     game.moves.push(plan.uci);
-    highlights.lastMove(plan.from, plan.to);
     squareUp();
     await afterMove();
   }
@@ -576,7 +575,6 @@ async function start() {
     ui.closeAll();
     select(null);
     highlights.check(null);
-    highlights.lastMove(null, null);
     if (game.moves.length || pieces.length !== 32) resetPieces(); // al empezar, el tablero ya está puesto
     game.start = INITIAL_FEN;
     game.position = Position.initial();
@@ -612,7 +610,6 @@ async function start() {
     game.position = Position.fromFEN(fen);
     game.moves = [];
     select(null);
-    highlights.lastMove(null, null);
     squareUp();
     const status = game.position.status();
     highlights.check(status === 'check' ? squareName(game.position.kings[game.position.turn >> 3]) : null);

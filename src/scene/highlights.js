@@ -2,12 +2,10 @@ import * as THREE from 'three';
 
 // Marcas sobre el tablero, todas del mismo neón verde: un aro que late y gira bajo la pieza elegida,
 // un punto de luz en cada casilla a la que puede ir y una diana bajo cada enemigo que puede comerse.
-// Lo único que no es verde es el aro ROJO bajo el rey en jaque, que tiene que saltar a la vista. Y
-// la última jugada deja sus dos casillas apenas teñidas, para saber qué ha movido el otro. Sin
+// Lo único que no es verde es el aro ROJO bajo el rey en jaque, que tiene que saltar a la vista. Sin
 // sombras ni luz propia, para que se lean bien sobre la madera.
 
 const LIFT = 0.006; // justo por encima de las casillas para no parpadear con ellas
-const TINT_LIFT = 0.004; // la última jugada, por debajo de todo lo demás
 const HOVER_LIFT = 0.009; // y el contorno del ratón, por encima de todo lo demás
 const HOVER_GLIDE = 0.07; // segundos que tarda en deslizarse de una casilla a la vecina
 const HOVER_BEAT = 2.4; // radianes por segundo del latido: una respiración, no un parpadeo
@@ -142,33 +140,6 @@ function dotTexture() {
   return texture;
 }
 
-// El tinte, muy suave, de las casillas de la última jugada.
-function squareTexture({ relleno, borde }) {
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  const inset = 10;
-  const lado = size - inset * 2;
-  const marco = () => {
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(inset, inset, lado, lado, 18);
-    else ctx.rect(inset, inset, lado, lado);
-  };
-  ctx.fillStyle = relleno;
-  marco();
-  ctx.fill();
-  if (borde) {
-    ctx.strokeStyle = borde;
-    ctx.lineWidth = 4;
-    marco();
-    ctx.stroke();
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
 const neonMaterial = (map) => new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, toneMapped: false });
 
 export function createHighlights(scene, board) {
@@ -202,16 +173,6 @@ export function createHighlights(scene, board) {
   checkRing.visible = false;
   scene.add(checkRing);
 
-  // La última jugada: sus dos casillas, apenas teñidas.
-  const tintMaterial = neonMaterial(squareTexture({ relleno: 'rgba(160, 230, 60, 0.22)', borde: null }));
-  const tints = [0, 1].map(() => {
-    const tinte = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), tintMaterial);
-    tinte.rotation.x = -Math.PI / 2;
-    tinte.visible = false;
-    scene.add(tinte);
-    return tinte;
-  });
-
   // El contorno de la casilla que hay bajo el ratón: lo que se elegiría al pulsar.
   const hoverMaterial = new THREE.MeshBasicMaterial({
     map: hoverTexture(),
@@ -240,13 +201,6 @@ export function createHighlights(scene, board) {
     if (square) checkRing.position.copy(board.squareToWorld(square)).setY(LIFT * 1.2);
   }
 
-  // Las dos casillas de la última jugada, o null.
-  function lastMove(from, to) {
-    [from, to].forEach((square, i) => {
-      tints[i].visible = Boolean(square);
-      if (square) tints[i].position.copy(board.squareToWorld(square)).setY(TINT_LIFT);
-    });
-  }
 
   function showMoves(squares) {
     for (const dot of dots) scene.remove(dot);
@@ -328,5 +282,5 @@ export function createHighlights(scene, board) {
     showCaptures([]);
   }
 
-  return { select, showMoves, showCaptures, hover, pulse, clear, check, lastMove };
+  return { select, showMoves, showCaptures, hover, pulse, clear, check };
 }
