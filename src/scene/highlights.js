@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
-// Marcas sobre el tablero: un aro dorado bajo la pieza elegida, un disco en cada casilla a la
-// que puede ir y un aro rojo, que late, bajo cada enemigo que puede comerse. Sin sombras ni
-// luz propia, para que se lean bien sobre la madera.
+// Marcas sobre el tablero: un aro de neón azul, que late, bajo la pieza elegida; un disco en cada
+// casilla a la que puede ir y un aro rojo, que late, bajo cada enemigo que puede comerse. Sin
+// sombras ni luz propia, para que se lean bien sobre la madera.
 
 const GOLD = 0xf2c14e;
 const RED = 0xe0493a;
@@ -12,6 +12,14 @@ const HOVER_GLIDE = 0.07; // segundos que tarda en deslizarse de una casilla a l
 const HOVER_BEAT = 2.4; // radianes por segundo del latido: una respiración, no un parpadeo
 const HOVER_LOW = 0.3;
 const HOVER_HIGH = 0.95;
+// El aro de la pieza elegida: un tubo de neón azul que late —se enciende y se apaga un poco, y
+// respira de tamaño— y gira despacio, para que el degradado de color corra por él.
+const NEON_SIZE = 1.3; // lado del cuadrado donde va pintado, en casillas
+const NEON_BEAT = 4.2; // radianes por segundo del latido
+const NEON_SPIN = 0.6; // y del giro
+const NEON_LOW = 0.6;
+const NEON_HIGH = 1;
+const NEON_BREATH = 0.035; // lo que crece y encoge al latir
 
 // El contorno que sigue al ratón, dibujado en un lienzo: un marco blanco de esquinas redondeadas con
 // su halo, como un led encendido sobre la madera. En textura y no con geometría porque así el borde
@@ -55,12 +63,69 @@ function hoverTexture() {
   return texture;
 }
 
+// El aro de neón, pintado en un lienzo: el halo, ancho y de un azul eléctrico profundo; encima el
+// tubo, con el degradado de color que le da la vuelta (de cian a azul y a violeta), y dentro del
+// tubo un filamento más claro, que es lo que hace que un neón parezca encendido y no pintado. Se
+// pinta encima de la madera, no sumado a ella: sumado, sobre el roble claro salía casi blanco.
+function neonTexture() {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const c = size / 2;
+  const radio = size * (0.45 / NEON_SIZE); // el tubo, a 0,45 casillas del centro
+  const aro = (width) => {
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.arc(c, c, radio, 0, Math.PI * 2);
+    ctx.stroke();
+  };
+
+  const halo = ctx.createRadialGradient(c, c, radio - size * 0.075, c, c, radio + size * 0.095);
+  halo.addColorStop(0, 'rgba(0, 60, 255, 0)');
+  halo.addColorStop(0.4, 'rgba(0, 95, 255, 0.45)');
+  halo.addColorStop(0.5, 'rgba(0, 130, 255, 0.7)');
+  halo.addColorStop(0.62, 'rgba(0, 90, 255, 0.4)');
+  halo.addColorStop(1, 'rgba(0, 40, 255, 0)');
+  ctx.strokeStyle = halo;
+  aro(size * 0.17);
+
+  let tubo = 'rgb(0, 150, 255)';
+  if (ctx.createConicGradient) {
+    tubo = ctx.createConicGradient(0, c, c);
+    tubo.addColorStop(0, 'rgb(0, 210, 255)');
+    tubo.addColorStop(0.3, 'rgb(0, 110, 255)');
+    tubo.addColorStop(0.55, 'rgb(80, 70, 255)');
+    tubo.addColorStop(0.8, 'rgb(0, 140, 255)');
+    tubo.addColorStop(1, 'rgb(0, 210, 255)');
+  }
+  ctx.shadowColor = 'rgb(0, 120, 255)';
+  ctx.shadowBlur = size * 0.035;
+  ctx.strokeStyle = tubo;
+  aro(size * 0.032);
+
+  ctx.shadowBlur = size * 0.01;
+  ctx.shadowColor = 'rgb(90, 200, 255)';
+  ctx.strokeStyle = 'rgba(150, 230, 255, 0.9)';
+  aro(size * 0.008);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 export function createHighlights(scene, board) {
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.4, 0.47, 48),
-    new THREE.MeshBasicMaterial({ color: GOLD, transparent: true, opacity: 0.9, depthWrite: false }),
-  );
+  const ringMaterial = new THREE.MeshBasicMaterial({
+    map: neonTexture(),
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false, // que el mapeo de tonos no lo apague: un neón es más vivo que la escena
+  });
+  const ring = new THREE.Mesh(new THREE.PlaneGeometry(NEON_SIZE, NEON_SIZE), ringMaterial);
+  ring.name = 'aro';
   ring.rotation.x = -Math.PI / 2;
+  ring.renderOrder = 1;
   ring.visible = false;
   scene.add(ring);
 
@@ -134,6 +199,12 @@ export function createHighlights(scene, board) {
   // hasta la casilla que señala.
   function pulse(seconds, dt = 0) {
     captureMaterial.opacity = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin(seconds * 6));
+    if (ring.visible) {
+      const latido = 0.5 + 0.5 * Math.sin(seconds * NEON_BEAT);
+      ringMaterial.opacity = NEON_LOW + (NEON_HIGH - NEON_LOW) * latido;
+      ring.scale.setScalar(1 + NEON_BREATH * (latido - 0.5) * 2);
+      ring.rotation.z = seconds * NEON_SPIN;
+    }
     if (!hoverMesh.visible) return;
     if (!hovered) {
       hoverAge = Math.max(0, hoverAge - dt / 0.12);

@@ -32,6 +32,7 @@ import { measureStrikes } from './combat/strikes.js';
 import { createImpactFx } from './fx/impact.js';
 import { createSpellFx } from './fx/spell.js';
 import { createCinema } from './scene/cinema.js';
+import { createView } from './scene/view.js';
 import { createFade } from './scene/fade.js';
 import { createFocus } from './scene/focus.js';
 import { pickStyle } from './combat/plan.js';
@@ -83,6 +84,30 @@ function currentQuality() {
 }
 
 // El botón de la música: la quita o la pone, y se acuerda.
+// La configuración: se abre con su botón y se cierra con el suyo, con Escape o tocando fuera.
+function wireSettings() {
+  const button = document.getElementById('ajustes');
+  const panel = document.getElementById('ajustes-panel');
+  const close = document.getElementById('ajustes-cerrar');
+  if (!button || !panel) return;
+  const abrir = (abierto) => {
+    panel.hidden = !abierto;
+    if (abierto) close?.focus();
+    else button.focus();
+  };
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    abrir(true);
+  });
+  close?.addEventListener('click', () => abrir(false));
+  panel.addEventListener('click', (event) => {
+    if (event.target === panel) abrir(false);
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !panel.hidden) abrir(false);
+  });
+}
+
 function wireMusicButton(music) {
   const button = document.getElementById('musica');
   if (!button) return;
@@ -107,6 +132,7 @@ async function start() {
   });
   music.startIntro();
   wireMusicButton(music);
+  wireSettings();
   if (!webglAvailable()) {
     loading.finish();
     hud.showMessage('Tu navegador no puede mostrar gráficos 3D (WebGL no está disponible). Prueba con Chrome, Safari o Firefox actualizados.');
@@ -144,6 +170,7 @@ async function start() {
   const focus = createFocus(stage.renderer, stage.scene, stage.camera, quality);
   const bubbles = createBubbles({ camera: stage.camera, canvas: stage.renderer.domElement, clock });
   const pieces = []; // { kind: 'pawn' | 'rook' | 'knight', color, piece, mover }
+  const view = createView({ stage, clock, cinema, fade, pieces: () => pieces });
   const crowd = createCrowd({ board, entries: () => pieces });
   const state = { selected: null, busy: false, fighting: false, lastStyle: null };
   // De tanto en tanto, una sola pieza del tablero hace un gesto especial (un peón, o el caballo de un
@@ -169,6 +196,33 @@ async function start() {
     Object.assign(gesture, { performer: actor, last: actor, lastVariant: variant });
   }
 
+  // Los botones de la cámara: dar la vuelta al tablero y acercarse a la pieza elegida. Durante un
+  // combate no se pueden tocar (la cámara es de la de cine), y acercarse pide una pieza elegida.
+  const flipButton = document.getElementById('girar');
+  const zoomButton = document.getElementById('acercar');
+  flipButton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    view.flip();
+  });
+  zoomButton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (view.zoomed) view.zoomOut();
+    else if (state.selected) view.zoomTo(state.selected);
+  });
+  function paintViewButtons() {
+    const quieta = !state.fighting && !view.moving;
+    if (flipButton && flipButton.disabled !== !quieta) flipButton.disabled = !quieta;
+    if (!zoomButton) return;
+    const puede = quieta && (view.zoomed || Boolean(state.selected));
+    if (zoomButton.disabled !== !puede) zoomButton.disabled = !puede;
+    const pulsado = String(view.zoomed);
+    if (zoomButton.getAttribute('aria-pressed') !== pulsado) {
+      zoomButton.setAttribute('aria-pressed', pulsado);
+      zoomButton.title = view.zoomed ? 'Volver al tablero entero' : 'Acercarse a la pieza elegida';
+      zoomButton.setAttribute('aria-label', zoomButton.title);
+    }
+  }
+
   // Un fotograma de juego: reloj, sitio para los gigantes, animaciones, gestos y efectos.
   function frame(now, dt) {
     const step = clock.tick(dt);
@@ -184,6 +238,7 @@ async function start() {
     if (!cinema.active) stage.controls.update();
     cinema.update(dt);
     bubbles.update();
+    paintViewButtons();
   }
 
   let previous = performance.now();
@@ -234,6 +289,8 @@ async function start() {
     highlights.select(entry ? entry.mover.square : null);
     highlights.showMoves(entry ? movesOf(entry) : []);
     highlights.showCaptures(entry ? capturesOf(entry) : []);
+    // Con la cámara acercada, elegir otra pieza la lleva a ella.
+    if (entry && !state.fighting) view.follow(entry);
   }
 
   function onBusy(busy) {
@@ -305,6 +362,7 @@ async function start() {
     const tapped = owner ?? (square ? pieceAt(square) : null);
     const selected = state.selected;
     if (selected && tapped && tapped.color !== selected.color && capturesOf(selected).includes(tapped.mover.square)) {
+      await view.zoomOut(); // el combate lo encuadra la cámara de cine, desde el tablero entero
       await capture(selected, tapped);
       return;
     }
@@ -314,6 +372,7 @@ async function start() {
     }
     if (selected && square && movesOf(selected).includes(square)) {
       highlights.clear();
+      await view.zoomOut();
       await selected.mover.goTo(square);
       select(selected);
       return;
@@ -541,7 +600,7 @@ async function start() {
   await loading.finish();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
-    stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music,
+    stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music, view,
     get pawns() {
       return pieces.filter((entry) => entry.kind === 'pawn');
     },

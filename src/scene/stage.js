@@ -31,7 +31,9 @@ export function createStage(canvas, quality) {
   const home = controls.target.clone();
   // `keepCamera(view)` puede quedarse con el encuadre de reposo nuevo sin que la cámara se mueva
   // (lo hace la cámara de cine mientras encuadra un combate).
-  const stage = { renderer, scene, camera, controls, keepCamera: () => false };
+  // `flipped`: el tablero se mira desde el lado de las negras (el botón de dar la vuelta). El
+  // encuadre de reposo es el mismo, con media vuelta alrededor del centro del tablero.
+  const stage = { renderer, scene, camera, controls, keepCamera: () => false, flipped: false };
 
   function resize() {
     const width = window.innerWidth;
@@ -44,6 +46,10 @@ export function createStage(canvas, quality) {
     const distance = Math.max(DEFAULT_DISTANCE, BOARD_HALF_WIDTH / Math.tan(halfHorizontalFov));
     controls.maxDistance = Math.max(18, distance * 1.3);
     const view = { position: home.clone().addScaledVector(viewDirection, distance), target: home.clone() };
+    if (stage.flipped) {
+      view.position.set(-view.position.x, view.position.y, -view.position.z);
+      view.target.set(-view.target.x, view.target.y, -view.target.z);
+    }
     if (stage.keepCamera(view)) return;
     camera.position.copy(view.position);
     controls.target.copy(view.target);
