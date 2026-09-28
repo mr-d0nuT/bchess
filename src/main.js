@@ -40,6 +40,7 @@ import { pickStyle } from './combat/plan.js';
 import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
 import { canGagBattle, runGagBattle } from './combat/battles.js';
+import { pawnThrowsBomb } from './combat/pawn-bomb.js';
 
 // Arranque: la pantalla de carga, el menú (uno contra uno o contra la CPU, y su nivel) y la partida,
 // con las reglas del ajedrez enteras (`chess/position.js`): empiezan las blancas, se mueve por turnos
@@ -382,7 +383,10 @@ async function start() {
       // en cada fotograma, no se fija aquí, porque los dos se mueven durante todo el combate.
       focus.on(() => centerOf(enPie().length ? enPie() : [attacker]));
       const style = pickStyle(state.lastStyle);
-      if (attacker.kind === 'pawn' && defender.kind === 'pawn' && canFight(attacker, defender, style)) {
+      // Entre peones, un duelo; de vez en cuando, el atacante saca una bomba.
+      const bomba = attacker.kind === 'pawn' && defender.kind === 'pawn' && Math.random() < pawnThrowsBomb.chance
+        && canGagBattle(attacker, defender);
+      if (attacker.kind === 'pawn' && defender.kind === 'pawn' && !bomba && canFight(attacker, defender, style)) {
         state.lastStyle = style;
         await runCombat({ attacker, defender, board, clock, fx, cinema, hud, style, obstacles });
       } else if (canGagBattle(attacker, defender)) {

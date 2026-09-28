@@ -3,6 +3,7 @@ import { QUEEN, armsDown } from '../../pieces/cast.js';
 import { afterImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
 import { shout, victoryLap } from '../knight/common.js';
+import { charring } from '../burn.js';
 import { chestOf, faceAttacker, horseBolts, pose, poseTo, rebote, release, stepDown, suave, victimOf } from './royal.js';
 
 // LA REINA NEGRA QUEMA. La blanca hiela, y el hielo en la negra no pegaba: el rojo de su bando es el
@@ -24,34 +25,7 @@ const CHAR_SECONDS = 1.0; // lo que tarda el rival en quedarse negro
 const CRUMBLE_SECONDS = 0.45; // y en deshacerse en ceniza
 const RECOVER_SECONDS = 0.55;
 const FIRE = '#ff8a2a'; // el color de la carga en las manos
-const CARBON = new THREE.Color('#0d0806'); // lo que queda de un cuerpo quemado
-const EMBER = new THREE.Color('#ff3a0a'); // y el rojo de las ascuas que le brillan por encima
 const GLOW = 0.1; // cuánto brillan: poco, que un tizón es negro y lo que luce son las vetas
-
-// El rival, quemándose. A su figura se le clonan los materiales (los comparten todas las copias del
-// mismo modelo: sin clonarlos se quemarían los ocho peones) y se devuelve una función que lo lleva
-// de su color al de un tizón (`k` de 0 a 1), con el brillo de las ascuas que se le diga.
-function charring(figure) {
-  const materiales = [];
-  figure.traverse((o) => {
-    if (!o.isMesh || !o.material) return;
-    const lista = Array.isArray(o.material) ? o.material : [o.material];
-    const propios = lista.map((m) => m.clone());
-    o.material = Array.isArray(o.material) ? propios : propios[0];
-    for (const m of propios) {
-      materiales.push({ m, color: m.color?.clone(), emissive: m.emissive?.clone(), intensity: m.emissiveIntensity ?? 1 });
-    }
-  });
-  return (k, brillo) => {
-    for (const { m, color, emissive, intensity } of materiales) {
-      if (color) m.color.copy(color).lerp(CARBON, k);
-      if (emissive) {
-        m.emissive.copy(emissive).lerp(EMBER, k);
-        m.emissiveIntensity = intensity * (1 - k) + brillo * k;
-      }
-    }
-  };
-}
 
 export const queenBurns = {
   matches: (attacker) => attacker.kind === 'queen' && attacker.color === 'black',

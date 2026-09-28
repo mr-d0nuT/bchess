@@ -622,6 +622,108 @@ export function createSpellFx(scene) {
     }
   }
 
+  // LA BOMBA, de dibujos animados: negra y brillante, con su tapón de latón y su mecha de cuerda.
+  // Aparece en la mano (`hand`, un hueso) y la sigue; `light()` enciende la mecha, que se va
+  // consumiendo echando chispas; `throwTo()` la lanza en arco, girando, y al caer bota y rueda un
+  // poco; `explode()` la quita y devuelve dónde estaba. Todo va por fotogramas, con el reloj del juego.
+  function bomb(hand, { size = 1.45 } = {}) {
+    const grupo = new THREE.Group();
+    grupo.name = 'bomba';
+    const cuerpo = new THREE.Mesh(
+      new THREE.SphereGeometry(0.13, 28, 18),
+      new THREE.MeshStandardMaterial({ color: 0x15151a, roughness: 0.28, metalness: 0.6 }),
+    );
+    const tapon = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.045, 0.052, 0.05, 16),
+      new THREE.MeshStandardMaterial({ color: 0xa47b2c, roughness: 0.35, metalness: 0.85 }),
+    );
+    tapon.position.y = 0.135;
+    const curva = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 0.155, 0),
+      new THREE.Vector3(0.015, 0.21, 0),
+      new THREE.Vector3(0.06, 0.255, 0.01),
+      new THREE.Vector3(0.105, 0.27, 0.02),
+    ]);
+    const mechaGeo = new THREE.TubeGeometry(curva, 18, 0.011, 6, false);
+    const mecha = new THREE.Mesh(mechaGeo, new THREE.MeshStandardMaterial({ color: 0xcaa46a, roughness: 0.95 }));
+    grupo.add(cuerpo, tapon, mecha);
+    grupo.traverse((o) => {
+      if (o.isMesh) o.castShadow = true;
+    });
+    grupo.scale.setScalar(0.001);
+    scene.add(grupo);
+
+    const indices = mechaGeo.index.count;
+    const estado = {
+      fase: 'mano', aparece: 0, quema: 0, ardiendo: false, fuse: 2,
+      vuelo: null, fin: null,
+    };
+    const punta = () => grupo.localToWorld(curva.getPointAt(Math.max(0.05, 1 - estado.quema * 0.9)).clone());
+    const item = vive(grupo, 3600, (k, dt) => {
+      estado.aparece = Math.min(1, estado.aparece + dt / 0.25);
+      const pop = estado.aparece < 1 ? 1 + Math.sin(Math.PI * estado.aparece) * 0.25 : 1;
+      grupo.scale.setScalar(Math.max(0.001, estado.aparece * pop * size));
+      if (estado.ardiendo) {
+        estado.quema = Math.min(1, estado.quema + dt / estado.fuse);
+        mechaGeo.setDrawRange(0, Math.round((indices * (1 - estado.quema * 0.9)) / 3) * 3);
+      }
+      if (estado.fase === 'mano' && hand) {
+        hand.getWorldPosition(grupo.position);
+        grupo.position.y += 0.04;
+      } else if (estado.fase === 'vuelo') {
+        const v = estado.vuelo;
+        v.edad = Math.min(v.seconds, v.edad + dt);
+        const t = v.edad / v.seconds;
+        grupo.position.lerpVectors(v.desde, v.hasta, t);
+        grupo.position.y = v.desde.y + (v.hasta.y - v.desde.y) * t + Math.sin(Math.PI * t) * v.alto;
+        grupo.rotateOnWorldAxis(v.eje, dt * 9);
+        if (t >= 1) {
+          estado.fase = 'suelo';
+          estado.suelo = { edad: 0, desde: grupo.position.clone(), rueda: v.rueda };
+          v.resolve();
+        }
+      } else if (estado.fase === 'suelo') {
+        // Un bote pequeño y rueda un palmo hacia el rival.
+        const s = estado.suelo;
+        s.edad = Math.min(0.5, s.edad + dt);
+        const t = s.edad / 0.5;
+        grupo.position.copy(s.desde).addScaledVector(s.rueda, 1 - (1 - t) * (1 - t));
+        grupo.position.y = 0.13 * size + Math.abs(Math.sin(Math.PI * t * 1.5)) * 0.12 * (1 - t);
+        grupo.rotateOnWorldAxis(new THREE.Vector3(-s.rueda.z, 0, s.rueda.x).normalize(), dt * 6 * (1 - t));
+      }
+    });
+    return {
+      // Enciende la mecha: arde `seconds` en consumirse, y chisporrotea.
+      light(seconds = 2) {
+        estado.ardiendo = true;
+        estado.fuse = seconds;
+        flame(punta, { seconds: 3.5, size: 0.11, count: 5 });
+        charge(punta, { seconds: 3.5, color: '#ffb347', size: 0.1, motes: 8 });
+      },
+      // La lanza hasta `to` ({x, z}, a ras de suelo), en arco de `height`, en `seconds`. Se resuelve al
+      // caer; luego aún bota y rueda hacia `roll` ({x, z}, lo que rueda).
+      throwTo(to, { seconds = 0.65, height = 0.9, roll = { x: 0, z: 0 } } = {}) {
+        estado.fase = 'vuelo';
+        return new Promise((resolve) => {
+          const desde = grupo.position.clone();
+          const hasta = new THREE.Vector3(to.x, 0.13 * size, to.z);
+          const eje = new THREE.Vector3(hasta.z - desde.z, 0, desde.x - hasta.x).normalize();
+          estado.vuelo = { edad: 0, seconds, desde, hasta, alto: height, eje, resolve, rueda: new THREE.Vector3(roll.x, 0, roll.z) };
+        });
+      },
+      // ¡Bum! Se quita y dice dónde estaba.
+      explode() {
+        const donde = grupo.position.clone();
+        grupo.visible = false;
+        item.life = item.age;
+        return donde;
+      },
+      get position() {
+        return grupo.position;
+      },
+    };
+  }
+
   function update(dt) {
     for (let i = vivos.length - 1; i >= 0; i--) {
       const item = vivos[i];
@@ -630,12 +732,15 @@ export function createSpellFx(scene) {
       item.step(k, dt, item.age);
       if (k >= 1) {
         scene.remove(item.object);
-        item.object.material.dispose();
-        item.object.geometry?.dispose?.();
+        // Un grupo (la bomba) libera lo de cada una de sus mallas.
+        item.object.traverse((o) => {
+          o.material?.dispose?.();
+          if (!o.isSprite) o.geometry?.dispose?.();
+        });
         vivos.splice(i, 1);
       }
     }
   }
 
-  return { charge, sigil, bolt, shockwave, updraft, frost, encase, flame, fireball, blaze, ashes, update };
+  return { charge, sigil, bolt, shockwave, updraft, frost, encase, flame, fireball, blaze, ashes, bomb, update };
 }
