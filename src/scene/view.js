@@ -168,8 +168,16 @@ export function createView({ stage, clock, cinema, fade, pieces = () => [], onCh
     });
   }
 
+  // Deja el tablero mirado desde un lado: `black` true, desde el de las negras. Si la cámara está
+  // ocupada (acabando de volver de un combate), espera a que quede libre.
+  async function flipTo(black) {
+    for (let i = 0; i < 90 && !free(); i++) await clock.wait(0.05);
+    if (Boolean(stage.flipped) !== Boolean(black)) await flip();
+  }
+
   return {
     flip,
+    flipTo,
     zoomTo,
     zoomOut,
     // Con la cámara acercada, elegir otra pieza la lleva a la nueva.

@@ -7,6 +7,8 @@
   <meta name="description" content="BChess, homenaje 3D a Battle Chess (1988): peones y torres animados.">
   <meta name="theme-color" content="#000000">
   <link rel="stylesheet" href="src/ui/style.css">
+  <link rel="stylesheet" href="src/ui/menu.css">
+  <link rel="preload" href="assets/ui/logo.webp" as="image">
   <script type="importmap">
     {
       "imports": {
@@ -42,15 +44,41 @@
     <div class="panel">
       <h2 id="ajustes-titulo">Configuración</h2>
       <section>
-        <h3>Nivel de dificultad</h3>
-        <div class="opciones" role="radiogroup" aria-label="Nivel de dificultad">
-          <button type="button" role="radio" aria-checked="false" disabled>Fácil</button>
-          <button type="button" role="radio" aria-checked="true" disabled>Normal</button>
-          <button type="button" role="radio" aria-checked="false" disabled>Difícil</button>
-        </div>
-        <p class="pronto">Próximamente</p>
+        <h3>Partida</h3>
+        <p id="ajustes-partida" class="ajustes-partida">—</p>
+        <button id="ajustes-menu" type="button" class="ajustes-accion">Volver al menú</button>
       </section>
       <button id="ajustes-cerrar" type="button">Cerrar</button>
+    </div>
+  </div>
+  <!-- El menú de después de la carga (`ui/menu.js`). -->
+  <div id="menu" hidden>
+    <canvas id="menu-chispas" aria-hidden="true"></canvas>
+    <div class="menu-luz" aria-hidden="true"></div>
+    <div class="menu-caja">
+      <img class="menu-logo" src="assets/ui/logo.webp" alt="Battle Chess" width="765" height="848" decoding="async">
+      <h1 class="menu-titulo">Battle Chess</h1>
+      <div class="menu-modos" role="radiogroup" aria-label="Modo de juego">
+        <button class="modo" type="button" role="radio" aria-checked="false" data-modo="pvp">
+          <svg class="modo-icono" viewBox="0 0 48 48" aria-hidden="true"><circle cx="16" cy="14" r="6"/><path d="M5 38c0-7 5-12 11-12s11 5 11 12"/><circle cx="32" cy="14" r="6"/><path d="M21 38c0-7 5-12 11-12s11 5 11 12"/></svg>
+          <span class="modo-titulo">1 contra 1</span>
+          <span class="modo-sub">Dos jugadores, un tablero</span>
+        </button>
+        <button class="modo" type="button" role="radio" aria-checked="false" data-modo="cpu">
+          <svg class="modo-icono" viewBox="0 0 48 48" aria-hidden="true"><rect x="12" y="12" width="24" height="24" rx="4"/><rect x="18" y="18" width="12" height="12" rx="2"/><path d="M18 12V6M24 12V6M30 12V6M18 42v-6M24 42v-6M30 42v-6M12 18H6M12 24H6M12 30H6M42 18h-6M42 24h-6M42 30h-6"/></svg>
+          <span class="modo-titulo">1 contra CPU</span>
+          <span class="modo-sub">Tú llevas las blancas</span>
+        </button>
+      </div>
+      <div class="menu-nivel" aria-hidden="true">
+        <div class="nivel-cabecera">
+          <label for="menu-nivel-rango">Nivel de la CPU</label>
+          <span class="nivel-numero"><span id="menu-nivel-valor">30</span><small>/100</small></span>
+        </div>
+        <input type="range" id="menu-nivel-rango" min="1" max="100" step="1" value="30">
+        <div id="menu-nivel-nombre" class="nivel-nombre">Aficionado</div>
+      </div>
+      <button id="menu-jugar" class="jugar" type="button"><span>JUGAR</span></button>
     </div>
   </div>
   <!-- La pantalla de carga: en el HTML, para que se vea antes de que llegue el JavaScript. -->

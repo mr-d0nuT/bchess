@@ -147,9 +147,22 @@ export function createMusic({ onNeedGesture = () => {}, onGesture = () => {} } =
       phase = 'game';
       if (!intro.audio.paused) fade(intro, 0, INTRO_FADE);
       setTimeout(() => {
+        if (phase !== 'game') return; // se volvió al menú antes de acabar de fundirse
         intro.audio.pause();
         if (!muted && !waiting) nextSong();
       }, INTRO_FADE * 1000);
+    },
+    // Vuelta al menú: la canción de la partida se funde y vuelve a sonar la melodía de la carga.
+    async backToIntro() {
+      phase = 'intro';
+      const sonando = song;
+      if (sonando && !sonando.audio.paused) {
+        fade(sonando, 0, SONG_FADE);
+        setTimeout(() => sonando.audio.pause(), SONG_FADE * 1000);
+      }
+      if (muted) return;
+      intro.audio.currentTime = 0;
+      if (!(await play(intro, INTRO_VOLUME, SONG_FADE))) waitForGesture();
     },
     get muted() {
       return muted;

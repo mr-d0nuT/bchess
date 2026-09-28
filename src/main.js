@@ -1,4 +1,4 @@
-import { DefaultLoadingManager } from 'three';
+import { DefaultLoadingManager, Vector3 } from 'three';
 import { pickQuality, qualityFromQuery } from './quality.js';
 import { createMusic } from './audio/music.js';
 import { createLoading } from './ui/loading.js';
@@ -20,12 +20,10 @@ import { createKnightMover } from './moves/knight-mover.js';
 import { createCrowd } from './moves/crowd.js';
 import { restFacingFor } from './moves/walk.js';
 import { onBoardTap } from './input.js';
-import { pawnCaptures, pawnMoves } from './rules/pawn.js';
-import { rookMoves } from './rules/rook.js';
-import { bishopMoves } from './rules/bishop.js';
-import { kingMoves } from './rules/king.js';
-import { queenMoves } from './rules/queen.js';
-import { knightMoves } from './rules/knight.js';
+import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
+import { createCpu } from './chess/cpu.js';
+import { createMenu, levelName } from './ui/menu.js';
+import { createMatchUi } from './ui/match-ui.js';
 import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
 import { createClock } from './combat/clock.js';
 import { measureStrikes } from './combat/strikes.js';
@@ -40,30 +38,36 @@ import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
 import { canGagBattle, runGagBattle } from './combat/battles.js';
 
-// Arranque: peones blancos en la fila 2 y negros en la 7, torres en las esquinas y caballeros en las
-// columnas b y g (las piezas que traiga el manifiesto). Tocas una pieza y se marcan sus casillas
-// posibles (puntos dorados) y
-// los enemigos que puede comerse (aros rojos). Al tocar una casilla va hasta ella; al tocar un
-// enemigo marcado, se lo come. Los botones actúan sobre el peón elegido.
+// Arranque: la pantalla de carga, el menú (uno contra uno o contra la CPU, y su nivel) y la partida,
+// con las reglas del ajedrez enteras (`chess/position.js`): empiezan las blancas, se mueve por turnos
+// y solo valen las jugadas legales. Tocas una pieza tuya y se marcan en neón azul las casillas a las
+// que puede ir y los enemigos que puede comerse; al tocar una de ellas, juega. Contra la CPU, ella
+// piensa en su propio hilo (`chess/cpu.js`); uno contra uno, el tablero se da la vuelta en cada turno
+// para que cada jugador lo vea desde su lado.
 
 const SIDES = [
   { color: 'white', pawn: 'white-pawn', rook: 'white-rook', knight: 'white-knight', bishop: 'white-bishop', queen: 'white-queen', king: 'white-king', pawnRank: 2, backRank: 1 },
   { color: 'black', pawn: 'black-pawn', rook: 'black-rook', knight: 'black-knight', bishop: 'black-bishop', queen: 'black-queen', king: 'black-king', pawnRank: 7, backRank: 8 },
 ];
 const FILES = 'abcdefgh';
-const ROOK_FILES = 'ah';
-const KNIGHT_FILES = 'bg';
-const BISHOP_FILES = 'cf';
-const QUEEN_FILES = 'd';
 const QUEEN_SWAY = 1; // la reina se mueve contoneándose (`sway.js`)
 const QUEEN_GAIT = 1; // y andando de verdad, hueso a hueso, porque su modelo no trae animaciones
 const QUEEN_CAPE = 1; // y con la capa colgando de su propia cadena de huesos (`cape.js`)
-const KING_FILES = 'e';
 const KING_SWAY = 0.35; // el rey no contonea: solo se acompaña
 const KING_ARMS = 66; // sus imágenes se hicieron con los brazos en cruz, como pide el aparejo
 const QUEEN_STILL = 0.35; // segundos del clip de andar en los que se queda quieta (su pose de reposo)
 const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar qué hay bajo el ratón
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
+const CPU_MIN_MS = 700; // la CPU nunca contesta antes: una jugada al instante parece un error
+const BACK_RANK = ['rook', 'knight', 'bishop', 'queen', 'king', 'bishop', 'knight', 'rook'];
+const KINDS = ['pawn', 'rook', 'knight', 'bishop', 'queen', 'king'];
+const NOMBRES = { pawn: 'los peones', rook: 'las torres', knight: 'los caballeros', bishop: 'los alfiles', queen: 'las reinas', king: 'los reyes' };
+
+// Dónde empieza cada pieza de un bando.
+function startSquares(kind, side) {
+  if (kind === 'pawn') return [...FILES].map((file) => file + side.pawnRank);
+  return BACK_RANK.flatMap((k, i) => (k === kind ? [FILES[i] + side.backRank] : []));
+}
 const hud = createHud();
 
 function webglAvailable() {
@@ -172,7 +176,13 @@ async function start() {
   const pieces = []; // { kind: 'pawn' | 'rook' | 'knight', color, piece, mover }
   const view = createView({ stage, clock, cinema, fade, pieces: () => pieces });
   const crowd = createCrowd({ board, entries: () => pieces });
-  const state = { selected: null, busy: false, fighting: false, lastStyle: null };
+  const state = { selected: null, busy: false, fighting: false, lastStyle: null, phase: 'menu' };
+  // La partida: las reglas (`Position`), las jugadas hechas (la CPU y las repeticiones las necesitan),
+  // cómo se juega y a qué nivel. `id` cambia con cada partida nueva, para tirar lo que llegue tarde.
+  const game = { start: INITIAL_FEN, position: Position.initial(), moves: [], mode: 'cpu', level: 30, human: 'white', id: 0, thinking: false, animating: false };
+  const cpu = createCpu();
+  const menu = createMenu();
+  const ui = createMatchUi();
   // De tanto en tanto, una sola pieza del tablero hace un gesto especial (un peón, o el caballo de un
   // caballero encabritándose); nunca dos a la vez.
   const gesture = { performer: null, last: null, lastVariant: -1, at: performance.now() + nextGestureDelay() };
@@ -271,24 +281,27 @@ async function start() {
     }
   }
 
-  const occupied = () => new Set(pieces.map((entry) => entry.mover.square));
-  const enemiesOf = (entry) => new Set(pieces.filter((other) => other.color !== entry.color).map((other) => other.mover.square));
   const pieceAt = (square) => pieces.find((entry) => entry.mover.square === square) ?? null;
-  // La torre y el caballero se mueven y comen igual; el peón come de otra forma que avanza.
-  const reach = (entry) => {
-    if (entry.kind === 'rook') return rookMoves(entry.mover.square, occupied(), enemiesOf(entry));
-    if (entry.kind === 'bishop') return bishopMoves(entry.mover.square, occupied(), enemiesOf(entry));
-    if (entry.kind === 'queen') return queenMoves(entry.mover.square, occupied(), enemiesOf(entry));
-    if (entry.kind === 'king') return kingMoves(entry.mover.square, occupied(), enemiesOf(entry));
-    return knightMoves(entry.mover.square, occupied(), enemiesOf(entry));
-  };
-  const movesOf = (entry) => (entry.kind === 'pawn' ? pawnMoves(entry.mover.square, occupied(), entry.color) : reach(entry).moves);
-  const capturesOf = (entry) => (entry.kind === 'pawn' ? pawnCaptures(entry.mover.square, enemiesOf(entry), entry.color) : reach(entry).captures);
+  // Las jugadas que valen desde la casilla de una pieza, con las reglas de la partida en curso.
+  const legalFrom = (entry) => game.position.legalMoves().filter((m) => squareName(moveFrom(m)) === entry.mover.square);
+  // Lo que se marca al elegirla: las casillas libres a las que puede ir y las casillas donde come (en
+  // la captura al paso, la de destino, que es la que se toca).
+  function targetsOf(entry) {
+    const moves = [];
+    const captures = [];
+    for (const m of legalFrom(entry)) {
+      const plan = describeMove(game.position, m);
+      const lista = plan.captured ? captures : moves;
+      if (!lista.includes(plan.to)) lista.push(plan.to);
+    }
+    return { moves, captures };
+  }
   function select(entry) {
     state.selected = entry;
+    const { moves, captures } = entry ? targetsOf(entry) : { moves: [], captures: [] };
     highlights.select(entry ? entry.mover.square : null);
-    highlights.showMoves(entry ? movesOf(entry) : []);
-    highlights.showCaptures(entry ? capturesOf(entry) : []);
+    highlights.showMoves(moves);
+    highlights.showCaptures(captures);
     // Con la cámara acercada, elegir otra pieza la lleva a ella.
     if (entry && !state.fighting) view.follow(entry);
   }
@@ -353,32 +366,249 @@ async function start() {
       await fade.restore();
       await Promise.race([crowd.settle(), clock.wait(SETTLE_LIMIT)]);
       state.fighting = false;
-      select(attacker);
     }
   }
 
+  // ¿Puede tocar ahora el jugador? Ni en el menú, ni con algo moviéndose, ni en el turno de la CPU.
+  function canPlay() {
+    if (state.phase !== 'playing' || state.busy || state.fighting || game.animating || game.thinking) return false;
+    return game.mode === 'pvp' || game.position.side === game.human;
+  }
+
   async function handleTap({ owner, square }) {
-    if (state.busy || state.fighting) return;
+    if (!canPlay()) return;
     const tapped = owner ?? (square ? pieceAt(square) : null);
     const selected = state.selected;
-    if (selected && tapped && tapped.color !== selected.color && capturesOf(selected).includes(tapped.mover.square)) {
-      await view.zoomOut(); // el combate lo encuadra la cámara de cine, desde el tablero entero
-      await capture(selected, tapped);
-      return;
+    const destino = tapped ? tapped.mover.square : square;
+    if (selected && destino) {
+      // Vale tocar la casilla de destino o la pieza que se come (en la captura al paso no es la misma).
+      const jugadas = legalFrom(selected).filter((m) => {
+        const plan = describeMove(game.position, m);
+        return plan.to === destino || plan.captured === destino;
+      });
+      if (jugadas.length) {
+        await playHuman(jugadas);
+        return;
+      }
     }
-    if (tapped) {
-      select(tapped);
-      return;
-    }
-    if (selected && square && movesOf(selected).includes(square)) {
-      highlights.clear();
-      await view.zoomOut();
-      await selected.mover.goTo(square);
-      select(selected);
+    if (tapped && tapped.color === game.position.side) {
+      select(tapped === selected ? null : tapped); // tocarla otra vez la suelta
       return;
     }
     select(null);
   }
+
+  // Una jugada del jugador. Si son varias a la misma casilla, es una coronación: se pregunta en qué.
+  async function playHuman(jugadas) {
+    let m = jugadas[0];
+    if (jugadas.length > 1) {
+      const kind = await ui.promotion(game.position.side);
+      m = jugadas.find((j) => describeMove(game.position, j).promotion === kind) ?? m;
+    }
+    await playMove(m);
+  }
+
+  // Una jugada de principio a fin: primero se ve en el tablero —el combate si come, la torre que
+  // acompaña al rey en el enroque, el peón que corona— y luego cuentan las reglas.
+  async function playMove(m) {
+    const plan = describeMove(game.position, m);
+    const actor = pieceAt(plan.from);
+    if (!actor) {
+      console.error('[BChess] No hay pieza en', plan.from);
+      return;
+    }
+    game.animating = true;
+    select(null);
+    highlights.check(null);
+    try {
+      await view.zoomOut(); // el combate lo encuadra la cámara de cine, desde el tablero entero
+      if (plan.captured) {
+        const victima = pieceAt(plan.captured);
+        if (victima) await capture(actor, victima);
+        // En la captura al paso, el que come se queda donde estaba el comido: le falta un paso.
+        if (actor.mover.square !== plan.to) await actor.mover.goTo(plan.to);
+      } else {
+        await actor.mover.goTo(plan.to);
+      }
+      // El enroque: primero el rey y después la torre, que al andar hace que el rey se aparte.
+      if (plan.castle) await pieceAt(plan.castle.rookFrom)?.mover.goTo(plan.castle.rookTo);
+      if (plan.promotion) await promote(actor, plan.promotion);
+    } catch (err) {
+      console.error('[BChess] La jugada no se pudo animar:', err);
+    } finally {
+      game.animating = false;
+    }
+    game.position.make(m);
+    game.moves.push(plan.uci);
+    highlights.lastMove(plan.from, plan.to);
+    squareUp();
+    await afterMove();
+  }
+
+  // El peón que llega al final se convierte: se esfuma entre destellos y en su casilla crece de la
+  // nada la pieza nueva.
+  async function promote(pawn, kind) {
+    const square = pawn.mover.square;
+    const at = board.squareToWorld(square);
+    fx.burst(new Vector3(at.x, 0.9, at.z), { size: 1.6, sparks: 30 });
+    fx.updraft(new Vector3(at.x, 0, at.z), { seconds: 1.2, count: 30, color: '#ffe7a0', radius: 0.45, height: 2.2 });
+    await pawn.mover.vanish();
+    removePiece(pawn);
+    const entry = spawnEntry(kind, pawn.color, square);
+    if (!entry) return;
+    const object = entry.piece.object;
+    object.scale.setScalar(0.01);
+    dust.puff(new Vector3(at.x, 0.05, at.z), { count: 14, radius: 0.6, duration: 0.6 });
+    await clock.tween(0.6, (t) => object.scale.setScalar(Math.max(0.01, 1 - (1 - t) ** 3)));
+    object.scale.setScalar(1);
+  }
+
+  // El tablero ha de decir lo mismo que las reglas. Si una animación se ha torcido, se corrige aquí
+  // (y se avisa): una pieza fuera de su sitio estropea la partida entera.
+  function squareUp() {
+    for (const entry of [...pieces]) {
+      const debe = game.position.pieceAt(entry.mover.square);
+      if (!debe || debe.kind !== entry.kind || debe.color !== entry.color) {
+        console.warn('[BChess] Pieza de más en', entry.mover.square, entry.kind, entry.color);
+        removePiece(entry);
+      }
+    }
+    for (let rank = 1; rank <= 8; rank++) {
+      for (const file of FILES) {
+        const square = file + rank;
+        const debe = game.position.pieceAt(square);
+        if (debe && !pieceAt(square)) {
+          console.warn('[BChess] Falta una pieza en', square, debe.kind, debe.color);
+          spawnEntry(debe.kind, debe.color, square);
+        }
+      }
+    }
+  }
+
+  // Después de cada jugada: jaque, final, de quién es el turno y, si toca, la CPU o la vuelta al
+  // tablero para el otro jugador.
+  async function afterMove() {
+    const status = game.position.status();
+    const side = game.position.side;
+    const enJaque = status === 'check' || status === 'checkmate';
+    highlights.check(enJaque ? squareName(game.position.kings[game.position.turn >> 3]) : null);
+    if (status !== 'playing' && status !== 'check') {
+      await gameOver(status);
+      return;
+    }
+    if (status === 'check') ui.banner('¡JAQUE!');
+    paintTurn();
+    if (game.mode === 'pvp') await view.flipTo(side === 'black');
+    else if (side !== game.human) cpuTurn();
+  }
+
+  async function cpuTurn() {
+    const id = game.id;
+    game.thinking = true;
+    paintTurn();
+    const inicio = performance.now();
+    let uci = null;
+    try {
+      uci = await cpu.think({ fen: game.start, moves: game.moves.slice() }, game.level);
+    } catch (err) {
+      console.error('[BChess] La CPU no ha podido pensar:', err);
+    }
+    const falta = CPU_MIN_MS - (performance.now() - inicio);
+    if (falta > 0) await new Promise((resolve) => setTimeout(resolve, falta));
+    game.thinking = false;
+    if (id !== game.id || state.phase !== 'playing') return; // otra partida, o de vuelta en el menú
+    const m = (uci && game.position.findUci(uci)) ?? game.position.legalMoves()[0];
+    if (m === undefined || m === null) return;
+    paintTurn();
+    await playMove(m);
+  }
+
+  async function gameOver(status) {
+    state.phase = 'over';
+    select(null);
+    paintTurn();
+    const winner = status === 'checkmate' ? (game.position.side === 'white' ? 'black' : 'white') : null;
+    ui.banner(status === 'checkmate' ? '¡JAQUE MATE!' : 'TABLAS', { tipo: status === 'checkmate' ? 'jaque' : 'tablas', ms: 1700 });
+    await new Promise((resolve) => setTimeout(resolve, 1700));
+    const que = await ui.gameOver({ status, winner, mode: game.mode, human: game.human });
+    if (que === 'rematch') await newGame({ mode: game.mode, level: game.level });
+    else await toMenu();
+  }
+
+  function paintTurn() {
+    ui.turn({ side: game.position.side, mode: game.mode, human: game.human, thinking: game.thinking, hidden: state.phase !== 'playing' });
+  }
+
+  function paintSettings() {
+    const texto = document.getElementById('ajustes-partida');
+    if (texto) texto.textContent = game.mode === 'cpu' ? `1 contra CPU · nivel ${game.level} (${levelName(game.level)})` : '1 contra 1';
+  }
+
+  // Tablero nuevo: fuera todas las piezas y cada una otra vez en su casilla de salida.
+  function resetPieces() {
+    for (const entry of [...pieces]) removePiece(entry);
+    debris.clear();
+    for (const side of SIDES) {
+      for (const kind of KINDS) {
+        for (const square of startSquares(kind, side)) spawnEntry(kind, side.color, square);
+      }
+    }
+  }
+
+  async function newGame({ mode, level }) {
+    game.id += 1;
+    cpu.cancel();
+    ui.closeAll();
+    select(null);
+    highlights.check(null);
+    highlights.lastMove(null, null);
+    if (game.moves.length || pieces.length !== 32) resetPieces(); // al empezar, el tablero ya está puesto
+    game.start = INITIAL_FEN;
+    game.position = Position.initial();
+    game.moves = [];
+    game.mode = mode;
+    game.level = level;
+    game.thinking = false;
+    await view.zoomOut();
+    await view.flipTo(false); // las blancas empiezan, y se juega desde su lado
+    state.phase = 'playing';
+    paintTurn();
+    paintSettings();
+  }
+
+  // Al menú: vuelve la melodía de la carga y, al pulsar JUGAR, se funde y empieza la partida elegida.
+  async function toMenu() {
+    state.phase = 'menu';
+    game.id += 1;
+    cpu.cancel();
+    ui.closeAll();
+    select(null);
+    music.backToIntro();
+    const eleccion = await menu.show();
+    music.endIntro();
+    await newGame(eleccion);
+    await menu.hide();
+  }
+
+  // Para depurar desde la consola: la partida desde una posición cualquiera, en FEN. Las piezas que
+  // sobran se quitan y las que faltan aparecen en su casilla.
+  function setup(fen) {
+    game.start = fen;
+    game.position = Position.fromFEN(fen);
+    game.moves = [];
+    select(null);
+    highlights.lastMove(null, null);
+    squareUp();
+    const status = game.position.status();
+    highlights.check(status === 'check' ? squareName(game.position.kings[game.position.turn >> 3]) : null);
+    paintTurn();
+  }
+
+  document.getElementById('ajustes-menu')?.addEventListener('click', () => {
+    document.getElementById('ajustes-panel').hidden = true;
+    if (state.phase === 'menu' || game.animating || state.fighting) return;
+    toMenu();
+  });
 
   // Lo que se ilumina bajo el ratón es lo que elegirá el clic: si señala una pieza, su casilla.
   function handleHover({ owner, square }) {
@@ -408,144 +638,71 @@ async function start() {
     pieces.push(entry);
   }
 
-  async function loadPawns(manifest) {
-    try {
-      const sides = SIDES.filter((side) => manifest.pieces?.[side.pawn]);
-      const kits = await Promise.all(sides.map((side) => loadPieceKit(manifest.pieces[side.pawn], quality)));
-      for (const kit of kits) kit.strikes = measureStrikes(kit, spawnPiece);
-      sides.forEach((side, i) => {
-        for (const file of FILES) {
-          const piece = spawnPiece(kits[i]);
-          const entry = { kind: 'pawn', color: side.color, piece };
-          entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing: restFacingFor(side.color) });
-          addPiece(entry, file + side.pawnRank);
-        }
+  // Los modelos de cada pieza de cada bando, cargados una sola vez: de aquí salen las piezas del
+  // principio, las de cada partida nueva y aquella en que se corona un peón.
+  const kits = {}; // kind → { white, black }
+
+  // Una pieza nueva, de `kind` y `color`, puesta en `square`.
+  function spawnEntry(kind, color, square) {
+    const kit = kits[kind]?.[color];
+    if (!kit) return null;
+    const restFacing = restFacingFor(color);
+    let entry;
+    if (kind === 'rook') {
+      const piece = spawnRook(kit);
+      entry = { kind, color, piece };
+      entry.mover = createRookMover({ rook: piece, owner: entry, board, dust, rubble, clock, cinema, crowd, onBusy, restFacing });
+    } else if (kind === 'knight') {
+      const piece = spawnKnight(kit);
+      entry = { kind, color, piece };
+      entry.mover = createKnightMover({
+        knight: piece, owner: entry, pieces: () => pieces, board, dust, fx, clock, cinema, crowd, onBusy, restFacing,
       });
-    } catch (err) {
-      console.error('[BChess] No se pudieron cargar los peones:', err);
-      hud.showMessage('No se pudieron cargar los peones', { retry: () => loadPawns(manifest) });
+    } else {
+      const piece = spawnPiece(kit);
+      if (kind === 'queen') {
+        // Anda hueso a hueso (su modelo no trae animaciones) y contoneándose, con la capa colgando
+        // de su propia cadena de huesos; en reposo se queda quieta en un fotograma de su andar.
+        piece.sway = QUEEN_SWAY;
+        piece.gait = QUEEN_GAIT;
+        piece.cape = QUEEN_CAPE;
+        piece.frozenIdle = QUEEN_STILL;
+      }
+      if (kind === 'king') {
+        // Viene con los brazos en cruz (es lo que pide el aparejo automático): se le bajan. Y el
+        // báculo, erguido: sin decírselo se queda en la postura de embestida, cruzado por delante.
+        piece.armDrop = KING_ARMS;
+        piece.setSpearDefault('upright');
+        piece.sway = KING_SWAY;
+        piece.gait = QUEEN_GAIT;
+        piece.cape = QUEEN_CAPE;
+        piece.frozenIdle = QUEEN_STILL;
+      }
+      entry = { kind, color, piece };
+      entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing });
     }
+    addPiece(entry, square);
+    // La mano del rey se cierra sobre el báculo lo último: el puño se busca con los brazos ya
+    // bajados y la pieza en su casilla, no sobre el modelo recién cargado.
+    if (kind === 'king') entry.piece.closeHandOnSpear();
+    return entry;
   }
 
-  // Las torres van aparte: si fallan, los peones siguen funcionando.
-  async function loadRooks(manifest) {
+  // Carga los modelos de un tipo de pieza (los dos bandos) y pone cada pieza en su casilla. Cada tipo
+  // va aparte: si uno falla, el resto del tablero sigue.
+  async function loadKind(manifest, kind, load, { strikes = true } = {}) {
     try {
-      const sides = SIDES.filter((side) => manifest.pieces?.[side.rook]);
-      const kits = await Promise.all(sides.map((side) => loadRookKit(manifest.pieces[side.rook], quality)));
+      const sides = SIDES.filter((side) => manifest.pieces?.[side[kind]]);
+      const loaded = await Promise.all(sides.map((side) => load(manifest.pieces[side[kind]], quality)));
+      if (strikes) for (const kit of loaded) kit.strikes = measureStrikes(kit, spawnPiece);
+      kits[kind] = {};
       sides.forEach((side, i) => {
-        for (const file of ROOK_FILES) {
-          const piece = spawnRook(kits[i]);
-          const entry = { kind: 'rook', color: side.color, piece };
-          entry.mover = createRookMover({ rook: piece, owner: entry, board, dust, rubble, clock, cinema, crowd, onBusy, restFacing: restFacingFor(side.color) });
-          addPiece(entry, file + side.backRank);
-        }
+        kits[kind][side.color] = loaded[i];
+        for (const square of startSquares(kind, side)) spawnEntry(kind, side.color, square);
       });
     } catch (err) {
-      console.error('[BChess] No se pudieron cargar las torres:', err);
-      hud.showMessage('No se pudieron cargar las torres', { retry: () => loadRooks(manifest) });
-    }
-  }
-
-  // Los alfiles van aparte, como los demás: si fallan, el resto del tablero sigue.
-  async function loadBishops(manifest) {
-    try {
-      const sides = SIDES.filter((side) => manifest.pieces?.[side.bishop]);
-      const kits = await Promise.all(sides.map((side) => loadPieceKit(manifest.pieces[side.bishop], quality)));
-      for (const kit of kits) kit.strikes = measureStrikes(kit, spawnPiece);
-      sides.forEach((side, i) => {
-        for (const file of BISHOP_FILES) {
-          const piece = spawnPiece(kits[i]);
-          const entry = { kind: 'bishop', color: side.color, piece };
-          entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing: restFacingFor(side.color) });
-          addPiece(entry, file + side.backRank);
-        }
-      });
-    } catch (err) {
-      console.error('[BChess] No se pudieron cargar los alfiles:', err);
-      hud.showMessage('No se pudieron cargar los alfiles', { retry: () => loadBishops(manifest) });
-    }
-  }
-
-  // Las reinas, como los alfiles, pero contoneándose al andar.
-  async function loadQueens(manifest) {
-    try {
-      const sides = SIDES.filter((side) => manifest.pieces?.[side.queen]);
-      const kits = await Promise.all(sides.map((side) => loadPieceKit(manifest.pieces[side.queen], quality)));
-      for (const kit of kits) kit.strikes = measureStrikes(kit, spawnPiece);
-      sides.forEach((side, i) => {
-        for (const file of QUEEN_FILES) {
-          const piece = spawnPiece(kits[i]);
-          // Se desliza por el tablero en vez de dar pasos: con vestido largo, cualquier animación de
-          // piernas destroza la tela (el aparejado automático se la cose a las piernas). Así que en
-          // reposo se queda quieta en un fotograma de su andar y el movimiento se lo pone el contoneo.
-          piece.sway = QUEEN_SWAY;
-          piece.gait = QUEEN_GAIT;
-          piece.cape = QUEEN_CAPE;
-          piece.frozenIdle = QUEEN_STILL;
-          const entry = { kind: 'queen', color: side.color, piece };
-          entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing: restFacingFor(side.color) });
-          addPiece(entry, file + side.backRank);
-        }
-      });
-    } catch (err) {
-      console.error('[BChess] No se pudieron cargar las reinas:', err);
-      hud.showMessage('No se pudieron cargar las reinas', { retry: () => loadQueens(manifest) });
-    }
-  }
-
-  // Los reyes, como las reinas: andan hueso a hueso y llevan capa. Vienen con los brazos en cruz
-  // —los modelos se generan así porque es lo que pide el aparejo automático, que con los brazos
-  // pegados al costado cose el uno al otro—, así que lo primero es bajárselos.
-  async function loadKings(manifest) {
-    try {
-      const sides = SIDES.filter((side) => manifest.pieces?.[side.king]);
-      const kits = await Promise.all(sides.map((side) => loadPieceKit(manifest.pieces[side.king], quality)));
-      for (const kit of kits) kit.strikes = measureStrikes(kit, spawnPiece);
-      sides.forEach((side, i) => {
-        for (const file of KING_FILES) {
-          const piece = spawnPiece(kits[i]);
-          piece.armDrop = KING_ARMS;
-          // El báculo, erguido. La postura de la lanza la dicen normalmente los clips ("spear":
-          // "upright" en el manifiesto), y el rey no trae ninguno: sin decírselo se queda en la
-          // postura de embestida, cruzado por delante del cuerpo.
-          piece.setSpearDefault('upright');
-          piece.sway = KING_SWAY;
-          piece.gait = QUEEN_GAIT;
-          piece.cape = QUEEN_CAPE;
-          piece.frozenIdle = QUEEN_STILL;
-          const entry = { kind: 'king', color: side.color, piece };
-          entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing: restFacingFor(side.color) });
-          addPiece(entry, file + side.backRank);
-          // Y la mano se cierra sobre él. Va lo último: el puño se busca sobre la mano tal y como va
-          // a quedarse —con los brazos ya bajados y la pieza en su casilla—, no sobre la del modelo
-          // recién cargado, que viene con los brazos en cruz y el báculo cruzado por delante.
-          piece.closeHandOnSpear();
-        }
-      });
-    } catch (err) {
-      console.error('[BChess] No se pudieron cargar los reyes:', err);
-      hud.showMessage('No se pudieron cargar los reyes', { retry: () => loadKings(manifest) });
-    }
-  }
-
-  // Los caballeros también van aparte.
-  async function loadKnights(manifest) {
-    try {
-      const sides = SIDES.filter((side) => manifest.pieces?.[side.knight]);
-      const kits = await Promise.all(sides.map((side) => loadKnightKit(manifest.pieces[side.knight], quality)));
-      sides.forEach((side, i) => {
-        for (const file of KNIGHT_FILES) {
-          const piece = spawnKnight(kits[i]);
-          const entry = { kind: 'knight', color: side.color, piece };
-          entry.mover = createKnightMover({
-            knight: piece, owner: entry, pieces: () => pieces, board, dust, fx, clock, cinema, crowd, onBusy, restFacing: restFacingFor(side.color),
-          });
-          addPiece(entry, file + side.backRank);
-        }
-      });
-    } catch (err) {
-      console.error('[BChess] No se pudieron cargar los caballeros:', err);
-      hud.showMessage('No se pudieron cargar los caballeros', { retry: () => loadKnights(manifest) });
+      console.error(`[BChess] No se pudieron cargar ${NOMBRES[kind]}:`, err);
+      hud.showMessage(`No se pudieron cargar ${NOMBRES[kind]}`, { retry: () => loadKind(manifest, kind, load, { strikes }) });
     }
   }
 
@@ -565,12 +722,12 @@ async function start() {
     // La barra de la pantalla de carga: cada tipo de pieza pesa lo que suele tardar, y dentro de cada
     // uno avanza con los ficheros que van llegando (hasta el 90 % de su parte: el resto es prepararlos).
     const tipos = [
-      ['Formando a los peones', loadPawns, 0.12],
-      ['Ensillando a los caballos', loadKnights, 0.3],
-      ['Bendiciendo a los alfiles', loadBishops, 0.14],
-      ['Peinando a las reinas', loadQueens, 0.1],
-      ['Puliendo las coronas', loadKings, 0.12],
-      ['Despertando a los gigantes', loadRooks, 0.17],
+      ['Formando a los peones', (m) => loadKind(m, 'pawn', loadPieceKit), 0.12],
+      ['Ensillando a los caballos', (m) => loadKind(m, 'knight', loadKnightKit, { strikes: false }), 0.3],
+      ['Bendiciendo a los alfiles', (m) => loadKind(m, 'bishop', loadPieceKit), 0.14],
+      ['Peinando a las reinas', (m) => loadKind(m, 'queen', loadPieceKit), 0.1],
+      ['Puliendo las coronas', (m) => loadKind(m, 'king', loadPieceKit), 0.12],
+      ['Despertando a los gigantes', (m) => loadKind(m, 'rook', loadRookKit, { strikes: false }), 0.17],
     ];
     let hecho = 0.05;
     let cuenta = { loaded: 0, total: 0 };
@@ -595,12 +752,10 @@ async function start() {
   loading.progress(0.02, 'Encendiendo las antorchas');
   await addLighting(stage, quality);
   await loadPieces();
-  // Todo cargado: la intro se funde, la pantalla también, y empieza la música del juego.
-  music.endIntro();
-  await loading.finish();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
     stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music, view,
+    game, menu, ui, cpu, newGame, playMove, toMenu, setup,
     get pawns() {
       return pieces.filter((entry) => entry.kind === 'pawn');
     },
@@ -614,6 +769,14 @@ async function start() {
       return pieces.filter((entry) => entry.kind === 'knight');
     },
   };
+  // Todo cargado: la pantalla de carga se funde y debajo espera el menú, con la melodía de la carga
+  // sonando todavía. Al pulsar JUGAR se funde la música y empieza la partida.
+  const eleccion = menu.show();
+  await loading.finish();
+  const elegido = await eleccion;
+  music.endIntro();
+  await newGame(elegido);
+  await menu.hide();
 }
 
 start();

@@ -167,19 +167,6 @@ html, body {
 }
 #ajustes-panel h2 { margin: 0 0 14px; font-size: 18px; }
 #ajustes-panel h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.06em; }
-#ajustes-panel .opciones { display: flex; gap: 6px; justify-content: center; }
-#ajustes-panel .opciones button {
-  flex: 1;
-  padding: 8px 0;
-  border: 1px solid var(--borde-boton);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--tinta);
-  font: 500 14px/1 system-ui, sans-serif;
-}
-#ajustes-panel .opciones button[aria-checked="true"] { border-color: #37b6ff; color: #7fd4ff; }
-#ajustes-panel .opciones button:disabled { opacity: 0.45; }
-#ajustes-panel .pronto { margin: 8px 0 0; font-size: 12px; opacity: 0.6; }
 #ajustes-cerrar {
   margin-top: 18px;
   padding: 9px 22px;
