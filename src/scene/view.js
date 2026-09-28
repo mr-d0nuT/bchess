@@ -24,7 +24,7 @@ const FLIP_SECONDS = 0.9;
 const ZOOM_SECONDS = 0.7;
 const ZOOM_MIN_DISTANCE = 1.2; // acercado, se deja pellizcar más cerca que en el tablero entero
 const ZOOM_ANGLE = (35 * Math.PI) / 180; // de tres cuartos: lo que se aparta de mirarla de frente
-const IN_THE_WAY = 0.8; // a menos de esto de la línea de la cámara a la pieza, una pieza estorba
+const IN_THE_WAY_OPACITY = 0.22; // lo que queda de la pieza que se interpone
 const smooth = (t) => t * t * (3 - 2 * t);
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -92,22 +92,8 @@ export function createView({ stage, clock, cinema, fade, pieces = () => [], onCh
 
   const free = () => !moving && !cinema.active;
 
-  // Las piezas que quedan entre la cámara y la pieza a la que se acerca, vistas desde arriba.
-  const sitio = new THREE.Vector3();
-  function inTheWay(entry, from, to) {
-    const dx = to.x - from.x;
-    const dz = to.z - from.z;
-    const largo = dx * dx + dz * dz || 1;
-    return pieces()
-      .filter((other) => other !== entry)
-      .filter((other) => {
-        other.piece.figure.getWorldPosition(sitio);
-        const t = ((sitio.x - from.x) * dx + (sitio.z - from.z) * dz) / largo;
-        if (t < 0 || t > 0.97) return false;
-        return Math.hypot(from.x + dx * t - sitio.x, from.z + dz * t - sitio.z) < IN_THE_WAY;
-      })
-      .map((other) => other.piece.object);
-  }
+  // Cómo ve el atenuado a una pieza: dónde está y cuánto ocupa.
+  const describe = (entry) => ({ object: entry.piece.object, anchor: entry.piece.figure, height: entry.piece.height, radius: entry.piece.radius });
 
   // Media vuelta. Acercado, alrededor de la pieza; si no, alrededor del centro del tablero.
   function flip() {
@@ -150,11 +136,11 @@ export function createView({ stage, clock, cinema, fade, pieces = () => [], onCh
       frente.applyAxisAngle(UP, -lado * ZOOM_ANGLE);
       const { target, position } = closeUpView({ at, height: entry.piece.height, from: at.clone().add(frente), fov: camera.fov });
       controls.minDistance = ZOOM_MIN_DISTANCE;
-      if (fade?.count) await fade.restore({ seconds: 0.2 }); // las que estorbaban a la anterior
-      await Promise.all([
-        orbitTo(new THREE.Vector3().copy(position), new THREE.Vector3().copy(target), ZOOM_SECONDS * 1.4),
-        fade?.dim(inTheWay(entry, position, target), { opacity: 0.22 }),
-      ]);
+      // Las demás, enteras; la que se interponga entre la cámara y la pieza, translúcida mientras lo
+      // haga (el atenuado lo mira en cada fotograma, así que vale también al girar alrededor).
+      fade?.dim(pieces().filter((other) => other !== entry).map(describe), { opacity: 1 });
+      fade?.watch(() => [describe(entry)], { off: IN_THE_WAY_OPACITY });
+      await orbitTo(new THREE.Vector3().copy(position), new THREE.Vector3().copy(target), ZOOM_SECONDS * 1.4);
     });
   }
 
@@ -163,6 +149,7 @@ export function createView({ stage, clock, cinema, fade, pieces = () => [], onCh
     return run(async () => {
       const { back } = zoom;
       zoom = null;
+      fade?.watch(null);
       await Promise.all([glide(back.position, back.target, ZOOM_SECONDS), fade?.restore()]);
       controls.minDistance = minDistance;
     });

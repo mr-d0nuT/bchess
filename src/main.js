@@ -164,12 +164,22 @@ async function start() {
   const cinema = createCinema(stage);
   const rubble = createRubble(stage.scene);
   const debris = createDebris(stage.scene);
-  // El punto medio entre dos luchadores, que es a donde mira la cámara de cine y donde enfoca.
-  const midpoint = (a, b) => {
-    const uno = a.piece.figure.position;
-    const otro = b.piece.figure.position;
-    return { x: (uno.x + otro.x) / 2, y: Math.max(a.piece.height, b.piece.height) * 0.45, z: (uno.z + otro.z) / 2 };
+  // El punto donde enfoca la cámara: el medio de los que siguen en pie (al final, el que ha ganado,
+  // que es a quien se le hace el primer plano de la celebración).
+  const centerOf = (entries) => {
+    let x = 0;
+    let z = 0;
+    let alto = 0;
+    for (const entry of entries) {
+      x += entry.piece.figure.position.x;
+      z += entry.piece.figure.position.z;
+      alto = Math.max(alto, entry.piece.height);
+    }
+    const n = entries.length || 1;
+    return { x: x / n, y: alto * 0.45, z: z / n };
   };
+  // Cómo ve el atenuado a una pieza: dónde está y cuánto ocupa.
+  const describe = (entry) => ({ object: entry.piece.object, anchor: entry.piece.figure, height: entry.piece.height, radius: entry.piece.radius });
   const fade = createFade(clock);
   const focus = createFocus(stage.renderer, stage.scene, stage.camera, quality);
   const bubbles = createBubbles({ camera: stage.camera, canvas: stage.renderer.domElement, clock });
@@ -244,6 +254,7 @@ async function start() {
     debris.update(step);
     fx.update(step);
     highlights.pulse(now / 1000, dt);
+    fade.update(dt, stage.camera);
     cinema.settle();
     if (!cinema.active) stage.controls.update();
     cinema.update(dt);
@@ -334,11 +345,14 @@ async function start() {
     const target = defender.mover.square;
     try {
       const obstacles = pieces.filter((entry) => entry !== attacker && entry !== defender).map((entry) => board.squareToWorld(entry.mover.square));
-      // Las que no pelean, translúcidas: si alguna queda delante de la cámara, no tapa el combate.
-      fade.dim(pieces.filter((entry) => entry !== attacker && entry !== defender).map((entry) => entry.piece.object));
+      // Las que no pelean, translúcidas: si alguna queda delante de la cámara, no tapa el combate. Y
+      // la que tape a los que pelean (o al que celebra), ni eso: se apaga del todo mientras tape.
+      fade.dim(pieces.filter((entry) => entry !== attacker && entry !== defender).map(describe));
+      const enPie = () => [attacker, defender].filter((entry) => pieces.includes(entry) && entry.piece.object.visible);
+      fade.watch(() => enPie().map(describe));
       // Y la cámara enfoca a los que pelean: el resto del tablero se queda borroso. El punto se pide
       // en cada fotograma, no se fija aquí, porque los dos se mueven durante todo el combate.
-      focus.on(() => midpoint(attacker, defender));
+      focus.on(() => centerOf(enPie().length ? enPie() : [attacker]));
       const style = pickStyle(state.lastStyle);
       if (attacker.kind === 'pawn' && defender.kind === 'pawn' && canFight(attacker, defender, style)) {
         state.lastStyle = style;
@@ -363,6 +377,7 @@ async function start() {
     } finally {
       if (pieces.includes(defender)) removePiece(defender);
       focus.off();
+      fade.watch(null);
       await fade.restore();
       await Promise.race([crowd.settle(), clock.wait(SETTLE_LIMIT)]);
       state.fighting = false;

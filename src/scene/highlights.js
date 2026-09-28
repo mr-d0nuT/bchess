@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
-// Marcas sobre el tablero, todas del mismo neón azul: un aro que late y gira bajo la pieza elegida,
-// con su casilla enmarcada; un punto de luz en cada casilla a la que puede ir, y una diana bajo cada
-// enemigo que puede comerse. Lo único que no es azul es el aro ROJO bajo el rey en jaque, que tiene
-// que saltar a la vista. Y la última jugada deja sus dos casillas teñidas, para saber qué ha movido
-// el otro. Sin sombras ni luz propia, para que se lean bien sobre la madera.
+// Marcas sobre el tablero, todas del mismo neón verde: un aro que late y gira bajo la pieza elegida,
+// un punto de luz en cada casilla a la que puede ir y una diana bajo cada enemigo que puede comerse.
+// Lo único que no es verde es el aro ROJO bajo el rey en jaque, que tiene que saltar a la vista. Y
+// la última jugada deja sus dos casillas apenas teñidas, para saber qué ha movido el otro. Sin
+// sombras ni luz propia, para que se lean bien sobre la madera.
 
 const LIFT = 0.006; // justo por encima de las casillas para no parpadear con ellas
 const TINT_LIFT = 0.004; // la última jugada, por debajo de todo lo demás
@@ -13,7 +13,7 @@ const HOVER_GLIDE = 0.07; // segundos que tarda en deslizarse de una casilla a l
 const HOVER_BEAT = 2.4; // radianes por segundo del latido: una respiración, no un parpadeo
 const HOVER_LOW = 0.3;
 const HOVER_HIGH = 0.95;
-// El aro de la pieza elegida: un tubo de neón azul que late —se enciende y se apaga un poco, y
+// El aro de la pieza elegida: un tubo de neón verde que late —se enciende y se apaga un poco, y
 // respira de tamaño— y gira despacio, para que el degradado de color corra por él.
 const NEON_SIZE = 1.3; // lado del cuadrado donde va pintado, en casillas
 const NEON_BEAT = 4.2; // radianes por segundo del latido
@@ -64,15 +64,15 @@ function hoverTexture() {
   return texture;
 }
 
-// El aro de neón, pintado en un lienzo: el halo, ancho y de un azul eléctrico profundo; encima el
-// tubo, con el degradado de color que le da la vuelta (de cian a azul y a violeta), y dentro del
+// El aro de neón, pintado en un lienzo: el halo, ancho y del color de la paleta; encima el tubo,
+// con el degradado de color que le da la vuelta (en el verde, de lima a verde y a turquesa), y dentro del
 // tubo un filamento más claro, que es lo que hace que un neón parezca encendido y no pintado. Se
 // pinta encima de la madera, no sumado a ella: sumado, sobre el roble claro salía casi blanco.
-const AZUL = {
-  halo: ['rgba(0, 60, 255, 0)', 'rgba(0, 95, 255, 0.45)', 'rgba(0, 130, 255, 0.7)', 'rgba(0, 90, 255, 0.4)', 'rgba(0, 40, 255, 0)'],
-  tubo: ['rgb(0, 210, 255)', 'rgb(0, 110, 255)', 'rgb(80, 70, 255)', 'rgb(0, 140, 255)'],
-  sombra: 'rgb(0, 120, 255)',
-  filamento: ['rgb(90, 200, 255)', 'rgba(150, 230, 255, 0.9)'],
+const VERDE = {
+  halo: ['rgba(0, 255, 60, 0)', 'rgba(0, 230, 80, 0.45)', 'rgba(20, 255, 110, 0.7)', 'rgba(0, 220, 70, 0.4)', 'rgba(0, 255, 40, 0)'],
+  tubo: ['rgb(150, 255, 60)', 'rgb(0, 255, 110)', 'rgb(0, 230, 190)', 'rgb(40, 255, 70)'],
+  sombra: 'rgb(0, 255, 100)',
+  filamento: ['rgb(140, 255, 160)', 'rgba(210, 255, 215, 0.95)'],
 };
 const ROJO = {
   halo: ['rgba(255, 20, 0, 0)', 'rgba(255, 40, 20, 0.5)', 'rgba(255, 60, 30, 0.75)', 'rgba(255, 30, 10, 0.45)', 'rgba(255, 0, 0, 0)'],
@@ -81,7 +81,7 @@ const ROJO = {
   filamento: ['rgb(255, 170, 120)', 'rgba(255, 220, 190, 0.9)'],
 };
 
-function neonTexture(paleta = AZUL, { radio: r = 0.45, grosor = 1 } = {}) {
+function neonTexture(paleta = VERDE, { radio: r = 0.45, grosor = 1 } = {}) {
   const size = 512;
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -122,7 +122,7 @@ function neonTexture(paleta = AZUL, { radio: r = 0.45, grosor = 1 } = {}) {
   return texture;
 }
 
-// El punto de luz de una casilla libre: un núcleo claro con su halo azul.
+// El punto de luz de una casilla libre: un núcleo claro con su halo verde.
 function dotTexture() {
   const size = 128;
   const canvas = document.createElement('canvas');
@@ -130,11 +130,11 @@ function dotTexture() {
   const ctx = canvas.getContext('2d');
   const c = size / 2;
   const g = ctx.createRadialGradient(c, c, 0, c, c, c);
-  g.addColorStop(0, 'rgba(200, 245, 255, 1)');
-  g.addColorStop(0.16, 'rgba(90, 210, 255, 1)');
-  g.addColorStop(0.3, 'rgba(0, 140, 255, 0.85)');
-  g.addColorStop(0.55, 'rgba(0, 90, 255, 0.3)');
-  g.addColorStop(1, 'rgba(0, 60, 255, 0)');
+  g.addColorStop(0, 'rgba(225, 255, 220, 1)');
+  g.addColorStop(0.16, 'rgba(110, 255, 140, 1)');
+  g.addColorStop(0.3, 'rgba(0, 240, 100, 0.85)');
+  g.addColorStop(0.55, 'rgba(0, 210, 80, 0.3)');
+  g.addColorStop(1, 'rgba(0, 200, 60, 0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
   const texture = new THREE.CanvasTexture(canvas);
@@ -142,7 +142,7 @@ function dotTexture() {
   return texture;
 }
 
-// El marco de neón de la casilla elegida (y, muy suave, el tinte de la última jugada).
+// El tinte, muy suave, de las casillas de la última jugada.
 function squareTexture({ relleno, borde }) {
   const size = 256;
   const canvas = document.createElement('canvas');
@@ -159,15 +159,8 @@ function squareTexture({ relleno, borde }) {
   marco();
   ctx.fill();
   if (borde) {
-    ctx.shadowColor = 'rgb(0, 140, 255)';
-    ctx.shadowBlur = 16;
-    ctx.strokeStyle = 'rgba(0, 150, 255, 0.85)';
-    ctx.lineWidth = 7;
-    marco();
-    ctx.stroke();
-    ctx.shadowBlur = 4;
-    ctx.strokeStyle = 'rgba(160, 230, 255, 0.95)';
-    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = borde;
+    ctx.lineWidth = 4;
     marco();
     ctx.stroke();
   }
@@ -192,21 +185,13 @@ export function createHighlights(scene, board) {
   ring.visible = false;
   scene.add(ring);
 
-  // La casilla elegida, enmarcada.
-  const frameMaterial = neonMaterial(squareTexture({ relleno: 'rgba(0, 120, 255, 0.16)', borde: true }));
-  const frame = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), frameMaterial);
-  frame.rotation.x = -Math.PI / 2;
-  frame.renderOrder = 1;
-  frame.visible = false;
-  scene.add(frame);
-
   const dotGeometry = new THREE.PlaneGeometry(0.64, 0.64);
   const dotMaterial = neonMaterial(dotTexture());
   const dots = [];
 
   // La diana bajo cada enemigo que se puede comer: el mismo neón, más fino y latiendo más deprisa.
   const captureGeometry = new THREE.PlaneGeometry(NEON_SIZE, NEON_SIZE);
-  const captureMaterial = neonMaterial(neonTexture(AZUL, { radio: 0.42, grosor: 0.7 }));
+  const captureMaterial = neonMaterial(neonTexture(VERDE, { radio: 0.42, grosor: 0.7 }));
   const captureRings = [];
 
   // El rey en jaque: el mismo aro, en rojo.
@@ -218,7 +203,7 @@ export function createHighlights(scene, board) {
   scene.add(checkRing);
 
   // La última jugada: sus dos casillas, apenas teñidas.
-  const tintMaterial = neonMaterial(squareTexture({ relleno: 'rgba(0, 150, 255, 0.2)', borde: false }));
+  const tintMaterial = neonMaterial(squareTexture({ relleno: 'rgba(160, 230, 60, 0.22)', borde: null }));
   const tints = [0, 1].map(() => {
     const tinte = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), tintMaterial);
     tinte.rotation.x = -Math.PI / 2;
@@ -246,11 +231,7 @@ export function createHighlights(scene, board) {
 
   function select(square) {
     ring.visible = Boolean(square);
-    frame.visible = Boolean(square);
-    if (square) {
-      ring.position.copy(board.squareToWorld(square)).setY(LIFT);
-      frame.position.copy(board.squareToWorld(square)).setY(LIFT * 0.8);
-    }
+    if (square) ring.position.copy(board.squareToWorld(square)).setY(LIFT);
   }
 
   // El rey en jaque (su casilla), o null.
@@ -313,7 +294,6 @@ export function createHighlights(scene, board) {
       mark.rotation.z = -seconds * NEON_SPIN * 1.4;
     }
     dotMaterial.opacity = 0.75 + 0.25 * (0.5 + 0.5 * Math.sin(seconds * NEON_BEAT));
-    frameMaterial.opacity = 0.75 + 0.25 * (0.5 + 0.5 * Math.sin(seconds * NEON_BEAT));
     if (checkRing.visible) {
       const alarma = 0.5 + 0.5 * Math.sin(seconds * 7.5);
       checkMaterial.opacity = 0.6 + 0.4 * alarma;
