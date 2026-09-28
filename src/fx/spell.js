@@ -76,8 +76,48 @@ function dibujaOnda(g, size) {
   g.fillRect(0, 0, size, size);
 }
 
+// Una llama: una gota con la punta hacia arriba, blanca y amarilla abajo, donde quema, naranja en
+// medio y roja en el filo, que se apaga hacia la punta. Se tiñe luego del color que toque.
+function dibujaLlama(g, size) {
+  const c = size / 2;
+  g.clearRect(0, 0, size, size);
+  const forma = () => {
+    g.beginPath();
+    g.moveTo(c, size * 0.04); // la punta
+    g.bezierCurveTo(c + size * 0.12, size * 0.3, c + size * 0.36, size * 0.5, c + size * 0.3, size * 0.72);
+    g.bezierCurveTo(c + size * 0.24, size * 0.92, c - size * 0.24, size * 0.92, c - size * 0.3, size * 0.72);
+    g.bezierCurveTo(c - size * 0.36, size * 0.5, c - size * 0.12, size * 0.3, c, size * 0.04);
+    g.closePath();
+  };
+  const fuego = g.createRadialGradient(c, size * 0.72, 0, c, size * 0.62, size * 0.62);
+  fuego.addColorStop(0, 'rgba(255,255,235,1)');
+  fuego.addColorStop(0.18, 'rgba(255,236,150,0.98)');
+  fuego.addColorStop(0.42, 'rgba(255,150,40,0.85)');
+  fuego.addColorStop(0.7, 'rgba(230,60,10,0.45)');
+  fuego.addColorStop(1, 'rgba(160,20,0,0)');
+  g.fillStyle = fuego;
+  g.filter = `blur(${Math.round(size * 0.02)}px)`;
+  forma();
+  g.fill();
+  g.filter = 'none';
+}
+
+// Humo y ceniza: una bola blanda, que se tiñe de gris al usarla y se pinta encima (no sumando luz),
+// porque el humo tapa, no brilla.
+function dibujaHumo(g, size) {
+  const c = size / 2;
+  const gradiente = g.createRadialGradient(c, c, 0, c, c, c);
+  gradiente.addColorStop(0, 'rgba(255,255,255,0.75)');
+  gradiente.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+  gradiente.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gradiente;
+  g.fillRect(0, 0, size, size);
+}
+
 export function createSpellFx(scene) {
   const brasa = lienzo(dibujaBrasa, 128);
+  const llama = lienzo(dibujaLlama, 128);
+  const humo = lienzo(dibujaHumo, 64);
   const sello = lienzo(dibujaSello, 256);
   const onda = lienzo(dibujaOnda, 256);
   const vivos = []; // { object, life, age, step(k, dt, age) }
@@ -110,6 +150,19 @@ export function createSpellFx(scene) {
       }),
     );
     object.renderOrder = 11;
+    scene.add(object);
+    return object;
+  }
+
+  // Como `mota`, pero pintada encima en vez de sumando luz: para el humo y la ceniza.
+  function nube(color) {
+    const object = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: humo,
+      color: new THREE.Color(color),
+      transparent: true,
+      depthWrite: false,
+    }));
+    object.renderOrder = 10;
     scene.add(object);
     return object;
   }
@@ -388,6 +441,187 @@ export function createSpellFx(scene) {
     };
   }
 
+  // EL FUEGO. Lo de la reina negra, que con el hielo no pegaba: el rojo de su bando es el del fuego.
+  // Las llamas son gotas que nacen abajo, suben encogiendo y temblando y se apagan en la punta; lo
+  // que hace que parezcan fuego y no chispas es que nunca paran de relevarse unas a otras.
+  const FUEGO = '#ffffff'; // la llama ya viene pintada con su color; se tiñe solo para matizarla
+
+  // Llamas en `at` (un punto o una función, para que sigan a la mano) durante `seconds`: un fuego
+  // pequeño que crece según se acerca el final, como la carga.
+  function flame(at, { seconds = 1, size = 0.3, count = 7, color = FUEGO } = {}) {
+    const punto = new THREE.Vector3();
+    for (let i = 0; i < count; i++) {
+      const lengua = mota(llama, color);
+      const fase = i / count;
+      const ciclo = 0.32 + Math.random() * 0.18;
+      const lado = (Math.random() - 0.5) * size * 0.5;
+      vive(lengua, seconds, (k, dt, age) => {
+        donde(at, punto);
+        const t = ((age / ciclo) + fase) % 1; // cada lengua nace, sube y se apaga, una y otra vez
+        const crece = 0.45 + 0.55 * k;
+        lengua.position.set(punto.x + lado * (1 - t), punto.y + size * 0.15 + t * size * 0.9 * crece, punto.z);
+        lengua.scale.set(size * 0.55 * crece * (1 - t * 0.5), size * crece * (1 - t * 0.35), 1);
+        lengua.material.opacity = Math.min(1, k * 4) * (t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8);
+        lengua.material.rotation = Math.sin(age * 13 + i) * 0.18;
+      });
+    }
+  }
+
+  // Una bola de fuego de `from` a `to` en `seconds`, en un arco de `arc` de alto, con una estela de
+  // brasas que se quedan atrás cayendo y humo.
+  function fireball(from, to, { seconds = 0.45, size = 0.34, arc = 0.35, color = FUEGO } = {}) {
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    donde(from, a);
+    donde(to, b);
+    const bola = mota(brasa, '#ffd27a');
+    const cola = mota(llama, color);
+    const ultimo = new THREE.Vector3().copy(a);
+    const rumbo = new THREE.Vector3();
+    vive(bola, seconds, (k, dt, age) => {
+      const x = a.x + (b.x - a.x) * k;
+      const z = a.z + (b.z - a.z) * k;
+      const y = a.y + (b.y - a.y) * k + Math.sin(Math.PI * k) * arc;
+      bola.position.set(x, y, z);
+      bola.scale.setScalar(size * (0.8 + 0.2 * Math.sin(age * 40)));
+      rumbo.set(x, y, z).sub(ultimo);
+      ultimo.set(x, y, z);
+      // La llama de la cola va detrás de la bola, a donde viene.
+      cola.position.set(x, y, z).addScaledVector(rumbo.normalize(), -size * 0.35);
+      cola.scale.set(size * 1.1, size * 1.6, 1);
+      cola.material.rotation = Math.atan2(rumbo.x, rumbo.y) + Math.PI; // la punta hacia atrás
+      // Brasas que se desprenden y caen.
+      if (Math.random() < 0.8) {
+        const chispa = mota(brasa, '#ff9a3a');
+        const cae = new THREE.Vector3((Math.random() - 0.5) * 0.6, 0.2 + Math.random() * 0.5, (Math.random() - 0.5) * 0.6);
+        chispa.position.set(x, y, z);
+        vive(chispa, 0.35 + Math.random() * 0.3, (kk, dd) => {
+          cae.y -= 3 * dd;
+          chispa.position.addScaledVector(cae, dd);
+          chispa.scale.setScalar(0.06 * (1 - kk));
+          chispa.material.opacity = 1 - kk;
+        });
+      }
+    });
+    vive(cola, seconds, () => {});
+  }
+
+  // La hoguera: llamas que envuelven `at` (los pies del rival) hasta `height`, en un tubo de
+  // `radius`, durante `seconds`; entran de golpe y se apagan al final. Con brasas que suben, un
+  // resplandor en el suelo y humo por encima.
+  function blaze(at, { height = 1.6, radius = 0.35, seconds = 1.4, count = 48, color = FUEGO } = {}) {
+    const pie = new THREE.Vector3().copy(at).setY(0);
+    const vida = (k) => Math.min(1, k / 0.1) * (k > 0.75 ? (1 - k) / 0.25 : 1);
+    const talla = height / 1.6; // las llamas, a la medida de quien arde: un gigante arde a lo grande
+    for (let i = 0; i < count; i++) {
+      const lengua = mota(llama, color);
+      const fase = Math.random();
+      const ciclo = 0.3 + Math.random() * 0.3;
+      const angulo = Math.random() * Math.PI * 2;
+      const r = radius * (0.35 + 0.65 * Math.sqrt(Math.random()));
+      // Cada lengua nace a una altura del cuerpo y sube un trecho: así arde entero, no solo los pies.
+      const nace = height * 0.72 * Math.random() ** 1.3;
+      const sube = height * (0.3 + Math.random() * 0.25);
+      const grande = (0.4 + Math.random() * 0.45) * talla;
+      vive(lengua, seconds, (k, dt, age) => {
+        const t = ((age / ciclo) + fase) % 1;
+        const v = vida(k);
+        const cierra = 1 - t * 0.5; // subiendo, se cierran hacia el cuerpo
+        lengua.position.set(pie.x + Math.cos(angulo) * r * cierra, 0.05 + (nace + t * sube) * v, pie.z + Math.sin(angulo) * r * cierra);
+        const tam = grande * (1 - t * 0.55) * (0.35 + 0.65 * v);
+        lengua.scale.set(tam * 0.72, tam, 1);
+        lengua.material.opacity = v * (t < 0.12 ? t / 0.12 : 1 - (t - 0.12) / 0.88);
+        lengua.material.rotation = Math.sin(age * 11 + angulo * 3) * 0.22;
+      });
+    }
+    // El resplandor del suelo: la hoguera ilumina la casilla.
+    const suelo = plano(brasa, '#ff7a1a');
+    suelo.rotation.x = -Math.PI / 2;
+    suelo.position.set(pie.x, 0.012, pie.z);
+    vive(suelo, seconds, (k, dt, age) => {
+      suelo.scale.setScalar(radius * 5 * (0.9 + 0.1 * Math.sin(age * 23)));
+      suelo.material.opacity = 0.8 * vida(k);
+    });
+    // Y un resplandor en el aire, a media altura, que titila.
+    const aura = mota(brasa, '#ff8a2a');
+    vive(aura, seconds, (k, dt, age) => {
+      aura.position.set(pie.x, height * 0.45, pie.z);
+      aura.scale.setScalar(height * 1.3 * (0.9 + 0.12 * Math.sin(age * 17)));
+      aura.material.opacity = 0.45 * vida(k);
+    });
+    // Brasas que suben.
+    for (let i = 0; i < 22; i++) {
+      const chispa = mota(brasa, '#ffb347');
+      const tarda = Math.random() * 0.7;
+      const angulo = Math.random() * Math.PI * 2;
+      const r = radius * (0.3 + Math.random() * 0.8);
+      const sube = height * (0.9 + Math.random() * 0.8);
+      vive(chispa, seconds, (k) => {
+        const t = Math.max(0, Math.min(1, (k - tarda) / 0.3));
+        chispa.position.set(pie.x + Math.cos(angulo + t * 3) * r, 0.1 + sube * t, pie.z + Math.sin(angulo + t * 3) * r);
+        chispa.scale.setScalar(0.05 * (1 - t * 0.6));
+        chispa.material.opacity = t <= 0 || t >= 1 ? 0 : 1 - t;
+      });
+    }
+    // Humo por encima, que sube y se abre.
+    for (let i = 0; i < 9; i++) {
+      const bocanada = nube('#2b2522');
+      const tarda = 0.1 + (i / 9) * 0.6;
+      const lado = (Math.random() - 0.5) * radius;
+      vive(bocanada, seconds + 0.6, (k) => {
+        const total = seconds + 0.6;
+        const t = Math.max(0, Math.min(1, (k * total - tarda * seconds) / 1.0));
+        bocanada.position.set(pie.x + lado * (1 + t), height * (0.8 + t * 0.8), pie.z);
+        bocanada.scale.setScalar(radius * (1.4 + t * 2.2));
+        bocanada.material.opacity = t <= 0 ? 0 : 0.55 * Math.min(1, t * 4) * (1 - t);
+      });
+    }
+  }
+
+  // La ceniza: lo que queda de quien se ha quemado. Motas grises que caen del sitio que ocupaba el
+  // cuerpo, un montoncito de brasas en el suelo que se apaga, y una última bocanada de humo.
+  function ashes(at, { height = 1.4, radius = 0.3, count = 40 } = {}) {
+    const pie = new THREE.Vector3().copy(at).setY(0);
+    for (let i = 0; i < count; i++) {
+      const ceniza = nube(Math.random() < 0.5 ? '#3a3330' : '#5c534d');
+      const angulo = Math.random() * Math.PI * 2;
+      const r = radius * Math.sqrt(Math.random());
+      const desde = Math.random() * height;
+      const deriva = new THREE.Vector3((Math.random() - 0.5) * 0.5, 0, (Math.random() - 0.5) * 0.5);
+      const tam = 0.05 + Math.random() * 0.08;
+      vive(ceniza, 0.9 + Math.random() * 0.6, (k) => {
+        const cae = k * k; // cae cada vez más deprisa
+        ceniza.position.set(
+          pie.x + Math.cos(angulo) * r + deriva.x * k,
+          Math.max(0.02, desde * (1 - cae)),
+          pie.z + Math.sin(angulo) * r + deriva.z * k,
+        );
+        ceniza.scale.setScalar(tam * (1 - k * 0.3));
+        ceniza.material.opacity = 0.9 * (k > 0.7 ? (1 - k) / 0.3 : 1);
+      });
+    }
+    for (let i = 0; i < 16; i++) {
+      const brasita = mota(brasa, '#ff6a1a');
+      const angulo = Math.random() * Math.PI * 2;
+      const r = radius * 0.7 * Math.sqrt(Math.random());
+      brasita.position.set(pie.x + Math.cos(angulo) * r, 0.025, pie.z + Math.sin(angulo) * r);
+      const late = Math.random() * 6;
+      vive(brasita, 1.6 + Math.random() * 0.8, (k, dt, age) => {
+        brasita.scale.setScalar(0.07 * (0.7 + 0.3 * Math.sin(age * 9 + late)));
+        brasita.material.opacity = 1 - k;
+      });
+    }
+    for (let i = 0; i < 6; i++) {
+      const bocanada = nube('#4a423d');
+      const lado = (Math.random() - 0.5) * radius * 1.5;
+      vive(bocanada, 1.4, (k) => {
+        bocanada.position.set(pie.x + lado, height * (0.2 + k * 0.9), pie.z);
+        bocanada.scale.setScalar(radius * (1.2 + k * 2.4));
+        bocanada.material.opacity = 0.5 * Math.min(1, k * 5) * (1 - k);
+      });
+    }
+  }
+
   function update(dt) {
     for (let i = vivos.length - 1; i >= 0; i--) {
       const item = vivos[i];
@@ -403,5 +637,5 @@ export function createSpellFx(scene) {
     }
   }
 
-  return { charge, sigil, bolt, shockwave, updraft, frost, encase, update };
+  return { charge, sigil, bolt, shockwave, updraft, frost, encase, flame, fireball, blaze, ashes, update };
 }

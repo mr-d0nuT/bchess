@@ -5,8 +5,9 @@ import { strikeSpot } from '../plan.js';
 import { facingTo, shout, victoryLap } from '../knight/common.js';
 import { ROYAL_COLOR, chestOf, faceAttacker, horseBolts, pose, poseTo, rebote, release, stepDown, suave, victimOf } from './royal.js';
 
-// LA REINA HIELA. El rey sentencia con el báculo —mazazo, rayo, onda y el rival llevado por los aires—;
-// la reina, no: lo suyo es el frío, y se tenían que distinguir de un vistazo. No se acerca a pegar: se
+// LA REINA BLANCA HIELA. El rey sentencia con el báculo —mazazo, rayo, onda y el rival llevado por
+// los aires—; la reina, no: lo suyo es el frío, y se tenían que distinguir de un vistazo. (La negra
+// quema: `queen-burns.js`.) No se acerca a pegar: se
 // planta a distancia y alza las manos, y el frío se le junta en ellas. Entonces las lanza al frente y la
 // escarcha corre por el suelo hasta el rival, le trepa por el cuerpo y lo encierra en cristal. Un
 // instante quieto, congelado… y ella cierra las manos: el hielo estalla en esquirlas y el rival con él.
@@ -25,7 +26,7 @@ const SNAP_SECONDS = 0.12; // ella cierra las manos
 const RECOVER_SECONDS = 0.55;
 
 export const queenCasts = {
-  matches: (attacker) => attacker.kind === 'queen',
+  matches: (attacker) => attacker.kind === 'queen' && attacker.color !== 'black',
   can: (attacker) => attacker.piece.armDrop >= 0,
 
   async run({ attacker, defender, board, home, center, target, clock, fx, cinema, hud, crowd, bubbles, obstacles, bodies }) {
