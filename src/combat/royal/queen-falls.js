@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { QUEEN, armsDown } from '../../pieces/cast.js';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
-import { blowOf, bringUp, HIT_GAP } from '../blow.js';
+import { blowDistance, blowOf, bringUp } from '../blow.js';
 import { facingTo, fighterOf, knockOut, shout, victoryLap } from '../knight/common.js';
 import { ROYAL_COLOR, chestOf, fallClear, pose, poseTo, rebote, release, suave } from './royal.js';
 
@@ -31,7 +31,7 @@ export const queenFalls = {
     const facing = facingTo(center, home); // la reina mira al que viene
     const reposo = armsDown(queen.armDrop || 0);
     const color = ROYAL_COLOR[defender.color] ?? ROYAL_COLOR.white;
-    const spots = strikeSpot(home, center, { reach: blow.reach + HIT_GAP, torso: 0 });
+    const spots = strikeSpot(home, center, { reach: blowDistance({ defender, blow }), torso: 0 });
     const mano = (lado) => () => {
       const bone = queen.object.getObjectByName(lado === 'L' ? 'mixamorigLeftHand' : 'mixamorigRightHand');
       return (bone ?? queen.figure).getWorldPosition(new THREE.Vector3());

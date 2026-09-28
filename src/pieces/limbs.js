@@ -11,6 +11,28 @@ import { rockStep } from '../fx/rock.js';
 const FADE_SECONDS = 0.5;
 const SPIN = 7; // radianes por segundo que gira un trozo en el aire
 const REST_RADIUS = 0.08; // altura a la que se queda en el suelo el centro de un trozo
+const LIE_SECONDS = 0.25; // lo que tarda en tumbarse un trozo largo al posarse
+const LIE_GAP = 0.01; // lo que queda por encima del tablero lo más bajo de un trozo tumbado
+
+// El eje más largo de un objeto, en sus propias coordenadas (el filo de una espada, el palo de una
+// lanza): para que, al caer, se tumbe a lo largo y no se quede clavado de punta.
+export function longAxisOf(object) {
+  object.updateMatrixWorld(true);
+  const inversa = object.matrixWorld.clone().invert();
+  const caja = new THREE.Box3();
+  const v = new THREE.Vector3();
+  object.traverse((mesh) => {
+    const posicion = mesh.isMesh ? mesh.geometry?.attributes?.position : null;
+    if (!posicion) return;
+    for (let i = 0; i < posicion.count; i += 7) {
+      v.fromBufferAttribute(posicion, i).applyMatrix4(mesh.matrixWorld).applyMatrix4(inversa);
+      caja.expandByPoint(v);
+    }
+  });
+  const lado = caja.getSize(new THREE.Vector3());
+  if (lado.x >= lado.y && lado.x >= lado.z) return new THREE.Vector3(1, 0, 0);
+  return lado.y >= lado.z ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
+}
 
 // Copia rígida, en coordenadas del mundo, de los triángulos de las mallas con esqueleto de `object` que
 // mueve el hueso `boneName` o lo que cuelga de él. Devuelve un Mesh con el origen en su centro, o null.
@@ -63,11 +85,15 @@ export function cutLimb(object, boneName) {
 export function createDebris(scene) {
   const items = [];
 
-  function throwPiece(object, { velocity, obstacles = () => [] }) {
+  // `lie`: una función que devuelve, en el mundo, el eje a lo largo del cual ha de quedar tumbado
+  // al posarse (el filo de la espada que sigue en la mano del brazo cortado).
+  function throwPiece(object, { velocity, obstacles = () => [], lie = null }) {
     scene.attach(object); // conserva su sitio en el mundo aunque colgara de una mano
     items.push({
       object,
       obstacles,
+      lie,
+      lying: null,
       scale: object.scale.clone(),
       fade: null,
       spin: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(),
@@ -90,6 +116,8 @@ export function createDebris(scene) {
         rockStep(item.body, dt, lists.get(item.obstacles));
         item.object.rotateOnWorldAxis(item.spin, SPIN * dt);
       }
+      if (item.lie && item.body.resting && !item.lying) item.lying = startLying(item);
+      if (item.lying) settleLying(item, dt);
       const { position } = item.body;
       item.object.position.set(position.x, position.y, position.z);
       if (!item.fade) continue;
@@ -101,6 +129,35 @@ export function createDebris(scene) {
         items.splice(i, 1);
       }
     }
+  }
+
+  // Al posarse un trozo largo: el giro que deja su eje en horizontal (sin cambiar hacia dónde apunta
+  // visto desde arriba), para ir hacia él poco a poco.
+  function startLying(item) {
+    const eje = item.lie().normalize();
+    const plano = new THREE.Vector3(eje.x, 0, eje.z);
+    if (plano.lengthSq() < 1e-4) plano.set(1, 0, 0);
+    plano.normalize();
+    const giro = new THREE.Quaternion().setFromUnitVectors(eje, plano);
+    return {
+      age: 0,
+      from: item.object.quaternion.clone(),
+      to: giro.multiply(item.object.quaternion.clone()),
+    };
+  }
+
+  // Se tumba y, tumbado, apoya lo más bajo en el tablero (ni flota ni se hunde).
+  const caja = new THREE.Box3();
+  function settleLying(item, dt) {
+    const { lying } = item;
+    if (lying.age >= LIE_SECONDS) return;
+    lying.age = Math.min(LIE_SECONDS, lying.age + dt);
+    const k = lying.age / LIE_SECONDS;
+    item.object.quaternion.slerpQuaternions(lying.from, lying.to, k * k * (3 - 2 * k));
+    item.object.position.set(item.body.position.x, item.body.position.y, item.body.position.z);
+    item.object.updateMatrixWorld(true);
+    caja.setFromObject(item.object);
+    item.body.position.y += LIE_GAP - caja.min.y;
   }
 
   // Con lo que piden sitio los trozos que siguen en el tablero: su caja vista desde arriba, como un tramo a

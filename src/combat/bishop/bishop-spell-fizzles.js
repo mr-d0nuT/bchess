@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
-import { blowOf, bringUp, HIT_GAP } from '../blow.js';
+import { blowDistance, blowOf, bringUp } from '../blow.js';
 import {
   bonePosition, facingTo, fighterOf, knockOut, lyingBody, shout, topple, victoryLap,
 } from '../knight/common.js';
@@ -26,8 +26,7 @@ export const bishopSpellFizzles = {
     const fighter = fighterOf(attacker);
     const blow = blowOf(fighter);
     const facing = facingTo(center, home); // el alfil mira al que viene
-    const reach = blow.reach + HIT_GAP;
-    const spots = strikeSpot(home, center, { reach, torso: 0 });
+    const spots = strikeSpot(home, center, { reach: blowDistance({ defender, blow }), torso: 0 });
 
     // 1. La cámara encuadra, el alfil baja de su peana y se encara, y el otro se planta delante.
     await Promise.all([

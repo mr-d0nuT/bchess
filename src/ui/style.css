@@ -96,17 +96,95 @@ html, body {
   transform: rotate(45deg);
 }
 .onomatopeya {
-  color: #ffd93b;
-  font: 900 30px/1 Impact, "Arial Black", system-ui, sans-serif;
-  letter-spacing: 1px;
-  text-shadow: 3px 3px 0 #7a2a00, -1px -1px 0 #7a2a00;
-  transform: translate(-50%, -100%) rotate(-6deg);
-  animation: onomatopeya 0.35s ease-out;
+  --tinta-ono: #ffe23b;
+  --tinta-ono-2: #ff8a00;
+  --fondo-ono: #d7190b;
+  --fondo-ono-2: #ff5a1f;
+  --rayas-ono: rgba(255, 240, 180, 0.85);
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -100%) rotate(var(--giro, -6deg));
+  animation: onomatopeya 1.2s cubic-bezier(0.2, 1.5, 0.4, 1) forwards;
+  z-index: 40;
+}
+.onomatopeya[data-estilo="metal"] { --tinta-ono: #ffffff; --tinta-ono-2: #9fd3ff; --fondo-ono: #1f3f8f; --fondo-ono-2: #4f8dff; --rayas-ono: rgba(200, 230, 255, 0.9); }
+.onomatopeya[data-estilo="corte"] { --tinta-ono: #ffffff; --tinta-ono-2: #ffd0d0; --fondo-ono: #b00018; --fondo-ono-2: #ff2d4a; --rayas-ono: rgba(255, 220, 220, 0.9); }
+.onomatopeya[data-estilo="fuego"] { --tinta-ono: #fff27a; --tinta-ono-2: #ff9d00; --fondo-ono: #b31200; --fondo-ono-2: #ff5e00; --rayas-ono: rgba(255, 190, 90, 0.95); }
+.onomatopeya[data-estilo="hielo"] { --tinta-ono: #ffffff; --tinta-ono-2: #a8f3ff; --fondo-ono: #006f9e; --fondo-ono-2: #22c4ff; --rayas-ono: rgba(200, 250, 255, 0.95); }
+.onomatopeya[data-estilo="blando"] { --tinta-ono: #fff6c9; --tinta-ono-2: #ffd24a; --fondo-ono: #6a2fb8; --fondo-ono-2: #a35cff; --rayas-ono: rgba(240, 220, 255, 0.9); }
+.onomatopeya > span { grid-area: 1 / 1; }
+/* La explosión: una estrella de muchas puntas, con su contorno negro (la sombra de detrás). */
+.ono-explosion {
+  width: calc(100% + 1.3em);
+  height: calc(100% + 1.1em);
+  min-width: 2.4em;
+  justify-self: center;
+  align-self: center;
+  font: 900 clamp(30px, 8vw, 52px)/1 Impact, "Arial Black", system-ui, sans-serif;
+  background: radial-gradient(circle at 50% 50%, var(--fondo-ono-2), var(--fondo-ono) 70%);
+  clip-path: polygon(50% 0%, 57% 22%, 72% 3%, 70% 27%, 91% 12%, 80% 34%, 100% 30%, 85% 47%, 100% 60%, 82% 64%, 94% 84%, 72% 74%, 70% 98%, 57% 79%, 48% 100%, 42% 79%, 26% 96%, 28% 73%, 7% 86%, 19% 64%, 0% 58%, 16% 46%, 2% 28%, 24% 33%, 17% 10%, 36% 24%, 38% 2%);
+  filter: drop-shadow(0 0 0 #000) drop-shadow(3px 4px 0 rgba(0, 0, 0, 0.85));
+  animation: ono-explosion 1.2s ease-out forwards;
+}
+/* Las rayas de velocidad que salen del centro. */
+.ono-rayas {
+  width: calc(100% + 3em);
+  height: calc(100% + 2.4em);
+  justify-self: center;
+  align-self: center;
+  font: 900 clamp(30px, 8vw, 52px)/1 Impact, "Arial Black", system-ui, sans-serif;
+  background: repeating-conic-gradient(from 0deg, var(--rayas-ono) 0deg 2.5deg, transparent 2.5deg 17deg);
+  -webkit-mask: radial-gradient(closest-side, transparent 45%, #000 60%, transparent 100%);
+  mask: radial-gradient(closest-side, transparent 45%, #000 60%, transparent 100%);
+  animation: ono-rayas 1.2s ease-out forwards;
+}
+/* Las letras: gordas, en degradado, con contorno negro y sombra dura, como en un tebeo. */
+.ono-letras {
+  position: relative;
+  padding: 0 0.12em;
+  font: 900 clamp(30px, 8vw, 52px)/1 Impact, "Arial Black", system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--tinta-ono);
+  background: linear-gradient(180deg, var(--tinta-ono) 35%, var(--tinta-ono-2) 85%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 0.07em #000;
+  paint-order: stroke fill;
+  filter: drop-shadow(0.06em 0.07em 0 #000);
+  animation: ono-letras 1.2s cubic-bezier(0.2, 1.6, 0.4, 1) forwards;
 }
 @keyframes onomatopeya {
-  from { transform: translate(-50%, -100%) scale(0.3) rotate(-14deg); }
-  to { transform: translate(-50%, -100%) rotate(-6deg); }
+  0% { transform: translate(-50%, -100%) rotate(var(--giro, -6deg)) scale(0.15); opacity: 0; }
+  12% { transform: translate(-50%, -100%) rotate(calc(var(--giro, -6deg) - 6deg)) scale(1.3); opacity: 1; }
+  20% { transform: translate(-50%, -100%) rotate(calc(var(--giro, -6deg) + 3deg)) scale(0.95); }
+  28% { transform: translate(-50%, -100%) rotate(var(--giro, -6deg)) scale(1.05); }
+  78% { transform: translate(-50%, -100%) rotate(var(--giro, -6deg)) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -130%) rotate(var(--giro, -6deg)) scale(1.2); opacity: 0; }
 }
+@keyframes ono-explosion {
+  0% { transform: scale(0.3) rotate(-25deg); }
+  15% { transform: scale(1.15) rotate(6deg); }
+  30% { transform: scale(1) rotate(0deg); }
+  100% { transform: scale(1.08) rotate(4deg); }
+}
+@keyframes ono-rayas {
+  0% { transform: scale(0.4) rotate(0deg); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: scale(1.35) rotate(25deg); opacity: 0; }
+}
+@keyframes ono-letras {
+  0%, 8% { transform: scale(0.5); }
+  18% { transform: scale(1.15) translate(-2px, 1px); }
+  24% { transform: scale(1) translate(2px, -1px); }
+  30% { transform: translate(-1px, 0); }
+  36% { transform: translate(0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .onomatopeya, .ono-explosion, .ono-rayas, .ono-letras { animation-duration: 0.01s; }
+}
+
 
 /* El botón de la música, arriba a la izquierda. Tachado cuando está quitada. */
 #botones {

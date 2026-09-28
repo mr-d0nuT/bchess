@@ -1,12 +1,21 @@
 import * as THREE from 'three';
-import { bestStrike } from './plan.js';
-import { bladeStrikes, bonePosition, dismountMode } from './knight/common.js';
+import { TORSO, bestStrike } from './plan.js';
+import { bladeStrikes, bonePosition, dismountMode, fighterOf } from './knight/common.js';
 
 // Lo que comparten los combates en que cualquiera (peón, caballero o torre) se acerca a pegar a una
 // pieza que no pelea con él cuerpo a cuerpo: el alfil al que le sale rana el hechizo, la reina a la que
 // no le da tiempo a conjurar.
 
 export const HIT_GAP = 0.05; // lo que queda entre el golpe y el rival
+const HORSE_BACK = 0.6; // lo que se queda atrás el caballo del que llega montado, antes de desmontar
+
+// A qué distancia del CENTRO del rival se planta el que le pega: lo que alcanza el golpe, más el
+// cuerpo del rival —el golpe ha de dar en su pecho, no en su centro, que si no acaban el uno
+// metido en el otro—, más un respiro.
+export function blowDistance({ defender, blow }) {
+  const torso = fighterOf(defender)?.body?.torso ?? defender.piece.body?.torso ?? TORSO;
+  return blow.reach + torso + HIT_GAP;
+}
 
 // El golpe con que lo remata: con espada si la lleva (el caballero: un tajo), y si no, el de más alcance.
 // Devuelve la clave, lo que alcanza, cuándo llega y dónde mirar en ese momento; null si no tiene golpes.
@@ -29,7 +38,10 @@ function swordTip(fighter) {
 // Deja al atacante en su sitio, listo para pegar, según lo que sea.
 export async function bringUp(attacker, { at, facing, random }) {
   if (attacker.kind === 'knight') {
-    await attacker.mover.leapTo(at);
+    // El caballo salta a un punto más atrás: si se encabrita al desmontar justo donde ha de pegar el
+    // jinete, se le echa encima al rival. El jinete va a pie hasta su sitio.
+    const atras = { x: at.x - Math.sin(facing) * HORSE_BACK, z: at.z - Math.cos(facing) * HORSE_BACK };
+    await attacker.mover.leapTo(atras);
     await attacker.mover.dismount({ at, facing, mode: dismountMode(random) });
     return;
   }

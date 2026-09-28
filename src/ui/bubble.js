@@ -2,8 +2,20 @@ import * as THREE from 'three';
 import { currentLanguage } from '../i18n.js';
 
 // Bocadillos de cómic sobre la escena (diseño, sección 7): un globo con texto que sigue a un punto de la
-// escena mientras dura, con el tiempo de juego. Con `shout`, una onomatopeya grande y amarilla
-// («¡CLANC!»). Son elementos del HUD, por encima del lienzo.
+// escena mientras dura, con el tiempo de juego. Con `shout`, una onomatopeya de tebeo: letras gordas
+// con su contorno negro sobre una explosión de puntas y rayas de velocidad, que revienta al salir, se
+// sacude y se va. El color va con el sonido: metal en acero, cortes en rojo y blanco, golpes en
+// amarillo, fuego en naranja, hielo en cian. Son elementos del HUD, por encima del lienzo.
+
+// De qué es cada sonido, por cómo suena.
+const ESTILOS = [
+  ['metal', /CLANC|CLONC|CLING|TOC|TAC|CLIN|DING|GONG/],
+  ['corte', /ZAS|CHAS|ZIS|TRIS|FIU/],
+  ['fuego', /FUU|FSS|FLAM|BRRR/],
+  ['hielo', /CRIC|CRAC|CRIS/],
+  ['blando', /PLOF|CHOF|PUF|PLAF|PUMBA|CATACROC|BUM|PAM/],
+];
+const estiloDe = (texto) => ESTILOS.find(([, re]) => re.test(String(texto).toUpperCase()))?.[0] ?? 'golpe';
 
 export function createBubbles({ camera, canvas, clock }) {
   const layer = document.getElementById('hud');
@@ -28,7 +40,21 @@ export function createBubbles({ camera, canvas, clock }) {
     if (!['es', 'ca'].includes(currentLanguage())) text = String(text).replace(/[¡¿]/g, '');
     const element = document.createElement('div');
     element.className = shout ? 'onomatopeya' : 'bocadillo';
-    element.textContent = text;
+    if (shout) {
+      // La explosión de detrás, las rayas y las letras, cada cosa en su capa; torcida a su manera.
+      element.dataset.estilo = estiloDe(text);
+      element.style.setProperty('--giro', `${(Math.random() * 22 - 11).toFixed(1)}deg`);
+      const explosion = document.createElement('span');
+      explosion.className = 'ono-explosion';
+      const rayas = document.createElement('span');
+      rayas.className = 'ono-rayas';
+      const letras = document.createElement('span');
+      letras.className = 'ono-letras';
+      letras.textContent = text;
+      element.append(rayas, explosion, letras);
+    } else {
+      element.textContent = text;
+    }
     layer.append(element);
     const item = { element, anchor, lift };
     live.push(item);

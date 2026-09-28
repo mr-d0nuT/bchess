@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import { t } from '../../i18n.js';
 import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js';
 import { strikeSpot } from '../plan.js';
-import { cutLimb } from '../../pieces/limbs.js';
+import { cutLimb, longAxisOf } from '../../pieces/limbs.js';
 import {
   bladeBody, bladeStrikes, BODY_GAP, boneOf, bonePosition, dismountMode, facingTo, fallDirection, kickOf,
-  knockOut, lyingBody, postOf, shout, swordTip, topple, victoryLap,
+  knockOut, lyingBody, postOf, shout, swordTip, toppleAt, victoryLap,
 } from './common.js';
 
 // Caballero come caballero: el Caballero Negro de los Monty Python (diseño, sección 7). Los dos desmontan y
@@ -24,6 +24,8 @@ const STUMP_SECONDS = 0.5; // lo que se mira el muñón
 const TAP_SECONDS = 0.35;
 const FALL_SPREAD = Math.PI / 4;
 const DUST_Y = 0.05;
+const TRUNK_SECONDS = 0.3; // lo que tarda en caer al suelo el tronco sin piernas
+const PELVIS = 0.14; // en alturas del jinete: de la articulación de la cadera a lo más bajo del tronco
 
 export const knightFightsKnight = {
   matches: (attacker, defender) => attacker.kind === 'knight' && defender.kind === 'knight',
@@ -71,6 +73,7 @@ export const knightFightsKnight = {
     // 3. Corta brazos y piernas. Cada trozo sale volando de la propia malla y el hueso encoge; entre los
     //    brazos y las piernas, el atacante recibe una patada del otro (si la tiene) y sigue.
     const kick = kickOf(his);
+    let trunkDrop = 0; // lo que ha bajado el tronco al quedarse sin piernas
     for (const [n, bone] of LIMBS.entries()) {
       const key = slashes[n % slashes.length];
       const cutting = mine.playOnce('attack', { clip: key, fade: 0.15 });
@@ -81,14 +84,25 @@ export const knightFightsKnight = {
       cinema.shake(0.16);
       shout(bubbles, bone.includes('Thigh') ? '¡ZAS!' : '¡CHAS!', at);
       const piece = cutLimb(his.object, bone);
+      // El brazo de la espada se va con la espada: su mano la sigue agarrando mientras vuela, y al
+      // caer se tumba a lo largo del filo en vez de quedarse clavado de punta.
+      const espada = n === 0 && piece ? his.props.sword : null;
+      let lie = null;
+      if (espada) {
+        const eje = longAxisOf(espada);
+        piece.updateMatrixWorld(true);
+        piece.attach(espada);
+        lie = () => eje.clone().transformDirection(espada.matrixWorld);
+      }
       if (piece) {
         debris.throwPiece(piece, {
           velocity: { x: Math.sin(spots.attackerFacing) * CUT_SPEED.x, y: CUT_SPEED.y, z: Math.cos(spots.attackerFacing) * CUT_SPEED.x },
           obstacles: () => crowd.obstacles([attacker, defender]),
+          lie,
         });
       }
       his.scaleBone(bone, SHRINK);
-      if (n === 0 && his.props.sword) his.props.sword.visible = false;
+      if (n === 0 && his.props.sword && !espada) his.props.sword.visible = false;
       if (n === 1 && his.props.shield) his.props.shield.visible = false;
       await afterImpact(clock);
       await cutting;
@@ -111,7 +125,20 @@ export const knightFightsKnight = {
       }
       if (n === LIMBS.length - 1) {
         stances.delete(defender);
-        await defender.mover.sit(true); // ya solo es un tronco en el suelo
+        // Sin piernas, el tronco se queda en el aire a la altura de la cadera: cae de golpe al suelo
+        // (la cadera, contra el tablero) antes de decir nada.
+        const figura = his.figure;
+        const cadera = (bonePosition(his, 'L_Thigh').y + bonePosition(his, 'R_Thigh').y) / 2;
+        const baseY = figura.position.y;
+        trunkDrop = Math.max(0, cadera - baseY - PELVIS * his.height);
+        await clock.tween(TRUNK_SECONDS, (k) => {
+          figura.position.y = baseY - trunkDrop * k * k;
+        });
+        const golpe = new THREE.Vector3(center.x, DUST_Y, center.z);
+        dust.puff(golpe, { count: 16, radius: 0.6, duration: 0.5 });
+        cinema.shake(0.14);
+        shout(bubbles, '¡PUMBA!', bonePosition(his, 'Head'));
+        await clock.wait(0.35);
         bodies.push(lyingBody({ at: center, angle: facing, length: his.height * 0.5, radius: 0.3 }));
       }
     }
@@ -134,7 +161,8 @@ export const knightFightsKnight = {
       rival: { x: spots.attacker.x, z: spots.attacker.z, radius: attacker.piece.body.torso },
       overlap: (body) => crowd.overlap({ owners: [attacker, defender], bodies: [body] }),
     });
-    await topple({ clock, figure: his.figure, forward: false });
+    // Cae de espaldas girando por la cadera, que es donde se apoya el tronco.
+    await toppleAt({ clock, figure: his.figure, pivot: trunkDrop, forward: false });
     const donde = bonePosition(his, 'Head');
     dust.puff(new THREE.Vector3(donde.x, DUST_Y, donde.z), { count: 14, radius: 0.7, duration: 0.5 });
     cinema.shake(0.12);

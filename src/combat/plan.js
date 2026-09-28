@@ -5,7 +5,11 @@ import { pickVariant } from '../pieces/clips.js';
 
 export const STYLES = ['duel', 'melee'];
 export const DUEL_RETREAT = 0.3; // en el duelo, el atacante se retira dentro de su casilla
-export const MELEE_DISTANCE = 0.9; // separación de los luchadores en el cuerpo a cuerpo
+// Separación de los luchadores en el cuerpo a cuerpo, de centro a centro. Con 0,9 los dos cuerpos
+// casi se tocaban (escudos y lanzas por delante): el usuario los veía encima el uno del otro. Más de
+// 1,0 deja fuera el puñetazo (llega a 0,68) y el cuerpo a cuerpo se quedaría en patadas. Solo valen
+// los golpes que llegan a esta distancia; si no hay ninguno, pelean a lanza.
+export const MELEE_DISTANCE = 1.0;
 export const TORSO = 0.17; // del centro de la figura a su pecho
 const MELEE_SLACK = 0.15; // lo que un golpe puede quedarse corto en el cuerpo a cuerpo
 const MELEE_SIDE_STEP = 0.3; // lo que pueden abrirse los pies a los lados en el cuerpo a cuerpo

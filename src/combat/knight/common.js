@@ -11,7 +11,7 @@ export const COMBAT_RAISE = 0.3; // como en el duelo: la lanza del peón, algo s
 export const PAWN_BODY = 0.25; // del centro de un peón, ya sin peana, a su costado
 export const BODY_GAP = 0.05; // hueco entre los cuerpos de los dos luchadores
 const TOPPLE_SECONDS = 0.45;
-const SHOUT_SECONDS = 0.8;
+const SHOUT_SECONDS = 1.15; // lo que dura una onomatopeya: su estallido, su sacudida y su salida
 export const WIND_UP = 0.45; // parte del camino hasta el golpe en la que se queda con el arma en alto
 
 // La pieza con esqueleto que pelea: el peón, el jinete del caballero o el gigante de la torre.
@@ -95,6 +95,25 @@ export async function windUp({ clock, fighter, key }) {
 
 // Cae rígido como un tablón, girando sobre sus pies: de bruces (`forward`) o de espaldas, hacia donde
 // mira la figura.
+// Como `topple`, pero girando alrededor de un punto de la figura a `pivot` de altura sobre su origen
+// (el tronco sin piernas, que se apoya en la cadera: girando por los pies, que ya no tiene, se
+// hundiría en el tablero).
+export async function toppleAt({ clock, figure, pivot, forward = true, seconds = TOPPLE_SECONDS }) {
+  figure.rotation.order = 'YXZ';
+  const start = figure.rotation.x;
+  const end = forward ? Math.PI / 2 : -Math.PI / 2;
+  const base = figure.position.clone();
+  const punto = new THREE.Vector3(0, pivot, 0);
+  const antes = punto.clone().applyEuler(figure.rotation);
+  const giro = figure.rotation.clone();
+  await clock.tween(seconds, (t) => {
+    giro.x = start + (end - start) * t * t;
+    figure.rotation.x = giro.x;
+    const ahora = punto.clone().applyEuler(giro);
+    figure.position.copy(base).add(antes).sub(ahora);
+  });
+}
+
 export async function topple({ clock, figure, forward = true, seconds = TOPPLE_SECONDS }) {
   figure.rotation.order = 'YXZ';
   const start = figure.rotation.x;
