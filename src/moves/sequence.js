@@ -8,7 +8,10 @@ import { REST_FACING, planWalk, pointAlong, shortestTurn } from './walk.js';
 const HOP_DISTANCE = 0.5; // lo que avanza al saltar de la peana (su radio)
 const DUST_Y = 0.05;
 
-export function createMover({ piece, board, dust, clock, onBusy = () => {}, restFacing = REST_FACING }) {
+// `cinema` (opcional): si se le da, la jugada es de cine, como la del caballo —la cámara la encuadra
+// de lado, la sigue mientras anda y al acabar vuelve a donde la tenía el usuario—. `obstacles` dice
+// dónde están las demás piezas ({x, z}), para que la cámara no quede tapada.
+export function createMover({ piece, board, dust, clock, onBusy = () => {}, restFacing = REST_FACING, cinema = null, obstacles = () => [] }) {
   let square = null;
   let busy = false;
   const tween = (seconds, step) => clock.tween(seconds, step);
@@ -66,42 +69,57 @@ export function createMover({ piece, board, dust, clock, onBusy = () => {}, rest
   function goTo(target) {
     if (target === square) return Promise.resolve(false);
     return exclusive(async () => {
+      if (!cinema) return walkOver(target);
       const from = board.squareToWorld(square);
       const to = board.squareToWorld(target);
-      const { heading } = planWalk(from, to, piece.walkSpeed);
-      const h = piece.pedestalHeight;
-
-      await turnTo(heading, 0.25);
-
-      // 1. Salta de la peana (o baja de un paso si no hay animación de salto).
-      const hopStart = piece.figure.position.clone();
-      const hopEnd = new THREE.Vector3(from.x + Math.sin(heading) * HOP_DISTANCE, 0, from.z + Math.cos(heading) * HOP_DISTANCE);
-      const canJump = piece.has('jump');
-      piece.play(canJump ? 'jump' : 'walk', { loop: !canJump, fade: 0.15 });
-      await tween(0.35, (t) => {
-        piece.figure.position.lerpVectors(hopStart, hopEnd, t);
-        piece.figure.position.y = h * (1 - t) + Math.sin(Math.PI * t) * 0.18;
-      });
-
-      // 2. La peana se esfuma en una nube de polvo.
-      dust.puff(new THREE.Vector3(from.x, DUST_Y, from.z));
-      piece.play('walk', { fade: 0.15 });
-      await tween(0.4, (t) => {
-        piece.pedestal.scale.setScalar(Math.max(0.001, 1 - t));
-      });
-      piece.pedestal.visible = false;
-
-      // 3. Anda hasta la casilla.
-      const walk = planWalk(hopEnd, to, piece.walkSpeed);
-      await tween(walk.duration, (t) => {
-        const p = pointAlong(hopEnd, to, t);
-        piece.figure.position.set(p.x, 0, p.z);
-      });
-
-      // 4. La peana reaparece bajo sus pies, lo sube y vuelve a mirar al oponente.
-      await rise(to);
-      square = target;
+      try {
+        await cinema.frame(clock, from, to, obstacles());
+        cinema.follow(() => piece.figure.position);
+        await walkOver(target);
+      } finally {
+        cinema.follow(null);
+        await cinema.restore(clock);
+      }
     });
+  }
+
+  // Ir a una casilla: salta de la peana, anda y la peana vuelve a subirlo.
+  async function walkOver(target) {
+    const from = board.squareToWorld(square);
+    const to = board.squareToWorld(target);
+    const { heading } = planWalk(from, to, piece.walkSpeed);
+    const h = piece.pedestalHeight;
+
+    await turnTo(heading, 0.25);
+
+    // 1. Salta de la peana (o baja de un paso si no hay animación de salto).
+    const hopStart = piece.figure.position.clone();
+    const hopEnd = new THREE.Vector3(from.x + Math.sin(heading) * HOP_DISTANCE, 0, from.z + Math.cos(heading) * HOP_DISTANCE);
+    const canJump = piece.has('jump');
+    piece.play(canJump ? 'jump' : 'walk', { loop: !canJump, fade: 0.15 });
+    await tween(0.35, (t) => {
+      piece.figure.position.lerpVectors(hopStart, hopEnd, t);
+      piece.figure.position.y = h * (1 - t) + Math.sin(Math.PI * t) * 0.18;
+    });
+
+    // 2. La peana se esfuma en una nube de polvo.
+    dust.puff(new THREE.Vector3(from.x, DUST_Y, from.z));
+    piece.play('walk', { fade: 0.15 });
+    await tween(0.4, (t) => {
+      piece.pedestal.scale.setScalar(Math.max(0.001, 1 - t));
+    });
+    piece.pedestal.visible = false;
+
+    // 3. Anda hasta la casilla.
+    const walk = planWalk(hopEnd, to, piece.walkSpeed);
+    await tween(walk.duration, (t) => {
+      const p = pointAlong(hopEnd, to, t);
+      piece.figure.position.set(p.x, 0, p.z);
+    });
+
+    // 4. La peana reaparece bajo sus pies, lo sube y vuelve a mirar al oponente.
+    await rise(to);
+    square = target;
   }
 
   // Cae dentro de su casilla: la peana se esfuma, el peón cae al tablero y, pasado un rato,

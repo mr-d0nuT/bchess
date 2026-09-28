@@ -694,7 +694,12 @@ async function start() {
         piece.frozenIdle = QUEEN_STILL;
       }
       entry = { kind, color, piece };
-      entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing });
+      // El peón, como el caballo, mueve de cine: la cámara se acerca a verlo andar.
+      const cine = kind === 'pawn' ? {
+        cinema,
+        obstacles: () => pieces.filter((other) => other !== entry).map((other) => board.squareToWorld(other.mover.square)),
+      } : {};
+      entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing, ...cine });
     }
     addPiece(entry, square);
     // La mano del rey se cierra sobre el báculo lo último: el puño se busca con los brazos ya
