@@ -222,6 +222,9 @@ html, body {
 .boton:disabled { opacity: 0.35; cursor: default; }
 .boton[aria-pressed="true"]:not(#musica) { border-color: #37b6ff; color: #7fd4ff; box-shadow: 0 0 10px rgba(40, 150, 255, 0.55); }
 #acercar[aria-pressed="true"] .mas { display: none; } /* acercado, la lupa pasa a ser de alejar */
+#pantalla .cerrar, #pantalla[aria-pressed="true"] .abrir { display: none; } /* dentro, el icono es de salir */
+#pantalla[aria-pressed="true"] .cerrar { display: inline; }
+.boton[hidden] { display: none; }
 #musica[aria-pressed="false"] { opacity: 0.55; text-decoration: line-through; }
 
 /* La configuración: un panel en medio, sobre un velo. */

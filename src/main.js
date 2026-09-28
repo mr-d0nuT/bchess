@@ -27,6 +27,7 @@ import { createMatchUi } from './ui/match-ui.js';
 import { createChessClockUi } from './ui/chess-clock.js';
 import { createChessClock, findTimeControl } from './chess/timecontrol.js';
 import { initLanguage, onLanguage, t } from './i18n.js';
+import { createFullscreen } from './ui/fullscreen.js';
 import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
 import { createClock } from './combat/clock.js';
 import { measureStrikes } from './combat/strikes.js';
@@ -137,6 +138,8 @@ async function start() {
   // Lo primero, el idioma (el de la última vez o el del navegador) y la pantalla de carga con su
   // música, que el resto tarda unos segundos.
   initLanguage();
+  // A pantalla completa en cuanto se toque algo (antes no deja el navegador).
+  createFullscreen(document.getElementById('pantalla'));
   const loading = createLoading();
   const music = createMusic({
     onNeedGesture: () => loading.askForSound(true),

@@ -20,6 +20,7 @@ const NB = ' '; // el espacio que el francés pone antes de «!» y «?», sin 
 
 const TEXTS = {
   es: {
+    'boton.pantalla': 'Pantalla completa', 'boton.pantalla.salir': 'Salir de la pantalla completa',
     'carga.preparando': 'Preparando el tablero', 'carga.cargando': 'Cargando', 'carga.antorchas': 'Encendiendo las antorchas',
     'carga.peones': 'Formando a los peones', 'carga.caballos': 'Ensillando a los caballos', 'carga.alfiles': 'Bendiciendo a los alfiles',
     'carga.reinas': 'Peinando a las reinas', 'carga.coronas': 'Puliendo las coronas', 'carga.gigantes': 'Despertando a los gigantes',
@@ -59,6 +60,7 @@ const TEXTS = {
     'creditos': 'Homenaje a Battle Chess (Interplay, 1988)', 'escena': 'Tablero de ajedrez en 3D',
   },
   ca: {
+    'boton.pantalla': 'Pantalla completa', 'boton.pantalla.salir': 'Sortir de la pantalla completa',
     'carga.preparando': 'Preparant el tauler', 'carga.cargando': 'Carregant', 'carga.antorchas': 'Encenent les torxes',
     'carga.peones': 'Formant els peons', 'carga.caballos': 'Ensellant els cavalls', 'carga.alfiles': 'Beneint els alfils',
     'carga.reinas': 'Pentinant les reines', 'carga.coronas': 'Polint les corones', 'carga.gigantes': 'Despertant els gegants',
@@ -98,6 +100,7 @@ const TEXTS = {
     'creditos': 'Homenatge a Battle Chess (Interplay, 1988)', 'escena': "Tauler d'escacs en 3D",
   },
   en: {
+    'boton.pantalla': 'Full screen', 'boton.pantalla.salir': 'Exit full screen',
     'carga.preparando': 'Setting up the board', 'carga.cargando': 'Loading', 'carga.antorchas': 'Lighting the torches',
     'carga.peones': 'Lining up the pawns', 'carga.caballos': 'Saddling the horses', 'carga.alfiles': 'Blessing the bishops',
     'carga.reinas': "Brushing the queens' hair", 'carga.coronas': 'Polishing the crowns', 'carga.gigantes': 'Waking the giants',
@@ -137,6 +140,7 @@ const TEXTS = {
     'creditos': 'A tribute to Battle Chess (Interplay, 1988)', 'escena': '3D chessboard',
   },
   fr: {
+    'boton.pantalla': 'Plein écran', 'boton.pantalla.salir': 'Quitter le plein écran',
     'carga.preparando': "Préparation de l'échiquier", 'carga.cargando': 'Chargement', 'carga.antorchas': 'On allume les torches',
     'carga.peones': 'Les pions se mettent en rang', 'carga.caballos': 'On selle les chevaux', 'carga.alfiles': 'On bénit les fous',
     'carga.reinas': 'On coiffe les reines', 'carga.coronas': 'On polit les couronnes', 'carga.gigantes': 'On réveille les géants',
@@ -176,6 +180,7 @@ const TEXTS = {
     'creditos': 'Hommage à Battle Chess (Interplay, 1988)', 'escena': 'Échiquier en 3D',
   },
   it: {
+    'boton.pantalla': 'Schermo intero', 'boton.pantalla.salir': 'Esci dallo schermo intero',
     'carga.preparando': 'Preparazione della scacchiera', 'carga.cargando': 'Caricamento', 'carga.antorchas': 'Accendendo le torce',
     'carga.peones': 'Schierando i pedoni', 'carga.caballos': 'Sellando i cavalli', 'carga.alfiles': 'Benedicendo gli alfieri',
     'carga.reinas': 'Pettinando le regine', 'carga.coronas': 'Lucidando le corone', 'carga.gigantes': 'Svegliando i giganti',
@@ -215,6 +220,7 @@ const TEXTS = {
     'creditos': 'Omaggio a Battle Chess (Interplay, 1988)', 'escena': 'Scacchiera 3D',
   },
   zh: {
+    'boton.pantalla': '全屏', 'boton.pantalla.salir': '退出全屏',
     'carga.preparando': '正在摆放棋盘', 'carga.cargando': '加载中', 'carga.antorchas': '点燃火把',
     'carga.peones': '兵卒列队', 'carga.caballos': '为战马备鞍', 'carga.alfiles': '为主教祈福',
     'carga.reinas': '为王后梳妆', 'carga.coronas': '擦亮王冠', 'carga.gigantes': '唤醒巨人',
@@ -254,6 +260,7 @@ const TEXTS = {
     'creditos': '致敬 Battle Chess（Interplay，1988）', 'escena': '3D 国际象棋棋盘',
   },
   ar: {
+    'boton.pantalla': 'ملء الشاشة', 'boton.pantalla.salir': 'الخروج من ملء الشاشة',
     'carga.preparando': 'جارٍ تجهيز الرقعة', 'carga.cargando': 'جارٍ التحميل', 'carga.antorchas': 'إشعال المشاعل',
     'carga.peones': 'اصطفاف الجنود', 'carga.caballos': 'إسراج الخيول', 'carga.alfiles': 'مباركة الأساقفة',
     'carga.reinas': 'تصفيف شعر الملكات', 'carga.coronas': 'تلميع التيجان', 'carga.gigantes': 'إيقاظ العمالقة',

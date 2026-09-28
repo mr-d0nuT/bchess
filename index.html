@@ -6,6 +6,14 @@
   <title>mr_donut Battle Chess</title>
   <meta name="description" content="BChess, homenaje 3D a Battle Chess (1988): peones y torres animados.">
   <meta name="theme-color" content="#000000">
+  <!-- Como app: añadido a la pantalla de inicio se abre a pantalla completa (también en el iPhone). -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icono-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Battle Chess">
   <link rel="stylesheet" href="src/ui/style.css">
   <link rel="stylesheet" href="src/ui/menu.css">
   <link rel="preload" href="assets/ui/logo.webp" as="image">
@@ -37,6 +45,9 @@
       </button>
       <button id="deshacer" class="boton" type="button" aria-label="Deshacer la última jugada" title="Deshacer la última jugada" disabled data-i18n-attr="title:boton.deshacer;aria-label:boton.deshacer">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4.5 4 9.5l5 5"/><path d="M4.5 9.5h10a5.25 5.25 0 0 1 0 10.5H9"/></svg>
+      </button>
+      <button id="pantalla" class="boton" type="button" aria-pressed="false" aria-label="Pantalla completa" title="Pantalla completa">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path class="abrir" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><path class="cerrar" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
       </button>
     </div>
     <div id="aviso" role="alert" hidden></div>
