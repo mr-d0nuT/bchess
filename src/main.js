@@ -19,6 +19,7 @@ import { createRookMover } from './moves/rook-mover.js';
 import { createKnightMover } from './moves/knight-mover.js';
 import { createCrowd } from './moves/crowd.js';
 import { restFacingFor } from './moves/walk.js';
+import { endsOf, gridOf, pickPair, pickTurn, place } from './moves/dodge.js';
 import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
 import { createCpu } from './chess/cpu.js';
@@ -64,6 +65,12 @@ const QUEEN_STILL = 0.35; // segundos del clip de andar en los que se queda quie
 const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar qué hay bajo el ratón
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
 const CPU_MIN_MS = 700; // la CPU nunca contesta antes: una jugada al instante parece un error
+const NUBE_PASO = 5; // de cada malla, un vértice de cada tantos para saber a quién toca un caballo
+const NUBE_SUELO = 0.45; // y solo lo de encima de las peanas, que no se giran
+const VECINDAD = 1.6; // piezas más lejos que esto (entre centros de casilla) no llegan a tocar a un caballo
+// Lo que tarda una pieza recién puesta en tomar su postura: la animación se aplica al actualizarla, y el
+// rey además baja los brazos poco a poco (su modelo viene en cruz). Antes de eso su forma no vale.
+const POSTURA_SEGUNDOS = 0.5;
 const BACK_RANK = ['rook', 'knight', 'bishop', 'queen', 'king', 'bishop', 'knight', 'rook'];
 const KINDS = ['pawn', 'rook', 'knight', 'bishop', 'queen', 'king'];
 const NOMBRES = { pawn: 'los peones', rook: 'las torres', knight: 'los caballeros', bishop: 'los alfiles', queen: 'las reinas', king: 'los reyes' };
@@ -536,7 +543,115 @@ async function start() {
 
   // Después de cada jugada: jaque, final, de quién es el turno y, si toca, la CPU o la vuelta al
   // tablero para el otro jugador.
+  // Los caballos quietos no se meten en las piezas de al lado (`moves/dodge.js`): el caballo mide 1,6
+  // casillas de largo, y con piezas anchas cerca les metía la cabeza o la cola dentro. Para saber a quién
+  // toca, cada clase de pieza (tipo y color: todas las copias son la misma malla) tiene su nube de puntos:
+  // lo que asoma por encima de las peanas, en el marco de su figura (origen en el centro de su casilla, +z
+  // hacia donde mira), sacado de sus mallas una sola vez y QUIETA de verdad. Medida en mitad de un gesto
+  // (el peón que se asusta y recula, el caballo encabritado) o recién puesta (sin postura aún: el caballo
+  // salía el doble de grande y el rey con los brazos en cruz), a los caballos les parecía que los tocaban.
+  const nubes = new Map();
+  const muestra = new Vector3();
+  const yawDe = (entry) => entry.piece.figure?.rotation.y ?? 0;
+  const claseDe = (entry) => `${entry.kind}-${entry.color}`;
+  // (El rey y la reina no tienen animación de reposo: se quedan en un fotograma de su andar.)
+  const quieta = (entry) => clock.now - (entry.nacida ?? -Infinity) >= POSTURA_SEGUNDOS && !entry.piece.fidgeting
+    && (entry.kind === 'knight' || entry.piece.frozenIdle || (entry.piece.playing ?? 'idle') === 'idle');
+  function muestreo(entry) {
+    const centro = board.squareToWorld(entry.mover.square);
+    const s = Math.sin(-yawDe(entry));
+    const c = Math.cos(-yawDe(entry));
+    const puntos = [];
+    entry.piece.object.updateMatrixWorld(true);
+    entry.piece.object.traverse((o) => {
+      if (!o.isMesh || !o.geometry?.attributes?.position) return;
+      for (let p = o; p; p = p.parent) if (!p.visible) return;
+      if ([o.material].flat().every((m) => m?.visible === false)) return; // la zona de toque, invisible
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i += NUBE_PASO) {
+        muestra.fromBufferAttribute(pos, i);
+        if (o.isSkinnedMesh) o.applyBoneTransform(i, muestra);
+        muestra.applyMatrix4(o.matrixWorld);
+        if (muestra.y < NUBE_SUELO) continue;
+        const dx = muestra.x - centro.x;
+        const dz = muestra.z - centro.z;
+        puntos.push(dx * c + dz * s, muestra.y, -dx * s + dz * c);
+      }
+    });
+    return Float32Array.from(puntos);
+  }
+  function nubeDe(entry) {
+    const clase = claseDe(entry);
+    if (nubes.has(clase)) return nubes.get(clase);
+    // De la clase, una copia quieta; si ahora mismo no hay ninguna, esta tal cual, sin guardarla.
+    const modelo = pieces.find((otra) => claseDe(otra) === clase && otra.mover.square && quieta(otra));
+    if (!modelo) return muestreo(entry);
+    const nube = muestreo(modelo);
+    nubes.set(clase, nube);
+    return nube;
+  }
+
+  // Tras cada jugada puede haber llegado o haberse ido una pieza de al lado de un caballo: cada caballo
+  // quieto busca el giro más pequeño con el que no toca a nadie y se gira. Dos caballos vecinos buscan a
+  // la vez (`pickPair`): de uno en uno, el primero se apartaba de más contando con que el otro seguía
+  // recto. `instant`, al montar el tablero de golpe.
+  async function settleKnights({ instant = false } = {}) {
+    if (!pieces.some((entry) => entry.kind === 'knight')) return;
+    // Las recién puestas en el tablero se miden cuando ya tienen su postura: medido al nacer, el caballo
+    // salía en la postura de fábrica de su esqueleto (el doble de grande) y el rey con los brazos en cruz,
+    // y a los caballos de al lado les parecía que los tocaban.
+    const falta = Math.max(0, ...pieces.map((entry) => (entry.nacida ?? -Infinity) + POSTURA_SEGUNDOS - clock.now));
+    if (falta > 0) await clock.wait(falta);
+    const caballos = pieces.filter((entry) => entry.kind === 'knight' && entry.mover.square && !entry.mover.busy);
+    if (!caballos.length) return;
+    await Promise.all(caballos.map((entry) => entry.mover.stopGesture()));
+    const giros = new Map(caballos.map((entry) => [entry, 0]));
+    const radianes = (grados) => (grados * Math.PI) / 180;
+    const centroDe = (entry) => board.squareToWorld(entry.mover.square);
+    const cerca = (a, b) => {
+      const p = centroDe(a);
+      const q = centroDe(b);
+      return Math.hypot(p.x - q.x, p.z - q.z) <= VECINDAD;
+    };
+    // Lo que tiene alrededor un caballo (sin los de `menos`), con los demás caballos como van quedando.
+    function alrededorDe(caballo, menos = []) {
+      const centro = centroDe(caballo);
+      const puntos = [];
+      for (const otra of pieces) {
+        // Los peones no cuentan: son estrechos, y la cabeza del caballo les pasa por encima o al lado (al
+        // empezar, el hocico queda a unos centímetros de la espalda del de delante, que al respirar se
+        // acerca y se aleja: medirlo giraba a los caballos de salida unas veces sí y otras no).
+        if (otra.kind === 'pawn') continue;
+        if (otra === caballo || menos.includes(otra) || !otra.mover.square || !otra.piece.object.visible) continue;
+        const donde = centroDe(otra);
+        if (Math.hypot(donde.x - centro.x, donde.z - centro.z) > VECINDAD) continue;
+        const yaw = giros.has(otra) ? restFacingFor(otra.color) - giros.get(otra) : yawDe(otra);
+        for (const v of place(nubeDe(otra), donde, yaw)) puntos.push(v);
+      }
+      return gridOf(puntos);
+    }
+    const datos = (caballo, menos) => ({
+      own: endsOf(nubeDe(caballo)), body: nubeDe(caballo), center: centroDe(caballo), yaw: restFacingFor(caballo.color), grid: alrededorDe(caballo, menos),
+    });
+    const hechos = new Set();
+    for (const a of caballos) {
+      if (hechos.has(a)) continue;
+      const b = caballos.find((otro) => otro !== a && !hechos.has(otro) && cerca(a, otro));
+      const par = b ? pickPair({ a: datos(a, [b]), b: datos(b, [a]) }) : null;
+      if (!par) continue; // sin pareja, o sin salida limpia para los dos: uno a uno, abajo
+      giros.set(a, radianes(par[0]));
+      giros.set(b, radianes(par[1]));
+      hechos.add(a);
+      hechos.add(b);
+    }
+    for (const caballo of caballos) {
+      if (!hechos.has(caballo)) giros.set(caballo, radianes(pickTurn(datos(caballo))));
+    }
+    await Promise.all(caballos.map((entry) => entry.mover.settle(giros.get(entry), { instant })));
+  }
+
   async function afterMove() {
+    await settleKnights();
     const status = game.position.status();
     const side = game.position.side;
     const movio = side === 'white' ? 'black' : 'white';
@@ -688,6 +803,7 @@ async function start() {
     for (const uci of game.moves) p.playUci(uci);
     game.position = p;
     restoreBoard();
+    settleKnights({ instant: true });
     const status = game.position.status();
     highlights.check(status === 'check' ? squareName(game.position.kings[game.position.turn >> 3]) : null);
     game.clock?.switchTo(game.position.side, performance.now());
@@ -768,6 +884,9 @@ async function start() {
     select(null);
     highlights.check(null);
     if (game.moves.length || pieces.length !== 32) resetPieces(); // al empezar, el tablero ya está puesto
+    // Con todas quietas en su casilla de salida, cada clase de pieza deja medida su forma (y los caballos,
+    // que ahí no tocan a nadie, siguen al frente). Sin esperar: tarda medio segundo de juego.
+    settleKnights({ instant: true });
     game.start = INITIAL_FEN;
     game.position = Position.initial();
     game.moves = [];
@@ -816,6 +935,7 @@ async function start() {
     game.moves = [];
     select(null);
     squareUp();
+    settleKnights({ instant: true });
     const status = game.position.status();
     highlights.check(status === 'check' ? squareName(game.position.kings[game.position.turn >> 3]) : null);
     paintTurn();
@@ -903,6 +1023,7 @@ async function start() {
       } : {};
       entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing, ...cine });
     }
+    entry.nacida = clock.now; // para no medir su forma hasta que tenga su postura (`settleKnights`)
     addPiece(entry, square);
     // La mano del rey se cierra sobre el báculo lo último: el puño se busca con los brazos ya
     // bajados y la pieza en su casilla, no sobre el modelo recién cargado.
@@ -977,7 +1098,10 @@ async function start() {
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
     stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music, view,
-    game, menu, ui, cpu, newGame, playMove, toMenu, setup,
+    game, menu, ui, cpu, newGame, playMove, toMenu, setup, settleKnights,
+    get nubes() {
+      return nubes;
+    },
     get pawns() {
       return pieces.filter((entry) => entry.kind === 'pawn');
     },

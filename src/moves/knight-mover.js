@@ -30,6 +30,7 @@ const PAW_KNEE = { mid: 40, swing: -34 }; // y de la rodilla, al revés: se esti
 const LAND_SECONDS = 0.25;
 const LAND_BOUNCE = 0.08;
 const RISE_SECONDS = 0.4;
+const REST_TURN_SECONDS = 0.45; // lo que tarda en apartar la cabeza (o en volver al frente) quieto en su casilla
 const ON_FOOT = { halfLength: 0.3, halfWidth: 0.3 }; // huella del jinete sin caballo
 const POINT_STEP = 7; // de las demás piezas, un vértice de cada tantos para el arco del salto
 const PATH_MARGIN = 1.3; // piezas más lejos que esto del camino no cuentan para el arco
@@ -79,6 +80,12 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     busy = value;
     onBusy(value);
   }
+
+  // Hacia dónde mira quieto: al frente, salvo que le hayan pedido apartarse (`settle`: el caballo mide
+  // 1,6 casillas de largo y, con piezas anchas cerca, les mete la cabeza o la cola dentro). `dodge`, en
+  // radianes, a su derecha. La peana no se gira: su escudo sigue al frente.
+  let dodge = 0;
+  const restYaw = () => restFacing - dodge;
 
   async function exclusive(task) {
     if (busy) return false;
@@ -179,7 +186,8 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
       knight.seatRider();
     }
     knight.placeAt(at);
-    knight.face(restFacing);
+    dodge = 0; // lo que tenga alrededor se mira después, con todas las piezas ya en su sitio
+    knight.face(restYaw());
     rider.figure.scale.setScalar(1);
     rider.play('idle', { fade: 0 });
     if (horse) knight.seatRider(); // otra vez al final: sentarlo antes de tener sitio y reposo no cuaja
@@ -464,7 +472,8 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
       knight.pedestal.scale.setScalar(Math.max(0.001, k));
       figure.position.y = knight.pedestalHeight * k;
     });
-    await turnTo(restFacing, 0.35);
+    dodge = 0; // casilla nueva: al frente; si ahí estorba, ya le pedirán que se aparte
+    await turnTo(restYaw(), 0.35);
   }
 
   function goTo(target) {
@@ -802,9 +811,26 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     const to = board.squareToWorld(target);
     await moveTo(to);
     await rise(to);
-    await turnTo(restFacing, 0.3);
+    await turnTo(restYaw(), 0.3);
     square = target;
     knight.resting = knight.mounted;
+  }
+
+  // Se aparta `radians` a su derecha (o vuelve al frente, con 0) dando pasos, o de golpe con `instant`
+  // (al montar el tablero). Lo pide `main.js` tras cada jugada, que es cuando cambia lo que tiene cerca.
+  function settle(radians, { instant = false } = {}) {
+    dodge = radians;
+    if (busy || !square || !knight.mounted || !knight.object.visible) return Promise.resolve(false);
+    const yaw = restYaw();
+    if (Math.abs(shortestTurn(knight.figure.rotation.y, yaw)) < 1e-3) return Promise.resolve(false);
+    if (instant) {
+      knight.face(yaw);
+      return Promise.resolve(true);
+    }
+    return exclusive(async () => {
+      await stopGesture();
+      await turnTo(yaw, REST_TURN_SECONDS);
+    });
   }
 
   // Desaparece del tablero encogiendo dentro de una nube de polvo (capturas sin batalla).
@@ -840,6 +866,10 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     defeated,
     sit,
     standUp,
+    settle,
+    get dodge() {
+      return dodge;
+    },
     get horseLeaving() {
       return leaving;
     },
