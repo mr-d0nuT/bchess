@@ -509,9 +509,18 @@ export function spawnPiece(kit) {
   const swordHold = props.sword ? props.sword.quaternion.clone() : null;
   const swordTurn = { parent: new THREE.Quaternion(), world: new THREE.Quaternion(), aim: new THREE.Quaternion() };
   const swordLine = { hand: new THREE.Vector3(), arm: new THREE.Vector3(), axis: new THREE.Vector3(), blade: new THREE.Vector3() };
+  // Si el combate le ha quitado un arma (`debris.throwPiece` la cuelga de la escena, o del trozo de
+  // brazo que sale volando), ya no es cosa de la pieza. Seguir poniéndola cada fotograma como la lleva
+  // en la mano le borraba el giro en el aire y, al tumbarse en el suelo, la volvía a poner de pie: el
+  // báculo del alfil se quedaba hundido en el tablero, asomando como un trozo de lanza rota.
+  function isOurs(prop) {
+    for (let o = prop.parent; o; o = o.parent) if (o === object) return true;
+    return false;
+  }
+
   function aimSword() {
     const sword = props.sword;
-    if (!sword || !swordHold) return;
+    if (!sword || !swordHold || !isOurs(sword)) return;
     sword.quaternion.copy(swordHold);
     if (currentName !== 'attack' || !currentVariant?.thrust || !current) return;
     const end = currentVariant.seconds ?? current.getClip().duration;
@@ -905,7 +914,7 @@ export function spawnPiece(kit) {
     }
     aimSword();
     const spear = props.spear;
-    if (!spear) return;
+    if (!spear || !isOurs(spear)) return;
     if (flying) {
       flySpear(spear, dt);
       return;

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js';
 import { strikeSpot } from '../plan.js';
+import { shaftOf } from '../blow.js';
 import {
   bladeStrikes, BODY_GAP, bonePosition, COMBAT_RAISE, dismountMode, facingTo, fallDirection, kickOf,
   knockOut, lyingBody, PAWN_BODY, postOf, shout, topple, victoryLap, windUp,
@@ -69,6 +70,7 @@ export const pawnKicksKnight = {
       debris.throwPiece(rider.props.sword, {
         velocity: { x: Math.cos(facing) * 0.6, y: 1.8, z: -Math.sin(facing) * 0.6 },
         obstacles: () => crowd.obstacles([attacker, defender]),
+        lie: shaftOf(rider.props.sword),
       });
     }
     await Promise.all([afterImpact(clock), knees]);

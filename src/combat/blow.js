@@ -31,6 +31,23 @@ export function blowOf(fighter) {
   return { key, reach: body.reach, t: body.t, point: () => bonePosition(fighter, body.bone) };
 }
 
+// Lanza el golpe. Los puñetazos del peón llevan la lanza de punta (`spear: 'forward'` en el manifiesto,
+// para el duelo, donde la estocada se mide aparte); aquí el golpe se mide por la mano —la del escudo—,
+// y con la lanza de punta le daba con el escudo y a la vez lo atravesaba con ella de lado a lado. Así
+// que mientras pega, la lanza va erguida.
+export function playBlow(fighter, blow) {
+  const erguida = Boolean(fighter.props?.spear)
+    && fighter.attacks?.some((attack) => attack.key === blow.key && attack.spear === 'forward');
+  if (erguida) fighter.setSpearPose('upright');
+  const golpe = fighter.playOnce('attack', { clip: blow.key, fade: 0.15 });
+  return erguida ? golpe.finally(() => fighter.setSpearPose(null)) : golpe;
+}
+
+// Para lo que sale volando de la mano y es largo (el báculo, la espada): el eje de su vara en el mundo,
+// para que al caer se quede tumbado en el tablero (`lie` de `debris.throwPiece`). Sin él se posaba tal
+// como caía, a menudo de pie y medio hundido en el tablero: un palo roto que salía de la nada.
+export const shaftOf = (object) => () => new THREE.Vector3(0, 1, 0).transformDirection(object.matrixWorld);
+
 function swordTip(fighter) {
   return fighter.props.sword.localToWorld(new THREE.Vector3(0, fighter.swordEnds.top, 0));
 }

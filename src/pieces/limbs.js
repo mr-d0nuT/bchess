@@ -13,6 +13,9 @@ const SPIN = 7; // radianes por segundo que gira un trozo en el aire
 const REST_RADIUS = 0.08; // altura a la que se queda en el suelo el centro de un trozo
 const LIE_SECONDS = 0.25; // lo que tarda en tumbarse un trozo largo al posarse
 const LIE_GAP = 0.01; // lo que queda por encima del tablero lo más bajo de un trozo tumbado
+const TOUCH_BOUNCE = 0.35; // lo que rebota un trozo largo al tocar el tablero de punta
+const TOUCH_BOUNCE_SPEED = 0.6; // si llega más despacio que esto, no rebota: se posa
+const TOUCH_FRICTION = 0.6;
 
 // El eje más largo de un objeto, en sus propias coordenadas (el filo de una espada, el palo de una
 // lanza): para que, al caer, se tumbe a lo largo y no se quede clavado de punta.
@@ -115,6 +118,7 @@ export function createDebris(scene) {
         if (!lists.has(item.obstacles)) lists.set(item.obstacles, item.obstacles());
         rockStep(item.body, dt, lists.get(item.obstacles));
         item.object.rotateOnWorldAxis(item.spin, SPIN * dt);
+        if (item.lie) touchDown(item);
       }
       if (item.lie && item.body.resting && !item.lying) item.lying = startLying(item);
       if (item.lying) settleLying(item, dt);
@@ -129,6 +133,32 @@ export function createDebris(scene) {
         items.splice(i, 1);
       }
     }
+  }
+
+  // Un trozo largo toca el tablero con su extremo más bajo, no con el punto por donde se agarraba (que es
+  // donde lo mira `rockStep`): si no, caía de punta y se hundía en el tablero hasta el agarre, y de él
+  // asomaba un palo corto con su contera, como una lanza rota que salía de la nada. Al tocar, rebota
+  // una vez; a la segunda, se posa (y se tumba).
+  function touchDown(item) {
+    const { body } = item;
+    item.object.position.set(body.position.x, body.position.y, body.position.z);
+    item.object.updateMatrixWorld(true);
+    caja.setFromObject(item.object);
+    const hundido = LIE_GAP - caja.min.y;
+    if (hundido <= 0) return;
+    body.position.y += hundido;
+    if (body.velocity.y >= 0) return;
+    if (body.bounces === 0 && body.velocity.y < -TOUCH_BOUNCE_SPEED) {
+      body.velocity.y *= -TOUCH_BOUNCE;
+      body.velocity.x *= TOUCH_FRICTION;
+      body.velocity.z *= TOUCH_FRICTION;
+      body.bounces = 1;
+      return;
+    }
+    body.velocity.x = 0;
+    body.velocity.y = 0;
+    body.velocity.z = 0;
+    body.resting = true;
   }
 
   // Al posarse un trozo largo: el giro que deja su eje en horizontal (sin cambiar hacia dónde apunta

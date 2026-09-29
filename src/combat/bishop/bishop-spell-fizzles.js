@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
-import { blowDistance, blowOf, bringUp } from '../blow.js';
+import { blowDistance, blowOf, bringUp, playBlow, shaftOf } from '../blow.js';
 import {
   bonePosition, facingTo, fighterOf, knockOut, lyingBody, shout, topple, victoryLap,
 } from '../knight/common.js';
@@ -50,7 +50,7 @@ export const bishopSpellFizzles = {
     await clock.wait(FIZZLE_SECONDS);
 
     // 3. El otro le arrea, a cámara lenta.
-    const hitting = fighter.playOnce('attack', { clip: blow.key, fade: 0.15 });
+    const hitting = playBlow(fighter, blow);
     await slowToImpact(clock, blow.t);
     const fist = blow.point();
     fx.burst(fist, { size: 1.1, sparks: 26 });
@@ -61,6 +61,7 @@ export const bishopSpellFizzles = {
       debris.throwPiece(bishop.props.spear, {
         velocity: { x: Math.sin(facing) * -0.8, y: 2.2, z: Math.cos(facing) * -0.8 },
         obstacles: () => crowd.obstacles([attacker, defender]),
+        lie: shaftOf(bishop.props.spear),
       });
     }
     await afterImpact(clock);
