@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { QUEEN, armsDown } from '../../pieces/cast.js';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
-import { blowDistance, blowOf, bringUp } from '../blow.js';
+import { blowDistance, blowOf, bringUp, playBlow } from '../blow.js';
 import { facingTo, fighterOf, knockOut, shout, victoryLap } from '../knight/common.js';
 import { ROYAL_COLOR, chestOf, fallClear, pose, poseTo, rebote, release, suave } from './royal.js';
 
@@ -59,7 +59,7 @@ export const queenFalls = {
       await clock.wait(HEAD_START);
 
       // 4. Pero él es más rápido: su golpe llega a cámara lenta, y la magia le estalla en las manos.
-      const hitting = fighter.playOnce('attack', { clip: blow.key, fade: 0.15 });
+      const hitting = playBlow(fighter, blow);
       await slowToImpact(clock, blow.t);
       const donde = blow.point();
       fx.burst(donde, { size: 1.1, sparks: 26 });
@@ -69,7 +69,7 @@ export const queenFalls = {
       cinema.shake(0.2);
       shout(bubbles, '¡ZAS!', donde);
       await brazos;
-      const abiertos = poseTo(queen, QUEEN.summon, QUEEN.cast, { clock, seconds: FLING_SECONDS, ease: rebote });
+      const abiertos = poseTo(queen, QUEEN.summon, QUEEN.fling, { clock, seconds: FLING_SECONDS, ease: rebote });
       await afterImpact(clock);
       await Promise.all([hitting, abiertos]);
       fighter.play('idle', { fade: 0.3 });
