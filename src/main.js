@@ -392,6 +392,8 @@ async function start() {
       // Y la cámara enfoca a los que pelean: el resto del tablero se queda borroso. El punto se pide
       // en cada fotograma, no se fija aquí, porque los dos se mueven durante todo el combate.
       focus.on(() => centerOf(enPie().length ? enPie() : [attacker]));
+      // Y la cámara, mientras pelean, se ajusta a donde están los dos (se acerca a medida que se juntan).
+      cinema.watch(() => enPie().map((entry) => entry.piece.figure.position));
       const style = pickStyle(state.lastStyle);
       // Entre peones, un duelo; de vez en cuando, el atacante saca una bomba.
       const bomba = attacker.kind === 'pawn' && defender.kind === 'pawn' && Math.random() < pawnThrowsBomb.chance
@@ -419,6 +421,7 @@ async function start() {
     } finally {
       if (pieces.includes(defender)) removePiece(defender);
       focus.off();
+      cinema.watch(null);
       fade.watch(null);
       await fade.restore();
       await Promise.race([crowd.settle(), clock.wait(SETTLE_LIMIT)]);
