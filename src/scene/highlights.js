@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 
-// Marcas sobre el tablero, todas del mismo neón verde: un aro que late y gira bajo la pieza elegida,
-// un punto de luz en cada casilla a la que puede ir y una diana bajo cada enemigo que puede comerse.
-// Lo único que no es verde es el aro ROJO bajo el rey en jaque, que tiene que saltar a la vista. Sin
-// sombras ni luz propia, para que se lean bien sobre la madera.
+// Marcas sobre el tablero, en un arcoíris de neón que no para de cambiar: un aro bajo la pieza elegida
+// que late, respira y suelta una onda en cada latido, con los colores dándole vueltas; un punto de luz
+// en cada casilla a la que puede ir, del color que tiene el aro mirando hacia él y con ondas de color
+// que salen de la pieza hacia fuera; y una diana bajo cada enemigo que puede comerse. Lo único que no
+// es arcoíris es el aro ROJO bajo el rey en jaque, que tiene que saltar a la vista. Sin sombras ni luz
+// propia, para que se lean bien sobre la madera.
 
 const LIFT = 0.006; // justo por encima de las casillas para no parpadear con ellas
 const HOVER_LIFT = 0.009; // y el contorno del ratón, por encima de todo lo demás
@@ -11,14 +13,19 @@ const HOVER_GLIDE = 0.07; // segundos que tarda en deslizarse de una casilla a l
 const HOVER_BEAT = 2.4; // radianes por segundo del latido: una respiración, no un parpadeo
 const HOVER_LOW = 0.3;
 const HOVER_HIGH = 0.95;
-// El aro de la pieza elegida: un tubo de neón verde que late —se enciende y se apaga un poco, y
-// respira de tamaño— y gira despacio, para que el degradado de color corra por él.
+// El aro de la pieza elegida: un tubo de neón que late —se enciende y se apaga, y respira de tamaño—,
+// suelta una onda en cada latido y gira, para que los colores corran por él.
 const NEON_SIZE = 1.3; // lado del cuadrado donde va pintado, en casillas
-const NEON_BEAT = 4.2; // radianes por segundo del latido
-const NEON_SPIN = 0.6; // y del giro
-const NEON_LOW = 0.6;
+const NEON_BEAT = 4.2; // radianes por segundo del latido: uno cada segundo y medio
+const NEON_SPIN = 1.3; // y del giro: los colores dan la vuelta al aro en unos 5 s
+const NEON_LOW = 0.5;
 const NEON_HIGH = 1;
-const NEON_BREATH = 0.035; // lo que crece y encoge al latir
+const NEON_BREATH = 0.07; // lo que crece y encoge al latir
+const WAVE_GROWTH = 0.7; // la onda de cada latido se abre hasta 1,7 veces el aro mientras se apaga
+const WAVE_OPACITY = 0.85;
+const CAPTURE_SPIN = 1.8; // la diana gira al revés que el aro, y más deprisa
+const CHECK_SPIN = 1.2;
+const HUE_SPREAD = 0.06; // lo que cambia el color de un punto por cada casilla que se aleja de la pieza
 
 // El contorno que sigue al ratón, dibujado en un lienzo: un marco blanco de esquinas redondeadas con
 // su halo, como un led encendido sobre la madera. En textura y no con geometría porque así el borde
@@ -62,15 +69,23 @@ function hoverTexture() {
   return texture;
 }
 
-// El aro de neón, pintado en un lienzo: el halo, ancho y del color de la paleta; encima el tubo,
-// con el degradado de color que le da la vuelta (en el verde, de lima a verde y a turquesa), y dentro del
-// tubo un filamento más claro, que es lo que hace que un neón parezca encendido y no pintado. Se
-// pinta encima de la madera, no sumado a ella: sumado, sobre el roble claro salía casi blanco.
-const VERDE = {
-  halo: ['rgba(0, 255, 60, 0)', 'rgba(0, 230, 80, 0.45)', 'rgba(20, 255, 110, 0.7)', 'rgba(0, 220, 70, 0.4)', 'rgba(0, 255, 40, 0)'],
-  tubo: ['rgb(150, 255, 60)', 'rgb(0, 255, 110)', 'rgb(0, 230, 190)', 'rgb(40, 255, 70)'],
-  sombra: 'rgb(0, 255, 100)',
-  filamento: ['rgb(140, 255, 160)', 'rgba(210, 255, 215, 0.95)'],
+// El arcoíris: los seis colores del círculo cromático con la luz de un neón (HSL con L al 60 %). Entre
+// dos seguidos el lienzo mezcla en línea recta, que es justo como va el círculo cromático: el punto del
+// degradado ES el tono. Por eso los puntos pueden copiar con setHSL el color del aro.
+const TONOS = ['rgb(255, 51, 51)', 'rgb(255, 255, 51)', 'rgb(51, 255, 51)', 'rgb(51, 255, 255)', 'rgb(51, 51, 255)', 'rgb(255, 51, 255)'];
+const LUZ = 0.6;
+
+// El aro de neón, pintado en un lienzo: el halo, ancho y del color de la paleta; encima el tubo, con
+// su resplandor, y dentro del tubo un filamento más claro, que es lo que hace que un neón parezca
+// encendido y no pintado. El arcoíris se pinta en blanco y luego se tiñe entero con los colores
+// repartidos en círculo, así el halo y el resplandor llevan en cada punto el color del tubo. Se pinta
+// encima de la madera, no sumado a ella: sumado, sobre el roble claro salía casi blanco.
+const ARCOIRIS = {
+  halo: ['rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0.45)', 'rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.4)', 'rgba(255, 255, 255, 0)'],
+  tubo: ['#fff', '#fff', '#fff', '#fff'],
+  sombra: '#fff',
+  filamento: ['rgb(255, 255, 255)', 'rgba(255, 255, 255, 0.85)'],
+  tinte: TONOS,
 };
 const ROJO = {
   halo: ['rgba(255, 20, 0, 0)', 'rgba(255, 40, 20, 0.5)', 'rgba(255, 60, 30, 0.75)', 'rgba(255, 30, 10, 0.45)', 'rgba(255, 0, 0, 0)'],
@@ -79,7 +94,7 @@ const ROJO = {
   filamento: ['rgb(255, 170, 120)', 'rgba(255, 220, 190, 0.9)'],
 };
 
-function neonTexture(paleta = VERDE, { radio: r = 0.45, grosor = 1 } = {}) {
+function neonTexture(paleta = ARCOIRIS, { radio: r = 0.45, grosor = 1 } = {}) {
   const size = 512;
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -110,6 +125,8 @@ function neonTexture(paleta = VERDE, { radio: r = 0.45, grosor = 1 } = {}) {
   ctx.strokeStyle = tubo;
   aro(size * 0.032 * grosor);
 
+  if (paleta.tinte) colorea(ctx, size, paleta.tinte);
+
   ctx.shadowBlur = size * 0.01;
   ctx.shadowColor = paleta.filamento[0];
   ctx.strokeStyle = paleta.filamento[1];
@@ -120,19 +137,47 @@ function neonTexture(paleta = VERDE, { radio: r = 0.45, grosor = 1 } = {}) {
   return texture;
 }
 
-// El punto de luz de una casilla libre: un núcleo claro con su halo verde.
-function dotTexture() {
+// Tiñe lo ya pintado con los colores dados, repartidos en círculo alrededor del centro (el primero a la
+// derecha y los demás en el sentido de las agujas del reloj), sin tocar su transparencia.
+function colorea(ctx, size, colores) {
+  const c = size / 2;
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.shadowBlur = 0;
+  if (ctx.createConicGradient) {
+    const tinte = ctx.createConicGradient(0, c, c);
+    colores.forEach((color, i) => tinte.addColorStop(i / colores.length, color));
+    tinte.addColorStop(1, colores[0]);
+    ctx.fillStyle = tinte;
+    ctx.fillRect(0, 0, size, size);
+  } else {
+    // Navegadores sin degradado cónico: por gajos, un poco solapados para que no se vean las juntas.
+    const gajos = 180;
+    for (let i = 0; i < gajos; i++) {
+      ctx.fillStyle = `hsl(${(i / gajos) * 360}, 100%, ${LUZ * 100}%)`;
+      ctx.beginPath();
+      ctx.moveTo(c, c);
+      ctx.arc(c, c, size, (i / gajos) * Math.PI * 2, ((i + 1.5) / gajos) * Math.PI * 2);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// El punto de luz de una casilla libre va en dos capas: el halo, en blanco para teñirlo del color que
+// le toque en cada momento, y encima el núcleo, que se queda blanco, como el filamento del aro.
+const DOT_HALO = [[0, 1], [0.3, 0.85], [0.55, 0.3], [1, 0]];
+const DOT_CORE = [[0, 1], [0.12, 0.9], [0.26, 0]];
+
+function dotTexture(paradas) {
   const size = 128;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
   const c = size / 2;
   const g = ctx.createRadialGradient(c, c, 0, c, c, c);
-  g.addColorStop(0, 'rgba(225, 255, 220, 1)');
-  g.addColorStop(0.16, 'rgba(110, 255, 140, 1)');
-  g.addColorStop(0.3, 'rgba(0, 240, 100, 0.85)');
-  g.addColorStop(0.55, 'rgba(0, 210, 80, 0.3)');
-  g.addColorStop(1, 'rgba(0, 200, 60, 0)');
+  for (const [t, alfa] of paradas) g.addColorStop(t, `rgba(255, 255, 255, ${alfa})`);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
   const texture = new THREE.CanvasTexture(canvas);
@@ -144,7 +189,7 @@ const neonMaterial = (map) => new THREE.MeshBasicMaterial({ map, transparent: tr
 
 export function createHighlights(scene, board) {
   const ringMaterial = new THREE.MeshBasicMaterial({
-    map: neonTexture(),
+    map: neonTexture(ARCOIRIS),
     transparent: true,
     depthWrite: false,
     toneMapped: false, // que el mapeo de tonos no lo apague: un neón es más vivo que la escena
@@ -156,13 +201,23 @@ export function createHighlights(scene, board) {
   ring.visible = false;
   scene.add(ring);
 
+  // La onda que suelta el aro en cada latido: el mismo neón, más fino, que se abre y se apaga.
+  const waveMaterial = neonMaterial(neonTexture(ARCOIRIS, { radio: 0.45, grosor: 0.55 }));
+  const wave = new THREE.Mesh(new THREE.PlaneGeometry(NEON_SIZE, NEON_SIZE), waveMaterial);
+  wave.name = 'onda';
+  wave.rotation.x = -Math.PI / 2;
+  wave.renderOrder = 0.5; // por debajo del aro
+  wave.visible = false;
+  scene.add(wave);
+
   const dotGeometry = new THREE.PlaneGeometry(0.64, 0.64);
-  const dotMaterial = neonMaterial(dotTexture());
-  const dots = [];
+  const dotHalo = dotTexture(DOT_HALO);
+  const coreMaterial = neonMaterial(dotTexture(DOT_CORE));
+  const dots = []; // { mesh, material }: cada punto lleva su material, porque cada uno va de su color
 
   // La diana bajo cada enemigo que se puede comer: el mismo neón, más fino y latiendo más deprisa.
   const captureGeometry = new THREE.PlaneGeometry(NEON_SIZE, NEON_SIZE);
-  const captureMaterial = neonMaterial(neonTexture(VERDE, { radio: 0.42, grosor: 0.7 }));
+  const captureMaterial = neonMaterial(neonTexture(ARCOIRIS, { radio: 0.42, grosor: 0.7 }));
   const captureRings = [];
 
   // El rey en jaque: el mismo aro, en rojo.
@@ -191,8 +246,10 @@ export function createHighlights(scene, board) {
   let hoverAge = 0; // lo que lleva encendido, para que entre suave
 
   function select(square) {
-    ring.visible = Boolean(square);
-    if (square) ring.position.copy(board.squareToWorld(square)).setY(LIFT);
+    ring.visible = wave.visible = Boolean(square);
+    if (!square) return;
+    ring.position.copy(board.squareToWorld(square)).setY(LIFT);
+    wave.position.copy(ring.position);
   }
 
   // El rey en jaque (su casilla), o null.
@@ -203,14 +260,21 @@ export function createHighlights(scene, board) {
 
 
   function showMoves(squares) {
-    for (const dot of dots) scene.remove(dot);
+    for (const dot of dots) {
+      scene.remove(dot.mesh);
+      dot.material.dispose();
+    }
     dots.length = 0;
     for (const square of squares) {
-      const dot = new THREE.Mesh(dotGeometry, dotMaterial);
-      dot.rotation.x = -Math.PI / 2;
-      dot.position.copy(board.squareToWorld(square)).setY(LIFT);
-      scene.add(dot);
-      dots.push(dot);
+      const material = neonMaterial(dotHalo);
+      const mesh = new THREE.Mesh(dotGeometry, material);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.copy(board.squareToWorld(square)).setY(LIFT);
+      const core = new THREE.Mesh(dotGeometry, coreMaterial);
+      core.renderOrder = 1; // por encima de su halo
+      mesh.add(core);
+      scene.add(mesh);
+      dots.push({ mesh, material });
     }
   }
 
@@ -238,27 +302,47 @@ export function createHighlights(scene, board) {
     hoverAge = 0;
   }
 
-  // Los aros rojos laten para llamar la atención, y el contorno del ratón respira mientras se desliza
-  // hasta la casilla que señala.
+  // Todo late y cambia de color, y el contorno del ratón respira mientras se desliza hasta la casilla
+  // que señala.
   function pulse(seconds, dt = 0) {
+    const giro = seconds * NEON_SPIN; // lo que ha girado el aro: los colores corren con él
     const rapido = 0.5 + 0.5 * Math.sin(seconds * 6);
     captureMaterial.opacity = 0.6 + 0.4 * rapido;
     for (const mark of captureRings) {
       mark.scale.setScalar(1 + 0.05 * (rapido - 0.5));
-      mark.rotation.z = -seconds * NEON_SPIN * 1.4;
+      mark.rotation.z = -seconds * CAPTURE_SPIN;
     }
-    dotMaterial.opacity = 0.75 + 0.25 * (0.5 + 0.5 * Math.sin(seconds * NEON_BEAT));
+    // Cada punto, del color que tiene el aro mirando hacia él, y un poco más atrás en el arcoíris
+    // cuanto más lejos está: así los colores salen de la pieza hacia fuera, en ondas. (El degradado
+    // del aro empieza a la derecha del lienzo, que en el tablero es +x, y gira hacia +z; al girar el
+    // aro un ángulo, lo que se ve en cada dirección es lo que había ese ángulo más allá.)
+    const brillo = 0.75 + 0.25 * (0.5 + 0.5 * Math.sin(seconds * NEON_BEAT));
+    coreMaterial.opacity = brillo;
+    for (const { mesh, material } of dots) {
+      const dx = mesh.position.x - ring.position.x;
+      const dz = mesh.position.z - ring.position.z;
+      const tono = (Math.atan2(dz, dx) + giro) / (Math.PI * 2) - Math.hypot(dx, dz) * HUE_SPREAD;
+      material.color.setHSL(tono - Math.floor(tono), 1, LUZ);
+      material.opacity = brillo;
+    }
     if (checkRing.visible) {
       const alarma = 0.5 + 0.5 * Math.sin(seconds * 7.5);
       checkMaterial.opacity = 0.6 + 0.4 * alarma;
       checkRing.scale.setScalar(1 + 0.06 * (alarma - 0.5));
-      checkRing.rotation.z = seconds * NEON_SPIN * 2;
+      checkRing.rotation.z = seconds * CHECK_SPIN;
     }
     if (ring.visible) {
-      const latido = 0.5 + 0.5 * Math.sin(seconds * NEON_BEAT);
+      const fase = seconds * NEON_BEAT;
+      const latido = 0.5 + 0.5 * Math.sin(fase);
       ringMaterial.opacity = NEON_LOW + (NEON_HIGH - NEON_LOW) * latido;
       ring.scale.setScalar(1 + NEON_BREATH * (latido - 0.5) * 2);
-      ring.rotation.z = seconds * NEON_SPIN;
+      ring.rotation.z = giro;
+      // La onda nace del aro en lo más alto de cada latido y se abre mientras se apaga.
+      const vueltas = fase / (Math.PI * 2) - 0.25;
+      const vida = vueltas - Math.floor(vueltas);
+      wave.scale.setScalar(1 + NEON_BREATH + WAVE_GROWTH * (1 - (1 - vida) ** 2));
+      waveMaterial.opacity = WAVE_OPACITY * (1 - vida) ** 1.5;
+      wave.rotation.z = giro;
     }
     if (!hoverMesh.visible) return;
     if (!hovered) {
