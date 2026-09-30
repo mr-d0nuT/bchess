@@ -41,7 +41,7 @@ import { createFocus } from './scene/focus.js';
 import { STYLES, pickStyle } from './combat/plan.js';
 import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
-import { canGagBattle, runGagBattle } from './combat/battles.js';
+import { battleName, battlesFor, runGagBattle, testing } from './combat/battles.js';
 import { pawnThrowsBomb } from './combat/pawn-bomb.js';
 
 // Arranque: la pantalla de carga, el menú (uno contra uno o contra la CPU, y su nivel) y la partida,
@@ -301,13 +301,87 @@ async function start() {
     tickClock();
   }
 
+  // Combates (ajustes): siempre, solo la primera vez de cada uno, o nunca (captura rápida). Se recuerda,
+  // y también qué combates se han visto ya.
+  const COMBATES = 'bchess.combates';
+  const VISTOS = 'bchess.combates.vistos';
+  const leerPreferencia = (clave, porDefecto) => {
+    try { return localStorage.getItem(clave) ?? porDefecto; } catch { return porDefecto; }
+  };
+  const guardarPreferencia = (clave, valor) => {
+    try { localStorage.setItem(clave, valor); } catch { /* sin almacenamiento: solo esta sesión */ }
+  };
+  let modoCombates = leerPreferencia(COMBATES, 'siempre');
+  const vistos = new Set((() => {
+    try { return JSON.parse(leerPreferencia(VISTOS, '[]')); } catch { return []; }
+  })());
+  const botonesCombates = [...document.querySelectorAll('#ajustes-combates button')];
+  const pintaCombates = () => {
+    for (const boton of botonesCombates) boton.setAttribute('aria-pressed', String(boton.dataset.combates === modoCombates));
+  };
+  for (const boton of botonesCombates) {
+    boton.addEventListener('click', () => {
+      modoCombates = boton.dataset.combates;
+      guardarPreferencia(COMBATES, modoCombates);
+      pintaCombates();
+    });
+  }
+  pintaCombates();
+
+  // Saltar combates (punto 1 del plan): una partida tiene 15-30 capturas y cada combate dura de 10 a 50
+  // segundos. Durante uno, un toque lo acelera y otro lo salta: la pantalla se funde a negro, el combate
+  // corre por detrás a toda velocidad (como en las pruebas, con `advance`) y, al acabar, vuelve la imagen.
+  // El toque que empieza la captura no cuenta (llega a la vez que empieza el combate).
+  const SALTO_ACELERA = 3; // fotogramas de juego por fotograma de pantalla, acelerando
+  const SALTO_IGNORA = 450; // ms tras empezar el combate en que un toque no cuenta
+  const SALTO_FUNDIDO = 260; // ms del fundido a negro antes de saltar
+  const salto = { velocidad: 1, saltando: false, desde: 0 };
+  const botonSaltar = document.getElementById('saltar');
+  const fundido = document.getElementById('fundido');
+  function pintaSalto() {
+    if (!botonSaltar) return;
+    botonSaltar.hidden = !state.fighting || salto.saltando;
+    botonSaltar.textContent = salto.velocidad > 1 ? `⏭ ${t('combate.saltar')}` : `⏩ ${t('combate.acelerar')}`;
+  }
+  function finSalto() {
+    salto.velocidad = 1;
+    salto.saltando = false;
+    fundido?.classList.remove('negro');
+    pintaSalto();
+  }
+  async function tocaCombate() {
+    if (!state.fighting || salto.saltando || performance.now() - salto.desde < SALTO_IGNORA) return;
+    if (salto.velocidad === 1) {
+      salto.velocidad = SALTO_ACELERA;
+      pintaSalto();
+      return;
+    }
+    salto.saltando = true;
+    salto.velocidad = 1;
+    fundido?.classList.add('negro');
+    pintaSalto();
+    await new Promise((resolve) => { setTimeout(resolve, SALTO_FUNDIDO); });
+    while (state.fighting) await advance(0.5, 30);
+  }
+  botonSaltar?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    tocaCombate();
+  });
+  stage.renderer.domElement.addEventListener('pointerup', () => tocaCombate());
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' || event.key === 'Enter') tocaCombate();
+  });
+  onLanguage(pintaSalto);
+
   let previous = performance.now();
   let manual = false; // mientras `advance` mueve el juego a mano
   stage.renderer.setAnimationLoop((now) => {
     const dt = Math.min((now - previous) / 1000, 0.1);
     previous = now;
-    if (!manual) frame(now, dt);
-    focus.render(dt);
+    // Acelerando un combate, varios fotogramas de juego por cada uno de pantalla: pasos de tiempo
+    // normales, que con uno largo la física y los andares se descolocan.
+    if (!manual) for (let i = 0; i < salto.velocidad; i++) frame(now, dt);
+    if (!salto.saltando) focus.render(dt); // saltando, la pantalla está en negro
     hud.tickFps(now);
   });
 
@@ -380,6 +454,8 @@ async function start() {
   // tablero queda coherente.
   async function capture(attacker, defender) {
     state.fighting = true;
+    salto.desde = performance.now();
+    pintaSalto();
     highlights.clear();
     const target = defender.mover.square;
     try {
@@ -394,22 +470,39 @@ async function start() {
       focus.on(() => centerOf(enPie().length ? enPie() : [attacker]));
       // Y la cámara, mientras pelean, se ajusta a donde están los dos (se acerca a medida que se juntan).
       cinema.watch(() => enPie().map((entry) => entry.piece.figure.position));
-      // Entre peones, un duelo; de vez en cuando, el atacante saca una bomba. El estilo se alterna, pero si
-      // en el que toca no tienen golpes, el otro: el cuerpo a cuerpo solo tenía un puñetazo que llegase, y
-      // era de izquierda —un escudazo—, y el escudo no es para pegar.
+      // Los combates que le pueden tocar a esta pareja, cada uno con su peso al echarlo a suertes. Entre
+      // peones, un duelo y, de vez en cuando (`pawnThrowsBomb.chance`), la bomba; el estilo del duelo se
+      // alterna, pero si en el que toca no tienen golpes, el otro (el cuerpo a cuerpo solo tenía un
+      // puñetazo que llegase, y era de izquierda: un escudazo, y el escudo no es para pegar). Si no hay
+      // gag, el gigante de la torre (`runSmash`); si nada, la captura sin combate.
       const peones = attacker.kind === 'pawn' && defender.kind === 'pawn';
-      const elegido = pickStyle(state.lastStyle);
-      const style = !peones || canFight(attacker, defender, elegido)
-        ? elegido
-        : STYLES.find((otro) => canFight(attacker, defender, otro)) ?? elegido;
-      const bomba = peones && Math.random() < pawnThrowsBomb.chance && canGagBattle(attacker, defender);
-      if (peones && !bomba && canFight(attacker, defender, style)) {
-        state.lastStyle = style;
-        await runCombat({ attacker, defender, board, clock, fx, cinema, hud, style, obstacles });
-      } else if (canGagBattle(attacker, defender)) {
-        await runGagBattle({ attacker, defender, board, clock, fx, cinema, hud, crowd, dust, rubble, debris, bubbles, obstacles });
-      } else if (attacker.kind !== 'knight' && defender.kind !== 'knight' && canSmash(attacker, defender)) {
-        await runSmash({ attacker, defender, board, clock, fx, cinema, hud, crowd, obstacles });
+      const candidatos = [];
+      if (peones) {
+        const elegido = pickStyle(state.lastStyle);
+        const style = canFight(attacker, defender, elegido) ? elegido : STYLES.find((otro) => canFight(attacker, defender, otro));
+        if (style) {
+          candidatos.push({
+            clave: 'duelo', peso: 1 - pawnThrowsBomb.chance,
+            jugar: () => { state.lastStyle = style; return runCombat({ attacker, defender, board, clock, fx, cinema, hud, style, obstacles }); },
+          });
+        }
+      }
+      for (const gag of battlesFor(attacker, defender)) {
+        candidatos.push({
+          clave: `${battleName(gag)}:${defender.kind}`, gag, peso: peones && gag === pawnThrowsBomb ? pawnThrowsBomb.chance : 1,
+          jugar: () => runGagBattle({ attacker, defender, board, clock, fx, cinema, hud, crowd, dust, rubble, debris, bubbles, obstacles, pick: gag }),
+        });
+      }
+      if (!candidatos.length && attacker.kind !== 'knight' && defender.kind !== 'knight' && canSmash(attacker, defender)) {
+        candidatos.push({ clave: `gigante:${attacker.kind}>${defender.kind}`, peso: 1, jugar: () => runSmash({ attacker, defender, board, clock, fx, cinema, hud, crowd, obstacles }) });
+      }
+      const combate = elegirCombate(candidatos);
+      if (combate) {
+        await combate.jugar();
+        if (!testing.active) {
+          vistos.add(combate.clave);
+          guardarPreferencia(VISTOS, JSON.stringify([...vistos]));
+        }
       } else {
         await plainCapture(attacker, defender, target);
       }
@@ -431,7 +524,26 @@ async function start() {
       await fade.restore();
       await Promise.race([crowd.settle(), clock.wait(SETTLE_LIMIT)]);
       state.fighting = false;
+      finSalto();
     }
+  }
+
+  // De los combates que pueden tocar, cuál, según el ajuste: con «nunca», ninguno (captura rápida); con
+  // «la primera vez», solo los que aún no se han visto. Entre los que quedan, a suertes según su peso (la
+  // red de seguridad puede forzar uno: `testing.only`).
+  function elegirCombate(candidatos) {
+    const forzado = candidatos.find((c) => c.gag && c.gag === testing.only);
+    if (forzado) return forzado;
+    let lista = candidatos.filter((c) => c.peso > 0);
+    if (modoCombates === 'nunca') lista = [];
+    if (modoCombates === 'primera') lista = lista.filter((c) => !vistos.has(c.clave));
+    const total = lista.reduce((suma, c) => suma + c.peso, 0);
+    let r = Math.random() * total;
+    for (const c of lista) {
+      r -= c.peso;
+      if (r <= 0) return c;
+    }
+    return lista.at(-1) ?? null;
   }
 
   // ¿Puede tocar ahora el jugador? Ni en el menú, ni con algo moviéndose, ni en el turno de la CPU.
@@ -1107,6 +1219,13 @@ async function start() {
   window.bchess = {
     stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music, view,
     game, menu, ui, cpu, newGame, playMove, toMenu, setup, settleKnights,
+    get combates() {
+      return modoCombates;
+    },
+    set combates(modo) {
+      modoCombates = modo;
+      pintaCombates();
+    },
     // La red de seguridad: juega todos los combates y dice cuáles fallan (`dev/autotest.js`).
     async autotest(opciones) {
       const prueba = await import('./dev/autotest.js');

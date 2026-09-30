@@ -16,6 +16,9 @@ const HOLD_SECONDS = 0.55; // lo que la enseña, encendida, antes de lanzarla
 const FLIGHT_SECONDS = 0.65;
 const FLIGHT_HEIGHT = 0.9;
 const ROLL = 0.18; // lo que rueda al caer
+// Donde se para, a los pies del rival: a esto de su centro (antes, a medio metro por delante).
+const AT_FEET = 0.25;
+const BOMB_SIZE = 1.15; // un poco más pequeña que al principio (1,45): parecía un balón
 const STARE_SECONDS = 0.45; // lo que el rival se la queda mirando
 const SMOKE_SECONDS = 0.9; // tiznado y humeando, antes de caer
 const BOMB_CHANCE = 0.3; // entre peones, cada cuánto hay bomba en vez de duelo (lo decide `capture`)
@@ -54,7 +57,7 @@ export const pawnThrowsBomb = {
     // 2. Se enfada, saca la bomba y enciende la mecha.
     if (pawn.has('taunt')) await pawn.playOnce('taunt', { fade: 0.15 });
     pawn.play('idle', { fade: 0.2 });
-    const bomba = fx.bomb(hand);
+    const bomba = fx.bomb(hand, { size: BOMB_SIZE });
     shout(bubbles, '¡TACHÁN!', hand.getWorldPosition(new THREE.Vector3()).setY(1.6));
     await clock.wait(0.35);
     bomba.light(FUSE_SECONDS);
@@ -69,8 +72,7 @@ export const pawnThrowsBomb = {
     const victima = victimOf(defender);
     const pies = victima.figure.getWorldPosition(new THREE.Vector3());
     const hacia = new THREE.Vector3(pies.x - home.x, 0, pies.z - home.z).normalize();
-    const radio = defender.piece.radius ?? 0.4;
-    const cae = { x: pies.x - hacia.x * (radio + ROLL + 0.1), z: pies.z - hacia.z * (radio + ROLL + 0.1) };
+    const cae = { x: pies.x - hacia.x * (AT_FEET + ROLL), z: pies.z - hacia.z * (AT_FEET + ROLL) };
     await bomba.throwTo(cae, { seconds: FLIGHT_SECONDS, height: FLIGHT_HEIGHT, roll: { x: hacia.x * ROLL, z: hacia.z * ROLL } });
     await lanzando;
     pawn.play('idle', { fade: 0.2 });

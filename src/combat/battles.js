@@ -33,15 +33,17 @@ export const battleName = (battle) => Object.keys(NAMED).find((name) => NAMED[na
 // contra un peón puede atravesarlo a pie o cargar con la lanza sin bajarse), se echa a suertes.
 export const battlesFor = (attacker, defender) => BATTLES.filter((battle) => battle.matches(attacker, defender) && battle.can(attacker, defender));
 
-// Para la red de seguridad (`dev/autotest.js`): con `only`, se juega ese combate en vez de echarlo a suertes.
-export const testing = { only: null };
+// Para la red de seguridad (`dev/autotest.js`): con `only`, se juega ese combate en vez de echarlo a suertes;
+// con `active`, lo que juega no cuenta como visto (el ajuste «la primera vez» se quedaría sin combates).
+export const testing = { only: null, active: false };
 
 export function canGagBattle(attacker, defender) {
   return battlesFor(attacker, defender).length > 0;
 }
 
 // `obstacles` son los centros {x, z} de las demás piezas, para que la cámara no quede tapada.
-export async function runGagBattle({ attacker, defender, board, clock, fx, cinema, hud, crowd, dust, rubble, debris, bubbles, obstacles = [], random = Math.random }) {
+// `pick`: el combate que se juega (si no, a suertes entre los que pueden).
+export async function runGagBattle({ attacker, defender, board, clock, fx, cinema, hud, crowd, dust, rubble, debris, bubbles, obstacles = [], random = Math.random, pick = null }) {
   const stances = new Map(); // luchador → abanico de lo que hará en su puesto (`stanceOf`)
   const bodies = []; // cuerpos tendidos en el suelo
   const release = crowd.claim({
@@ -53,7 +55,7 @@ export async function runGagBattle({ attacker, defender, board, clock, fx, cinem
     ],
   });
   const options = battlesFor(attacker, defender);
-  const battle = options.includes(testing.only) ? testing.only : options[Math.floor(random() * options.length)] ?? options[0];
+  const battle = [pick, testing.only].find((b) => b && options.includes(b)) ?? options[Math.floor(random() * options.length)] ?? options[0];
   try {
     await battle.run({
       attacker, defender, board, clock, fx, cinema, hud, crowd, dust, rubble, debris, bubbles, obstacles, random, stances, bodies,

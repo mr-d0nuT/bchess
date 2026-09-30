@@ -62,9 +62,20 @@
         <p id="ajustes-partida" class="ajustes-partida">—</p>
         <button id="ajustes-menu" type="button" class="ajustes-accion" data-i18n="ajustes.menu">Volver al menú</button>
       </section>
+      <section>
+        <h3 data-i18n="ajustes.combates">Combates</h3>
+        <div id="ajustes-combates" class="ajustes-opciones">
+          <button type="button" data-combates="siempre" data-i18n="ajustes.combates.siempre">Siempre</button>
+          <button type="button" data-combates="primera" data-i18n="ajustes.combates.primera">La primera vez</button>
+          <button type="button" data-combates="nunca" data-i18n="ajustes.combates.nunca">Nunca</button>
+        </div>
+      </section>
       <button id="ajustes-cerrar" type="button" data-i18n="ajustes.cerrar">Cerrar</button>
     </div>
   </div>
+  <!-- Durante un combate: tocar lo acelera y, otra vez, lo salta (con la pantalla fundida a negro). -->
+  <button id="saltar" type="button" hidden></button>
+  <div id="fundido" aria-hidden="true"></div>
   <!-- El menú de después de la carga (`ui/menu.js`). -->
   <div id="menu" hidden>
     <canvas id="menu-chispas" aria-hidden="true"></canvas>

@@ -18,6 +18,9 @@ const FPS = 20; // …a 20 fotogramas por segundo: basta para que todo pase por 
 export async function runAutotest(b, { only = null, onProgress = () => {} } = {}) {
   const results = [];
   const gestureAt = b.gesture.at;
+  const modo = b.combates;
+  b.combates = 'siempre'; // con «nunca» o «la primera vez», no se jugaría ningún combate
+  testing.active = true;
   const bombChance = pawnThrowsBomb.chance;
   const logged = [];
   const originalError = console.error;
@@ -26,7 +29,11 @@ export async function runAutotest(b, { only = null, onProgress = () => {} } = {}
   console.warn = (...args) => { logged.push(args.map(String).join(' ')); originalWarn(...args); };
   b.gesture.at = Infinity;
   try {
-    await b.newGame({ mode: 'pvp', level: 30, color: 'white', time: 'libre:libre' });
+    // La partida nueva gira el tablero y aleja la cámara con animaciones: se la hace avanzar mientras
+    // (en una pestaña de fondo el juego no avanza solo y se quedaría esperando).
+    let lista = false;
+    b.newGame({ mode: 'pvp', level: 30, color: 'white', time: 'libre:libre' }).then(() => { lista = true; });
+    for (let k = 0; k < 40 && !lista; k++) await b.advance(0.25, FPS);
     b.menu.hide?.();
     const list = pairs().filter((pair) => !only || only(pair));
     // Primero se cuentan las pruebas: una por cada combate que le pueda tocar a la pareja.
@@ -56,8 +63,10 @@ export async function runAutotest(b, { only = null, onProgress = () => {} } = {}
     onProgress({ done: runs.length, total: runs.length, current: null });
   } finally {
     testing.only = null;
+    testing.active = false;
     pawnThrowsBomb.chance = bombChance;
     b.gesture.at = gestureAt;
+    b.combates = modo;
     console.error = originalError;
     console.warn = originalWarn;
   }

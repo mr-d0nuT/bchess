@@ -248,6 +248,49 @@ html, body {
 }
 #ajustes-panel h2 { margin: 0 0 14px; font-size: 18px; }
 #ajustes-panel h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.06em; }
+#ajustes-panel section + section { margin-top: 16px; }
+.ajustes-opciones { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.ajustes-opciones button {
+  padding: 8px 12px;
+  border: 1px solid var(--borde-boton);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--tinta);
+  font: 600 13px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.ajustes-opciones button[aria-pressed="true"] { background: var(--tinta); color: #1a120b; border-color: var(--tinta); }
+
+/* Saltar combates: el aviso abajo, que también se puede tocar, y el fundido a negro al saltar. */
+#saltar {
+  position: fixed;
+  left: 50%;
+  bottom: max(18px, calc(env(safe-area-inset-bottom) + 10px));
+  z-index: 800;
+  transform: translateX(-50%);
+  padding: 9px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: 600 14px/1 system-ui, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  animation: saltar-entra 0.4s ease-out;
+}
+#saltar[hidden] { display: none; }
+@keyframes saltar-entra { from { opacity: 0; transform: translate(-50%, 8px); } }
+#fundido {
+  position: fixed;
+  inset: 0;
+  z-index: 790;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+#fundido.negro { opacity: 1; }
+
 #ajustes-cerrar {
   margin-top: 18px;
   padding: 9px 22px;
