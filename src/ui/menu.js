@@ -1,10 +1,11 @@
 import { LANGUAGES, currentLanguage, onLanguage, setLanguage, t } from '../i18n.js';
-import { TIME_CONTROLS } from '../chess/timecontrol.js';
+import { TIME_CONTROLS, findTimeControl } from '../chess/timecontrol.js';
 import { flagSvg } from './flags.js';
 
 // El menú de después de la carga: pantalla negra, el logo, cómo se juega (uno contra uno o contra la
 // CPU, con qué piezas y a qué nivel), cuánto dura la partida (bala, blitz, rápida, diaria o sin
-// reloj), el idioma (la bandera de arriba) y JUGAR. Suena la misma melodía que en la carga; al pulsar
+// reloj), el idioma (la bandera de arriba) y JUGAR. Si hay una partida a medias, arriba del todo,
+// «Continuar partida». Suena la misma melodía que en la carga; al pulsar
 // JUGAR se funde (eso lo hace quien llama, que es quien sabe de música).
 //
 // Todo se mueve: detrás suben chispas, el logo flota, la tarjeta elegida lleva un borde de neón que
@@ -27,6 +28,33 @@ export function timeLabel(option) {
 }
 
 const POR_DEFECTO = { mode: 'cpu', level: 30, color: 'white', time: 'libre:libre' };
+
+// «hace 5 minutos», en el idioma de ahora.
+function haceCuanto(ms) {
+  try {
+    const rtf = new Intl.RelativeTimeFormat(currentLanguage(), { numeric: 'auto' });
+    const s = Math.max(0, Math.round(ms / 1000));
+    if (s < 60) return rtf.format(-s, 'second');
+    const m = Math.round(s / 60);
+    if (m < 60) return rtf.format(-m, 'minute');
+    const h = Math.round(m / 60);
+    if (h < 24) return rtf.format(-h, 'hour');
+    return rtf.format(-Math.round(h / 24), 'day');
+  } catch {
+    return ''; // un navegador sin esto: se queda sin decir cuándo
+  }
+}
+
+// Lo que se cuenta de la partida a medias: «1 contra CPU · nivel 42 (…) · Blitz · 3 | 2 · jugada 14 ·
+// hace 5 minutos».
+function describirGuardada(g) {
+  const partes = [g.mode === 'cpu' ? t('ajustes.cpu', { n: g.level, nombre: levelName(g.level) }) : t('ajustes.pvp')];
+  const control = findTimeControl(g.time);
+  if (control) partes.push(`${t(`tiempo.${control.key.split(':')[0]}`)} · ${timeLabel(control)}`);
+  partes.push(t('menu.jugada', { n: Math.floor(g.moves / 2) + 1 }));
+  if (Number.isFinite(g.cuando)) partes.push(haceCuanto(Date.now() - g.cuando));
+  return partes.filter(Boolean).join(' · ');
+}
 
 function leer() {
   try {
@@ -158,12 +186,15 @@ export function createMenu() {
   const opciones = root.querySelector('#menu-tiempo-opciones');
   const elegido = root.querySelector('#menu-tiempo-elegido');
   const jugar = root.querySelector('#menu-jugar');
+  const continuar = root.querySelector('#menu-continuar');
+  const continuarSub = root.querySelector('#menu-continuar-sub');
   const logo = root.querySelector('.menu-logo');
   const idiomaBoton = root.querySelector('#menu-idioma-boton');
   const idiomas = root.querySelector('#menu-idiomas');
   logo?.addEventListener('error', () => root.classList.add('sin-logo'));
   let eleccion = leer();
   let responder = null;
+  let guardada = null; // la partida a medias que se puede continuar (su resumen), o null
 
   const categoriaDe = (key) => TIME_CONTROLS.find((c) => c.id === String(key).split(':')[0]) ?? TIME_CONTROLS[0];
   const opcionDe = (key) => {
@@ -266,6 +297,10 @@ export function createMenu() {
     nombre.textContent = levelName(eleccion.level);
     pintarTiempo();
     pintarIdiomas();
+    if (continuar) {
+      continuar.hidden = !guardada;
+      if (guardada && continuarSub) continuarSub.textContent = describirGuardada(guardada);
+    }
   }
   onLanguage(pintar);
 
@@ -307,11 +342,24 @@ export function createMenu() {
     responder = null;
     listo({ ...eleccion });
   });
+  continuar?.addEventListener('click', () => {
+    if (!responder) return;
+    const caja = continuar.getBoundingClientRect();
+    chispas.burst(caja.left + caja.width / 2, caja.top + caja.height / 2);
+    continuar.classList.add('pulsado');
+    const listo = responder;
+    responder = null;
+    listo({ continuar: true });
+  });
 
   return {
-    // Enseña el menú y espera a JUGAR. Devuelve { mode, level, color, time }.
-    show() {
+    // Enseña el menú y espera a JUGAR, que devuelve { mode, level, color, time }; o, si se le da una
+    // partida `guardada` (su resumen: { mode, level, time, moves, cuando }), a «Continuar partida», que
+    // devuelve { continuar: true }.
+    show({ guardada: aMedias = null } = {}) {
       eleccion = leer();
+      guardada = aMedias;
+      continuar?.classList.remove('pulsado');
       pintar();
       abrirIdiomas(false);
       root.hidden = false;
@@ -320,7 +368,7 @@ export function createMenu() {
       void root.offsetWidth;
       root.classList.add('entra');
       chispas.start();
-      setTimeout(() => jugar.focus({ preventScroll: true }), 900);
+      setTimeout(() => (guardada ? continuar : jugar).focus({ preventScroll: true }), 900);
       return new Promise((resolve) => {
         responder = resolve;
       });

@@ -71,3 +71,13 @@ test('cómo se lee en la pantalla', () => {
   assert.equal(formatClock(3 * 24 * 3600000), '3d 00h');
   assert.equal(formatClock(2 * 24 * 3600000 + 23 * 3600000), '2d 23h');
 });
+
+test('al continuar una partida guardada, cada reloj sigue con lo que le quedaba', () => {
+  const c = createChessClock({ base: 180000, inc: 2000 });
+  c.restore({ white: 95000, black: 41000 });
+  c.start('black', 1000);
+  assert.equal(c.remaining('white', 4000), 95000);
+  assert.equal(c.remaining('black', 4000), 38000);
+  c.press('black', 4000);
+  assert.equal(c.remaining('black', 4000), 40000, 'con su incremento');
+});

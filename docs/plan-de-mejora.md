@@ -12,7 +12,7 @@ entera y un final a la altura.
 
 ## Fase 1 — Lo que más se nota ya (y protege lo hecho)
 
-### 1. Saltar combates · S–M
+### 1. Saltar combates · S–M · ✔ hecho
 **Qué:** tocar la pantalla durante un combate lo acelera, y un segundo toque lo salta. En ajustes:
 combates *siempre*, *solo la primera vez de cada tipo* o *nunca* (captura rápida).
 **Por qué:** una partida tiene 15–30 capturas y cada combate dura de 10 a 50 segundos. La tercera
@@ -37,13 +37,13 @@ instante y funciona aunque no haya cobertura.
 **Cómo:** un pequeño programa que el navegador guarda junto a la web y que sirve los ficheros desde
 el móvil (lo que se llama «service worker»), con aviso cuando hay versión nueva.
 
-### 4. Guardar y reanudar la partida · S
+### 4. Guardar y reanudar la partida · S · ✔ hecho
 **Qué:** si cierras la app o se apaga el móvil, al volver la partida sigue donde estaba, con los
 relojes.
 **Cómo:** se guarda la lista de jugadas en el propio navegador tras cada jugada y, al abrir, se ofrece
 «Continuar partida».
 
-### 5. Red de seguridad · M
+### 5. Red de seguridad · M · ✔ hecho
 **Qué:** una prueba automática que juega en segundo plano todos los combates (cada pareja de piezas)
 y avisa si alguno falla o se queda colgado.
 **Por qué:** dos fallos míos lo justifican. Uno dejó un rato sin combates a todo lo que no fuera

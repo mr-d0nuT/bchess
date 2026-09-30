@@ -90,6 +90,11 @@ export function createChessClock({ base = 0, inc = 0, perMove = 0 } = {}) {
       corre = side;
       desde = now;
     },
+    // Al continuar una partida guardada: lo que le quedaba a cada uno.
+    restore({ white, black }) {
+      queda.white = white;
+      queda.black = black;
+    },
     // Parar y seguir (las animaciones no cuentan).
     pause(now) {
       descuenta(now);

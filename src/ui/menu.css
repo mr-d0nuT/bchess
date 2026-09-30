@@ -59,6 +59,48 @@
 #menu.sin-logo .menu-logo { display: none; }
 #menu.sin-logo .menu-titulo { display: block; }
 
+/* CONTINUAR: la partida a medias, arriba del todo, dorada como JUGAR y con su resumen debajo. */
+.continuar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 18px 12px 12px;
+  border: 0;
+  border-radius: 20px;
+  background: linear-gradient(165deg, rgba(64, 40, 10, 0.94), rgba(18, 10, 2, 0.96));
+  color: #f4ead7;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  box-shadow: 0 0 0 2px rgba(255, 210, 120, 0.75), 0 0 26px rgba(255, 160, 30, 0.4), inset 0 0 22px rgba(255, 150, 30, 0.12);
+  animation: late-continuar 1.8s ease-in-out infinite;
+  transition: transform 0.2s cubic-bezier(0.2, 1.6, 0.4, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+@keyframes late-continuar {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(255, 210, 120, 0.7), 0 0 20px rgba(255, 160, 30, 0.35), inset 0 0 22px rgba(255, 150, 30, 0.12); }
+  50% { box-shadow: 0 0 0 2px rgba(255, 230, 160, 0.95), 0 0 42px rgba(255, 170, 40, 0.7), inset 0 0 26px rgba(255, 150, 30, 0.2); }
+}
+.continuar[hidden] { display: none; }
+.continuar:hover { transform: scale(1.03); }
+.continuar:active { transform: scale(0.97); }
+.continuar.pulsado { animation: pulsado 0.6s ease-out forwards; }
+.continuar-icono {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  padding: 11px 9px 11px 13px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #fff1bf 0%, #f8c451 38%, #e08a1c 70%, #b35d0c 100%);
+  fill: #2a1400;
+  box-shadow: 0 0 16px rgba(255, 170, 40, 0.7), inset 0 -3px 8px rgba(110, 45, 0, 0.45);
+}
+.continuar-textos { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.continuar-titulo { font: 900 clamp(17px, 4.8vw, 21px)/1.1 system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: #ffd98a; }
+.continuar-sub { font-size: 12.5px; line-height: 1.35; opacity: 0.78; }
+
 /* Las dos tarjetas de modo. */
 .menu-modos { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; }
 .modo {
@@ -342,6 +384,8 @@
 #menu.entra .menu-cpu.abierto, #menu.entra .menu-tiempo { animation: aparece 0.6s ease 0.8s both; }
 #menu.entra .menu-idioma { animation: aparece 0.6s ease 1s both; }
 #menu.entra .jugar { animation: jugar-entra 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) 0.95s both, late 1.8s ease-in-out 1.9s infinite; }
+#menu.entra .continuar { animation: jugar-entra 0.8s cubic-bezier(0.2, 1.6, 0.4, 1) 0.35s both, late-continuar 1.8s ease-in-out 1.15s infinite; }
+#menu.entra .continuar.pulsado { animation: pulsado 0.6s ease-out forwards; }
 @keyframes aparece { from { opacity: 0; transform: translateY(14px); } }
 @keyframes jugar-entra { from { opacity: 0; transform: scale(0.3); } }
 #menu.sale { animation: menu-sale 0.9s cubic-bezier(0.6, 0, 0.8, 0.4) forwards; }
@@ -350,12 +394,12 @@
 @keyframes caja-sale { to { transform: scale(1.35); filter: blur(10px); opacity: 0; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .menu-logo, .menu-luz, .modo::before, .jugar, .jugar::before, .modo[aria-checked="true"] .modo-icono { animation: none !important; }
+  .menu-logo, .menu-luz, .modo::before, .jugar, .jugar::before, .continuar, .modo[aria-checked="true"] .modo-icono { animation: none !important; }
 }
 @media (max-height: 560px) and (orientation: landscape) {
   .menu-caja { flex-direction: row; flex-wrap: wrap; justify-content: center; width: min(900px, 100% - 32px); }
   .menu-logo { height: 50vh; }
-  .menu-modos, .menu-cpu, .menu-tiempo { width: min(420px, 100%); }
+  .menu-modos, .menu-cpu, .menu-tiempo, .continuar { width: min(420px, 100%); }
 }
 .menu-caja { gap: clamp(10px, 1.8vh, 18px); }
 

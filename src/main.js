@@ -27,6 +27,7 @@ import { createMenu, levelName, timeLabel } from './ui/menu.js';
 import { createMatchUi } from './ui/match-ui.js';
 import { createChessClockUi } from './ui/chess-clock.js';
 import { createChessClock, findTimeControl } from './chess/timecontrol.js';
+import { SAVE_KEY, clockOnResume, packGame, readSavedGame } from './chess/saved-game.js';
 import { initLanguage, onLanguage, t } from './i18n.js';
 import { createFullscreen } from './ui/fullscreen.js';
 import { GESTURE_RETRY_MS, nextGestureDelay, pickPerformer } from './moves/gestures.js';
@@ -65,6 +66,7 @@ const QUEEN_STILL = 0.35; // segundos del clip de andar en los que se queda quie
 const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar qué hay bajo el ratón
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
 const CPU_MIN_MS = 700; // la CPU nunca contesta antes: una jugada al instante parece un error
+const GUARDA_RELOJ_MS = 5000; // con reloj, cada cuánto se guarda la partida mientras corre
 const NUBE_PASO = 5; // de cada malla, un vértice de cada tantos para saber a quién toca un caballo
 const NUBE_SUELO = 0.45; // y solo lo de encima de las peanas, que no se giran
 const VECINDAD = 1.6; // piezas más lejos que esto (entre centros de casilla) no llegan a tocar a un caballo
@@ -209,7 +211,7 @@ async function start() {
   // cómo se juega y a qué nivel. `id` cambia con cada partida nueva, para tirar lo que llegue tarde.
   const game = {
     start: INITIAL_FEN, position: Position.initial(), moves: [], mode: 'cpu', level: 30, human: 'white', color: 'white',
-    id: 0, thinking: false, animating: false, control: null, clock: null, press: null,
+    id: 0, thinking: false, animating: false, control: null, clock: null, press: null, enCurso: null, deConsola: false,
   };
   const cpu = createCpu();
   const menu = createMenu();
@@ -595,6 +597,10 @@ async function start() {
       return;
     }
     game.animating = true;
+    // Se guarda ya, antes del combate: si se cierra la app a media animación, al volver la jugada está
+    // hecha (y si un combate llegara a colgarse, al recargar se sigue sin él).
+    game.enCurso = plan.uci;
+    guardarPartida();
     select(null);
     highlights.check(null);
     try {
@@ -617,6 +623,7 @@ async function start() {
     }
     game.position.make(m);
     game.moves.push(plan.uci);
+    game.enCurso = null;
     squareUp();
     await afterMove();
   }
@@ -833,6 +840,7 @@ async function start() {
   // Se acabó. `status`: el de las reglas, o 'time' si al que mueve (`flagged`) se le acabó el tiempo:
   // pierde, salvo que al otro no le quede con qué dar mate, que entonces son tablas.
   async function gameOver(status, flagged = null) {
+    borrarPartida();
     state.phase = 'over';
     game.press = null;
     clockUi.cancel();
@@ -874,6 +882,7 @@ async function start() {
     if (vivo) reloj.resume(ahora);
     else reloj.pause(ahora);
     clockUi.render({ white: reloj.remaining('white', ahora), black: reloj.remaining('black', ahora), running: reloj.running, paused: reloj.paused });
+    if (vivo && ahora - guardadaEn > GUARDA_RELOJ_MS) guardarPartida(); // por si se va la app sin avisar
     const sinTiempo = state.phase === 'playing' ? reloj.flagged(ahora) : null;
     if (sinTiempo) {
       game.id += 1; // lo que estuviera en marcha (la CPU pensando) ya no cuenta
@@ -927,6 +936,7 @@ async function start() {
     const status = game.position.status();
     highlights.check(status === 'check' ? squareName(game.position.kings[game.position.turn >> 3]) : null);
     game.clock?.switchTo(game.position.side, performance.now());
+    guardarPartida();
     paintTurn();
     if (game.mode === 'pvp') await view.flipTo(game.position.side === 'black');
   }
@@ -985,10 +995,20 @@ async function start() {
     }
   }
 
-  // Tablero nuevo: fuera todas las piezas y cada una otra vez en su casilla de salida.
-  function resetPieces() {
+  // Tablero nuevo: fuera todas las piezas y cada una otra vez en su casilla de salida; o, al continuar
+  // una partida guardada, donde diga su posición.
+  function resetPieces(position = null) {
     for (const entry of [...pieces]) removePiece(entry);
     debris.clear();
+    if (position) {
+      for (let rank = 1; rank <= 8; rank++) {
+        for (const file of FILES) {
+          const debe = position.pieceAt(file + rank);
+          if (debe) spawnEntry(debe.kind, debe.color, file + rank);
+        }
+      }
+      return;
+    }
     for (const side of SIDES) {
       for (const kind of KINDS) {
         for (const square of startSquares(kind, side)) spawnEntry(kind, side.color, square);
@@ -996,41 +1016,110 @@ async function start() {
     }
   }
 
-  async function newGame({ mode, level, color = 'white', time = 'libre:libre' }) {
+  // Partida nueva o, con `guardada` (la de `partidaGuardada()`), la que se dejó a medias: sus piezas donde
+  // estaban, sus relojes y el turno de quien tocaba.
+  async function newGame({ mode, level, color = 'white', time = 'libre:libre', guardada = null }) {
     game.id += 1;
     cpu.cancel();
     clockUi.cancel();
     ui.closeAll();
     select(null);
     highlights.check(null);
-    if (game.moves.length || pieces.length !== 32) resetPieces(); // al empezar, el tablero ya está puesto
-    // Con todas quietas en su casilla de salida, cada clase de pieza deja medida su forma (y los caballos,
-    // que ahí no tocan a nadie, siguen al frente). Sin esperar: tarda medio segundo de juego.
+    if (!guardada) borrarPartida(); // se ha elegido empezar otra: la de antes ya no se continúa
+    if (guardada) resetPieces(guardada.position);
+    else if (game.moves.length || pieces.length !== 32) resetPieces(); // al empezar, el tablero ya está puesto
+    // Con todas quietas en su casilla, cada clase de pieza deja medida su forma y los caballos se apartan
+    // si hace falta (en la de salida no tocan a nadie y siguen al frente). Sin esperar: tarda medio segundo.
     settleKnights({ instant: true });
-    game.start = INITIAL_FEN;
-    game.position = Position.initial();
-    game.moves = [];
+    game.start = guardada?.start ?? INITIAL_FEN;
+    game.position = guardada?.position ?? Position.initial();
+    game.moves = guardada ? [...guardada.moves] : [];
+    game.enCurso = null;
+    game.deConsola = false;
     game.mode = mode;
     game.level = level;
     game.color = color;
     // Contra la CPU, el jugador lleva las piezas que ha elegido (o las que le toquen a suertes).
-    game.human = mode === 'cpu' ? (color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color) : 'white';
+    game.human = guardada?.human ?? (mode === 'cpu' ? (color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color) : 'white');
     game.thinking = false;
     game.press = null;
     game.control = findTimeControl(time);
     game.clock = game.control ? createChessClock(game.control) : null;
+    const reloj = guardada && game.clock ? clockOnResume(guardada, game.control, Date.now()) : null;
+    if (reloj) game.clock.restore(reloj);
     clockUi.show(game.control, controlName);
+    const lado = game.position.side;
     await view.zoomOut();
-    await view.flipTo(game.human === 'black'); // cada uno mira el tablero desde su lado
+    // Cada uno mira el tablero desde su lado; uno contra uno, desde el del que mueve.
+    await view.flipTo(game.mode === 'pvp' ? lado === 'black' : game.human === 'black');
     state.phase = 'playing';
-    game.clock?.start('white', performance.now());
+    game.clock?.start(lado, performance.now());
+    const status = game.position.status();
+    highlights.check(status === 'check' ? squareName(game.position.kings[game.position.turn >> 3]) : null);
     paintTurn();
     paintSettings();
-    if (game.mode === 'cpu' && game.human === 'black') cpuTurn(); // las blancas son de la CPU: empieza ella
+    if (game.mode === 'cpu' && lado !== game.human) cpuTurn(); // le toca a la CPU (con blancas, empieza ella)
   }
+
+  // LA PARTIDA GUARDADA (`chess/saved-game.js`): tras cada jugada (nada más decidirla), al deshacer, al
+  // irse al menú, al esconderse la app y, con reloj, de tanto en tanto. Al acabar la partida o empezar
+  // otra, se borra. La red de seguridad y las posiciones puestas desde la consola no la tocan.
+  let guardadaEn = -Infinity;
+  function guardarPartida() {
+    if (testing.active || game.deConsola || state.phase !== 'playing') return;
+    const moves = game.enCurso ? [...game.moves, game.enCurso] : game.moves;
+    if (!moves.length) {
+      borrarPartida();
+      return;
+    }
+    const ahora = performance.now();
+    guardadaEn = ahora;
+    const clock = game.clock ? { white: game.clock.remaining('white', ahora), black: game.clock.remaining('black', ahora) } : null;
+    const datos = packGame({
+      start: game.start, moves, mode: game.mode, level: game.level, human: game.human, color: game.color,
+      time: game.control?.key ?? 'libre:libre', clock, now: Date.now(),
+    });
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(datos));
+    } catch {
+      // sin almacenamiento (ventana privada, lleno): se juega igual, sin poder continuar luego
+    }
+  }
+  function borrarPartida() {
+    if (testing.active) return;
+    try {
+      localStorage.removeItem(SAVE_KEY);
+    } catch {
+      // nada que borrar
+    }
+  }
+  function partidaGuardada() {
+    try {
+      return readSavedGame(localStorage.getItem(SAVE_KEY));
+    } catch {
+      return null;
+    }
+  }
+  // Lo que el menú cuenta de ella en «Continuar partida».
+  const resumenGuardada = () => {
+    const g = partidaGuardada();
+    return g && { mode: g.mode, level: g.level, time: g.time, moves: g.moves.length, cuando: g.cuando };
+  };
+  // Lo elegido en el menú: continuar la guardada (si sigue ahí) o una partida nueva.
+  async function empezar(eleccion) {
+    const guardada = eleccion.continuar ? partidaGuardada() : null;
+    if (guardada) await newGame({ ...guardada, guardada });
+    else await newGame(eleccion.continuar ? menu.choice : eleccion);
+  }
+  const alEsconderse = () => {
+    if (document.visibilityState === 'hidden') guardarPartida();
+  };
+  document.addEventListener('visibilitychange', alEsconderse);
+  window.addEventListener('pagehide', () => guardarPartida());
 
   // Al menú: vuelve la melodía de la carga y, al pulsar JUGAR, se funde y empieza la partida elegida.
   async function toMenu() {
+    guardarPartida(); // la de ahora se puede continuar desde el menú
     state.phase = 'menu';
     game.id += 1;
     cpu.cancel();
@@ -1041,9 +1130,9 @@ async function start() {
     ui.closeAll();
     select(null);
     music.backToIntro();
-    const eleccion = await menu.show();
+    const eleccion = await menu.show({ guardada: resumenGuardada() });
     music.endIntro();
-    await newGame(eleccion);
+    await empezar(eleccion);
     await menu.hide();
   }
 
@@ -1053,6 +1142,7 @@ async function start() {
     game.start = fen;
     game.position = Position.fromFEN(fen);
     game.moves = [];
+    game.deConsola = true; // una posición de prueba: no se guarda encima de la partida de verdad
     select(null);
     squareUp();
     settleKnights({ instant: true });
@@ -1218,7 +1308,11 @@ async function start() {
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
     stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music, view,
-    game, menu, ui, cpu, newGame, playMove, toMenu, setup, settleKnights,
+    game, menu, ui, cpu, newGame, playMove, toMenu, setup, settleKnights, empezar,
+    // La partida guardada, tal como se continuaría (o null).
+    get guardada() {
+      return partidaGuardada();
+    },
     get combates() {
       return modoCombates;
     },
@@ -1258,11 +1352,11 @@ async function start() {
 
   // Todo cargado: la pantalla de carga se funde y debajo espera el menú, con la melodía de la carga
   // sonando todavía. Al pulsar JUGAR se funde la música y empieza la partida.
-  const eleccion = menu.show();
+  const eleccion = menu.show({ guardada: resumenGuardada() });
   await loading.finish();
   const elegido = await eleccion;
   music.endIntro();
-  await newGame(elegido);
+  await empezar(elegido);
   await menu.hide();
 }
 
