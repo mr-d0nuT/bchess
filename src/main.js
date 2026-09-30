@@ -38,7 +38,7 @@ import { createCinema } from './scene/cinema.js';
 import { createView } from './scene/view.js';
 import { createFade } from './scene/fade.js';
 import { createFocus } from './scene/focus.js';
-import { pickStyle } from './combat/plan.js';
+import { STYLES, pickStyle } from './combat/plan.js';
 import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
 import { canGagBattle, runGagBattle } from './combat/battles.js';
@@ -394,11 +394,16 @@ async function start() {
       focus.on(() => centerOf(enPie().length ? enPie() : [attacker]));
       // Y la cámara, mientras pelean, se ajusta a donde están los dos (se acerca a medida que se juntan).
       cinema.watch(() => enPie().map((entry) => entry.piece.figure.position));
-      const style = pickStyle(state.lastStyle);
-      // Entre peones, un duelo; de vez en cuando, el atacante saca una bomba.
-      const bomba = attacker.kind === 'pawn' && defender.kind === 'pawn' && Math.random() < pawnThrowsBomb.chance
-        && canGagBattle(attacker, defender);
-      if (attacker.kind === 'pawn' && defender.kind === 'pawn' && !bomba && canFight(attacker, defender, style)) {
+      // Entre peones, un duelo; de vez en cuando, el atacante saca una bomba. El estilo se alterna, pero si
+      // en el que toca no tienen golpes, el otro: el cuerpo a cuerpo solo tenía un puñetazo que llegase, y
+      // era de izquierda —un escudazo—, y el escudo no es para pegar.
+      const peones = attacker.kind === 'pawn' && defender.kind === 'pawn';
+      const elegido = pickStyle(state.lastStyle);
+      const style = !peones || canFight(attacker, defender, elegido)
+        ? elegido
+        : STYLES.find((otro) => canFight(attacker, defender, otro)) ?? elegido;
+      const bomba = peones && Math.random() < pawnThrowsBomb.chance && canGagBattle(attacker, defender);
+      if (peones && !bomba && canFight(attacker, defender, style)) {
         state.lastStyle = style;
         await runCombat({ attacker, defender, board, clock, fx, cinema, hud, style, obstacles });
       } else if (canGagBattle(attacker, defender)) {

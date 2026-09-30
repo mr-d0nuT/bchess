@@ -16,6 +16,9 @@ const MAX_DISTANCE = 8; // aunque el atacante salga de muy lejos: el combate es 
 const FRAME_MARGIN = 1.4; // lo que se deja a lo ancho, además de lo que se separan: su anchura y algo de aire
 const FRAME_MARGIN_TALL = 0.8; // en una pantalla vertical (el móvil), menos: si no, la cámara se iba lejísimos
 const CLOSER = 0.2; // al elegir desde dónde encuadrar, lo que pesa cada unidad de distancia de más
+// Lo que pesa ponerse del lado contrario al pedido (`favor`): más que una pieza en medio, que el
+// atenuado la deja ver a través, y un escudo por delante no.
+const FAVOR_WEIGHT = 1.5;
 const LIVE_RATE = 2.2; // lo deprisa que se ajusta a los que pelean (por segundo): suave, sin tirones
 const ELEVATION = 0.65; // altura de la cámara por cada casilla de distancia: mira por encima
 const PIECE_TOP = 1.75; // altura de una pieza sobre su peana, para saber si tapa el encuadre
@@ -100,7 +103,9 @@ export function createCinema(stage) {
     // Prueba direcciones cada 30° alrededor de las dos de lado y se queda con la que menos
     // piezas (`obstacles`, {x, z}) meten entre la cámara y el combate. Penaliza un poco alejarse
     // de lado y el lado contrario al de la cámara del usuario.
-    frame(clock, a, b, obstacles = []) {
+    // `favor` ({x, z}, opcional): el lado desde el que conviene mirar —el del arma del atacante: desde el
+    // del escudo, el escudo tapaba el golpe—.
+    frame(clock, a, b, obstacles = [], { favor = null } = {}) {
       tracked = null;
       if (!saved) saved = { position: camera.position.clone(), target: controls.target.clone() };
       controls.enabled = false;
@@ -121,7 +126,9 @@ export function createCinema(stage) {
           // Mejor de lado, pero también mejor de cerca: en una pantalla vertical, de lado solo caben los
           // dos desde muy lejos, y un plano de tres cuartos los pone uno más cerca que el otro y cabe mucho
           // más cerca. Por eso ahí ladearse penaliza menos.
-          const score = blockers + Math.abs(step) * 0.3 * Math.min(1, camera.aspect) + (dir.dot(toUser) < 0 ? 0.2 : 0) + distance * CLOSER;
+          const wrongSide = favor && dir.x * favor.x + dir.z * favor.z < 0 ? FAVOR_WEIGHT : 0;
+          const score = blockers + Math.abs(step) * 0.3 * Math.min(1, camera.aspect) + (dir.dot(toUser) < 0 ? 0.2 : 0)
+            + distance * CLOSER + wrongSide;
           if (!best || score < best.score) best = { score, dir, mid, distance };
         }
       }

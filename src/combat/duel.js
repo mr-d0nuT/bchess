@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { fightSpots, gripSlideForReach, planExchanges, usableStrikes } from './plan.js';
+import { fightSpots, gripSlideForReach, planExchanges, shieldOf, usableStrikes } from './plan.js';
 import { twirl } from './twirl.js';
-import { victoryLap } from './knight/common.js';
+import { rightOf, victoryLap } from './knight/common.js';
 
 // Director del combate entre dos peones (diseño en docs/superpowers/specs/
 // 2026-09-14-bchess-combate-peones-design.md). Gana siempre el atacante.
@@ -19,9 +19,13 @@ const RECOVER = 0.3; // lo que tarda en bajar el arma y erguir la lanza antes de
 const COMBAT_RAISE = 0.3;
 const TWIRL_TURNS = 3; // vueltas de lanza del atacante al encarar, y del vencedor al celebrar
 const TWIRL_SECONDS = 0.7;
+// Lo que se ve de cada golpe antes de que llegue. La única estocada del peón que no es con la mano del
+// escudo (box_02) tarda 2,3 s en soltarse, con mucho baile de pies antes: sin recortarla, cada intercambio
+// se hacía eterno.
+const STRIKE_LEAD = 1.0;
 
 function strikesFor(pawn, style) {
-  return usableStrikes(pawn.piece.attacks, pawn.piece.strikes, style);
+  return usableStrikes(pawn.piece.attacks, pawn.piece.strikes, style, { shield: shieldOf(pawn.piece) });
 }
 
 // Claves de golpe que pueden usar los dos luchadores en este estilo.
@@ -60,10 +64,12 @@ async function strike({ hitter, receiver, beat, style, spots, clock, fx, cinema,
     h.setGripSlide(gripSlideForReach({ reach: measure.spear.reach, distance: spots.distance }));
     await clock.wait(GRIP_SETTLE);
   }
-  const attack = h.playOnce('attack', { clip: beat.key, fade: 0.15 });
+  const lead = Math.max(0, impact.t - STRIKE_LEAD);
+  const attack = h.playOnce('attack', { clip: beat.key, fade: 0.15, from: lead });
+  const hasta = impact.t - lead; // lo que falta para el golpe
 
   if (!beat.final) {
-    await clock.wait(impact.t);
+    await clock.wait(hasta);
     fx.burst(impactPoint(hitter, measure, style), { size: 0.55, sparks: 12 });
     cinema.shake(0.07);
     const reaction = r.playOnce('hit', { fade: 0.08 });
@@ -81,9 +87,9 @@ async function strike({ hitter, receiver, beat, style, spots, clock, fx, cinema,
   }
 
   // Golpe final: cámara lenta, destello, empujón y derrota.
-  await clock.wait(Math.max(0, impact.t - SLOW_BEFORE));
+  await clock.wait(Math.max(0, hasta - SLOW_BEFORE));
   clock.timeScale = SLOW_MOTION;
-  await clock.wait(Math.min(SLOW_BEFORE, impact.t));
+  await clock.wait(Math.min(SLOW_BEFORE, hasta));
   fx.burst(impactPoint(hitter, measure, style), { size: 1, sparks: 26 });
   hud.flash();
   cinema.shake(0.18);
@@ -121,7 +127,8 @@ export async function runCombat({ attacker, defender, board, clock, fx, cinema, 
   }
 
   // 1. Preparación: la cámara encuadra, se encaran, provocación o susto, y bajan de la peana.
-  const framing = cinema.frame(clock, spots.attacker, spots.defender, obstacles);
+  // Del lado de la lanza del atacante: del del escudo, el escudo tapaba la estocada.
+  const framing = cinema.frame(clock, spots.attacker, spots.defender, obstacles, { favor: rightOf(spots.attackerFacing) });
   await Promise.all([
     attacker.mover.turnTo(spots.attackerFacing, 0.3),
     defender.mover.turnTo(spots.defenderFacing, 0.3),

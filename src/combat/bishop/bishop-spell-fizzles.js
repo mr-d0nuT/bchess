@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
-import { blowDistance, blowOf, bringUp, playBlow, shaftOf } from '../blow.js';
+import { aimBlow, blowDistance, blowOf, bringUp, gapTo, playBlow, shaftOf, torsoOf } from '../blow.js';
 import {
   bonePosition, facingTo, fighterOf, knockOut, lyingBody, shout, topple, victoryLap,
 } from '../knight/common.js';
@@ -49,7 +49,8 @@ export const bishopSpellFizzles = {
     bishop.play('idle', { fade: 0.2 });
     await clock.wait(FIZZLE_SECONDS);
 
-    // 3. El otro le arrea, a cámara lenta.
+    // 3. El otro le arrea, a cámara lenta (con lanza, antes la pone de punta hacia él).
+    await aimBlow(fighter, blow, { clock, distance: gapTo(fighter, center), torso: torsoOf(defender) });
     const hitting = playBlow(fighter, blow);
     await slowToImpact(clock, blow.t);
     const fist = blow.point();

@@ -55,15 +55,24 @@ export function peak(samples) {
   return best;
 }
 
+// ¿Se da este golpe con la mano del escudo (`shield`, el nombre del hueso del que cuelga)? El escudo es
+// para parar, no para pegar: el usuario lo pidió, que ataquen con la lanza, con la espada o con lo que
+// tengan, pero no a escudazos. Los puñetazos de izquierda del peón eran justo eso, y además con el
+// escudo tumbado por delante.
+export const shieldStrike = (strike, shield) => Boolean(shield) && strike?.body?.bone === shield;
+// El hueso del que cuelga el escudo de una pieza (el de la mano que lo lleva), o null si no lleva.
+export const shieldOf = (piece) => piece?.props?.shield?.parent?.name ?? null;
+
 // Claves de los golpes que sirven para un estilo. `attacks` son las versiones de ataque de la
 // pieza ({ key, spear }) y `strikes`, sus medidas por clave. El duelo usa las estocadas; el
 // cuerpo a cuerpo, los golpes con mano o pie que llegan al rival sin abrir tanto los pies
-// (`sideStep`) que pisen las casillas vecinas, que en el cuerpo a cuerpo quedan más cerca.
-export function usableStrikes(attacks, strikes, style) {
+// (`sideStep`) que pisen las casillas vecinas, que en el cuerpo a cuerpo quedan más cerca. Nunca los
+// que se dan con la mano del escudo (`shield`).
+export function usableStrikes(attacks, strikes, style, { shield = null } = {}) {
   return attacks
     .filter((attack) => {
       const strike = strikes[attack.key];
-      if (!strike) return false;
+      if (!strike || shieldStrike(strike, shield)) return false;
       if (style === 'duel') return attack.spear === 'forward' && Boolean(strike.spear);
       return Boolean(strike.body)
         && strike.body.reach >= MELEE_DISTANCE - TORSO - MELEE_SLACK
@@ -87,12 +96,15 @@ export function planExchanges(keys, random = Math.random) {
   return beats;
 }
 
-// Clave del golpe con mano o pie que más lejos llega por delante, o null si no hay ninguno medido.
-export function bestStrike(attacks, strikes) {
+// Clave del golpe con mano o pie que más lejos llega por delante, o null si no hay ninguno medido. Sin
+// contar los que se dan con la mano del escudo (`shield`).
+export function bestStrike(attacks, strikes, { shield = null } = {}) {
   let best = null;
   for (const attack of attacks) {
-    const body = strikes[attack.key]?.body;
-    if (body && (!best || body.reach > strikes[best].body.reach)) best = attack.key;
+    const strike = strikes[attack.key];
+    const body = strike?.body;
+    if (!body || shieldStrike(strike, shield)) continue;
+    if (!best || body.reach > strikes[best].body.reach) best = attack.key;
   }
   return best;
 }
@@ -113,4 +125,24 @@ export function strikeSpot(from, to, { reach, torso = TORSO, closest = 0 }) {
     defenderFacing: Math.atan2(-ux, -uz),
     distance,
   };
+}
+
+// El tajo de arriba abajo sobre la cabeza del rival: en el camino de la punta de la espada (`path`, de
+// { t, y, z } en el marco de quien pega, +z al frente), el primer instante después de su punto más alto
+// en que la punta baja de `height` (lo alto del casco). Devuelve cuándo (`t`), a qué distancia por
+// delante (`reach`: plantándose ahí del centro del rival, la hoja le cae en el casco) y cuándo tiene la
+// espada más alta (`top`); null si la punta nunca baja de ahí.
+export function chopHit(path, height) {
+  if (!path?.length) return null;
+  let top = 0;
+  for (let i = 1; i < path.length; i++) if (path[i].y > path[top].y) top = i;
+  for (let i = top + 1; i < path.length; i++) {
+    const a = path[i - 1];
+    const b = path[i];
+    if (a.y >= height && b.y < height) {
+      const k = (a.y - height) / (a.y - b.y);
+      return { t: a.t + (b.t - a.t) * k, reach: a.z + (b.z - a.z) * k, top: path[top].t };
+    }
+  }
+  return null;
 }

@@ -29,6 +29,9 @@ const FALLBACK_PEDESTAL_HEIGHT = 0.26;
 const SPEAR_POSES = {
   forward: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(98)),
   upright: new THREE.Quaternion(),
+  // Calzada bajo el brazo para cargar a caballo: casi horizontal y un pelo hacia arriba. De punta
+  // (`forward`, que es para la estocada a pie), desde la silla apuntaba a la barriga del peón.
+  couch: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(85)),
 };
 const SPEAR_TURN_SPEED = 7; // por segundo: la lanza tarda ~0,15 s en cambiar de postura
 const THRUST_BLEND = 0.15; // segundos del clip en que la espada pasa del agarre a la estocada, y vuelta
@@ -423,9 +426,11 @@ export function spawnPiece(kit) {
 
   // Una sola vez; se resuelve al terminar. Si la versión trae `seconds` (clips muy largos, como
   // una celebración de 12 s), se resuelve al llegar a ese momento y quien llama pasa a otra cosa.
-  function playOnce(action, { fade = 0.2, clip } = {}) {
+  // `from`: desde qué segundo del clip empieza (para saltarse una preparación larga).
+  function playOnce(action, { fade = 0.2, clip, from = 0 } = {}) {
     return new Promise((resolve) => {
       const running = play(action, { loop: false, fade, clip });
+      if (running && from > 0) running.time = from;
       if (running && currentVariant?.seconds) cuts.push({ action: running, at: currentVariant.seconds, resolve });
       if (!running) {
         resolve(false);
@@ -513,9 +518,51 @@ export function spawnPiece(kit) {
   // brazo que sale volando), ya no es cosa de la pieza. Seguir poniéndola cada fotograma como la lleva
   // en la mano le borraba el giro en el aire y, al tumbarse en el suelo, la volvía a poner de pie: el
   // báculo del alfil se quedaba hundido en el tablero, asomando como un trozo de lanza rota.
+  // Suya es si cuelga de su figura (el esqueleto) o de su objeto (donde se deja al lanzarla o clavarla). Las
+  // dos cosas: al jinete del caballero lo sientan en el caballo y su figura deja de colgar de su objeto; mirando
+  // solo el objeto, su lanza no se calzaba para cargar (iba en vertical) ni su espada apuntaba.
   function isOurs(prop) {
-    for (let o = prop.parent; o; o = o.parent) if (o === object) return true;
+    for (let o = prop.parent; o; o = o.parent) if (o === object || o === figure) return true;
     return false;
+  }
+
+  // El escudo, siempre derecho. Va atado a la mano y gira con ella: en los puñetazos, los golpes que
+  // recibe y las paradas, con el antebrazo por delante, se quedaba tumbado (el usuario lo veía en
+  // horizontal). Cada fotograma se endereza lo justo para que su eje vertical (+Y, que en reposo es el
+  // vertical) siga al del tronco —de la cadera al cuello: si quien lo lleva cae, el escudo cae con él—,
+  // sin cambiar hacia dónde mira, que lo sigue marcando el brazo. Y se endereza girándolo alrededor de la
+  // MANO, que es por donde se agarra: su origen cuelga un palmo por debajo, y girando alrededor de él, con
+  // el brazo en alto, el escudo acababa flotando por encima de la cabeza.
+  const shieldHold = props.shield ? props.shield.quaternion.clone() : null;
+  const shieldHoldAt = props.shield ? props.shield.position.clone() : null;
+  const trunkLow = findBone(model, 'Hips');
+  const trunkHigh = findBone(model, 'Neck') ?? findBone(model, 'Head');
+  const steady = {
+    up: new THREE.Vector3(), trunk: new THREE.Vector3(), low: new THREE.Vector3(), grip: new THREE.Vector3(), at: new THREE.Vector3(),
+    world: new THREE.Quaternion(), parent: new THREE.Quaternion(), fix: new THREE.Quaternion(),
+  };
+  function steadyShield() {
+    const shield = props.shield;
+    if (!shield || !shieldHold || !trunkLow || !trunkHigh || !isOurs(shield)) return;
+    const hand = shield.parent;
+    shield.quaternion.copy(shieldHold);
+    shield.position.copy(shieldHoldAt);
+    hand.updateWorldMatrix(true, false);
+    hand.getWorldQuaternion(steady.parent);
+    hand.getWorldPosition(steady.grip);
+    steady.at.copy(shieldHoldAt).applyMatrix4(hand.matrixWorld);
+    steady.world.copy(steady.parent).multiply(shieldHold);
+    steady.up.set(0, 1, 0).applyQuaternion(steady.world);
+    trunkHigh.updateWorldMatrix(true, false);
+    trunkHigh.getWorldPosition(steady.trunk);
+    trunkLow.getWorldPosition(steady.low);
+    steady.trunk.sub(steady.low);
+    if (steady.trunk.lengthSq() < 1e-8) return;
+    steady.fix.setFromUnitVectors(steady.up, steady.trunk.normalize());
+    steady.world.premultiply(steady.fix);
+    steady.at.sub(steady.grip).applyQuaternion(steady.fix).add(steady.grip);
+    shield.quaternion.copy(steady.parent.invert()).multiply(steady.world);
+    shield.position.copy(hand.worldToLocal(steady.at));
   }
 
   function aimSword() {
@@ -913,6 +960,7 @@ export function spawnPiece(kit) {
       cut.resolve(true);
     }
     aimSword();
+    steadyShield();
     const spear = props.spear;
     if (!spear || !isOurs(spear)) return;
     if (flying) {

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { QUEEN, armsDown } from '../../pieces/cast.js';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
-import { blowDistance, blowOf, bringUp, playBlow } from '../blow.js';
+import { aimBlow, blowDistance, blowOf, bringUp, gapTo, playBlow, torsoOf } from '../blow.js';
 import { facingTo, fighterOf, knockOut, shout, victoryLap } from '../knight/common.js';
 import { ROYAL_COLOR, chestOf, fallClear, pose, poseTo, rebote, release, suave } from './royal.js';
 
@@ -48,6 +48,8 @@ export const queenFalls = {
       // 2. El otro se le planta delante: el caballero salta y desmonta, la torre despierta a su
       //    gigante, el peón baja de su peana.
       await bringUp(attacker, { at: spots.attacker, facing: spots.attackerFacing, random });
+      // Con lanza, la pone de punta hacia ella antes de que empiece a conjurar.
+      await aimBlow(fighter, blow, { clock, distance: gapTo(fighter, center), torso: torsoOf(defender) });
 
       // 3. Ella conjura: alza las manos, su sello se abre a sus pies y la energía se le junta en las
       //    manos, hasta el instante del golpe.

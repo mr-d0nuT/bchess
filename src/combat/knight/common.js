@@ -31,6 +31,11 @@ export function postOf(entry, at, facing, parts = []) {
 // Hacia dónde mira quien está en `from` para ver `to` ({x, z}).
 export const facingTo = (from, to) => Math.atan2(to.x - from.x, to.z - from.z);
 
+// A su derecha ({x, z}, unitario) quien mira hacia `facing`: el lado de la lanza y de la espada. La
+// cámara del combate se pone de ese lado (`cinema.frame`, `favor`): desde el del escudo, el escudo tapaba
+// el golpe.
+export const rightOf = (facing) => ({ x: -Math.cos(facing), z: Math.sin(facing) });
+
 // Claves de los golpes con espada de un luchador (con la punta de la espada medida). Con `thrust`, solo
 // las estocadas (true) o solo los tajos (false).
 export function bladeStrikes(fighter, { thrust } = {}) {

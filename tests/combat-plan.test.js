@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DUEL_RETREAT, MELEE_DISTANCE, bestStrike, fightSpots, gripSlideForReach, peak, pickStyle, planExchanges, strikeSpot, usableStrikes,
+  DUEL_RETREAT, MELEE_DISTANCE, bestStrike, chopHit, fightSpots, gripSlideForReach, peak, pickStyle, planExchanges, shieldStrike, strikeSpot, usableStrikes,
 } from '../src/combat/plan.js';
 
 const close = (a, b) => Math.abs(a - b) < 1e-9;
@@ -70,6 +70,22 @@ test('usableStrikes: estocadas para el duelo y golpes que llegan para el cuerpo 
   assert.deepEqual(usableStrikes(attacks, strikes, 'melee'), ['box_03', 'front_kick_02']);
 });
 
+test('usableStrikes: nunca con la mano del escudo, que es para parar', () => {
+  const attacks = [
+    { key: 'box_03', spear: 'forward' }, { key: 'box_02', spear: 'forward' }, { key: 'front_kick_02' },
+  ];
+  const strikes = {
+    box_03: { spear: { t: 1.1, reach: 2.18 }, body: { t: 0.7, reach: 0.68, bone: 'L_Hand' }, sideStep: 0.2 },
+    box_02: { spear: { t: 2.3, reach: 2.44 }, body: { t: 2.3, reach: 0.68, bone: 'R_Hand' }, sideStep: 0.45 },
+    front_kick_02: { spear: { t: 0, reach: 0.41 }, body: { t: 0.95, reach: 0.78, bone: 'R_ToeBase' }, sideStep: 0.25 },
+  };
+  assert.deepEqual(usableStrikes(attacks, strikes, 'duel', { shield: 'L_Hand' }), ['box_02']);
+  assert.deepEqual(usableStrikes(attacks, strikes, 'melee', { shield: 'L_Hand' }), ['front_kick_02']);
+  assert.equal(shieldStrike(strikes.box_03, 'L_Hand'), true);
+  assert.equal(shieldStrike(strikes.box_02, 'L_Hand'), false);
+  assert.equal(shieldStrike(strikes.box_03, null), false, 'sin escudo, ningún golpe es con el escudo');
+});
+
 test('planExchanges: uno o dos golpes previos y el final del atacante, sin repetir seguidos', () => {
   const short = planExchanges(['a', 'b', 'c'], sequence(0, 0.9, 0));
   assert.deepEqual(short.map((beat) => beat.by), ['attacker', 'attacker']);
@@ -88,6 +104,8 @@ test('bestStrike: el golpe con mano o pie que más alcanza', () => {
   const strikes = { a: { body: { reach: 0.5 } }, b: { body: { reach: 0.9 } }, c: { body: null } };
   assert.equal(bestStrike(attacks, strikes), 'b');
   assert.equal(bestStrike([{ key: 'c' }], strikes), null);
+  const conEscudo = { a: { body: { reach: 0.5, bone: 'R_Hand' } }, b: { body: { reach: 0.9, bone: 'L_Hand' } } };
+  assert.equal(bestStrike(attacks, conEscudo, { shield: 'L_Hand' }), 'a', 'el de más alcance, pero no con el escudo');
 });
 
 test('strikeSpot: se para donde su golpe llega al pecho del rival', () => {
@@ -103,4 +121,16 @@ test('strikeSpot: si ya le llega, golpea desde donde está, y nunca se acerca m�
   assert.deepEqual(strikeSpot({ x: 0, z: 0 }, { x: 1, z: 0 }, { reach: 0.9, torso: 0.17 }).attacker, { x: 0, z: 0 });
   const close = strikeSpot({ x: 0, z: 0 }, { x: 3, z: 0 }, { reach: 0.3, torso: 0.17, closest: 0.75 });
   assert.ok(Math.abs(close.attacker.x - 2.25) < 1e-9);
+});
+
+test('chopHit: el tajo cae en el casco al bajar la punta, después de lo más alto', () => {
+  const path = [
+    { t: 0, y: 0.4, z: 0.8 }, { t: 1, y: 1.5, z: -0.3 }, { t: 2, y: 1.8, z: 0.4 }, { t: 2.1, y: 1.0, z: 1.2 }, { t: 2.2, y: 0.6, z: 1.0 },
+  ];
+  const hit = chopHit(path, 1.2);
+  assert.ok(Math.abs(hit.t - 2.075) < 1e-9, `t ${hit.t}`);
+  assert.ok(Math.abs(hit.reach - 1.0) < 1e-9, `reach ${hit.reach}`);
+  assert.equal(hit.top, 2);
+  assert.equal(chopHit(path, 2), null, 'si la punta nunca pasa por encima, no hay tajo');
+  assert.equal(chopHit([], 1), null);
 });

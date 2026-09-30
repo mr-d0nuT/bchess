@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TORSO, bestStrike, fightSpots, strikeSpot, usableStrikes } from './plan.js';
+import { TORSO, bestStrike, fightSpots, shieldOf, strikeSpot, usableStrikes } from './plan.js';
 import {
   afterImpact, choose, gripSlideToTarget, knockBack, overlapOf, planPunch, poseAhead, slowToImpact, stanceOf, standing, targetsOf, towardRival,
 } from './fight.js';
@@ -58,7 +58,7 @@ export function canSmash(attacker, defender) {
     return defender.kind === 'rook' ? Boolean(giantOf(defender)) : defender.piece.has('defeat') || defender.piece.has('fall');
   }
   return attacker.kind === 'pawn' && Boolean(giantOf(defender))
-    && usableStrikes(attacker.piece.attacks, attacker.piece.strikes, 'duel').length > 0;
+    && usableStrikes(attacker.piece.attacks, attacker.piece.strikes, 'duel', { shield: shieldOf(attacker.piece) }).length > 0;
 }
 
 // Cuánto sobresale el puño por debajo del hueso de la mano en el instante `t` del golpe `key`: un rayo
@@ -296,7 +296,7 @@ async function pawnFellsGiant({ attacker, defender, home, center, target, clock,
   const a = attacker.piece;
   const giant = defender.piece.giant;
   const spots = fightSpots(home, center, 'duel');
-  const keys = usableStrikes(a.attacks, a.strikes, 'duel');
+  const keys = usableStrikes(a.attacks, a.strikes, 'duel', { shield: shieldOf(a) });
   const key = keys[Math.floor(random() * keys.length)];
   const measure = a.strikes[key];
   a.setSpearDefault('upright');
