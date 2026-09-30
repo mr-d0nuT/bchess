@@ -1107,6 +1107,13 @@ async function start() {
   window.bchess = {
     stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music, view,
     game, menu, ui, cpu, newGame, playMove, toMenu, setup, settleKnights,
+    // La red de seguridad: juega todos los combates y dice cuáles fallan (`dev/autotest.js`).
+    async autotest(opciones) {
+      const prueba = await import('./dev/autotest.js');
+      const resultados = await prueba.runAutotest(window.bchess, { onProgress: (p) => prueba.showReport(null, p), ...opciones });
+      prueba.showReport(resultados);
+      return resultados;
+    },
     get nubes() {
       return nubes;
     },
@@ -1123,6 +1130,13 @@ async function start() {
       return pieces.filter((entry) => entry.kind === 'knight');
     },
   };
+  // Con `?autotest`, en vez de jugar, la red de seguridad: se salta el menú y juega todos los combates.
+  if (new URLSearchParams(location.search).has('autotest')) {
+    await loading.finish();
+    window.__autotest = await window.bchess.autotest();
+    return;
+  }
+
   // Todo cargado: la pantalla de carga se funde y debajo espera el menú, con la melodía de la carga
   // sonando todavía. Al pulsar JUGAR se funde la música y empieza la partida.
   const eleccion = menu.show();

@@ -19,16 +19,22 @@ import { pawnThrowsBomb } from './pawn-bomb.js';
 import { queenFalls } from './royal/queen-falls.js';
 
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas
-const BATTLES = [
+const NAMED = {
   pawnKicksKnight, knightRunsThroughPawn, knightLancesPawn, knightFightsKnight, knightSweepsGiant, giantCrushesKnight,
   bishopTurnsToStone, bishopSpellFizzles,
   queenCasts, queenBurns, kingSmites, queenFalls,
   pawnThrowsBomb,
-];
+};
+const BATTLES = Object.values(NAMED);
+// Cómo se llama un combate (para el informe de la red de seguridad).
+export const battleName = (battle) => Object.keys(NAMED).find((name) => NAMED[name] === battle) ?? 'combate';
 
 // Las que encajan con esta pareja y pueden hacerse ahora mismo. Cuando hay más de una (el caballero
 // contra un peón puede atravesarlo a pie o cargar con la lanza sin bajarse), se echa a suertes.
-const battlesFor = (attacker, defender) => BATTLES.filter((battle) => battle.matches(attacker, defender) && battle.can(attacker, defender));
+export const battlesFor = (attacker, defender) => BATTLES.filter((battle) => battle.matches(attacker, defender) && battle.can(attacker, defender));
+
+// Para la red de seguridad (`dev/autotest.js`): con `only`, se juega ese combate en vez de echarlo a suertes.
+export const testing = { only: null };
 
 export function canGagBattle(attacker, defender) {
   return battlesFor(attacker, defender).length > 0;
@@ -47,7 +53,7 @@ export async function runGagBattle({ attacker, defender, board, clock, fx, cinem
     ],
   });
   const options = battlesFor(attacker, defender);
-  const battle = options[Math.floor(random() * options.length)] ?? options[0];
+  const battle = options.includes(testing.only) ? testing.only : options[Math.floor(random() * options.length)] ?? options[0];
   try {
     await battle.run({
       attacker, defender, board, clock, fx, cinema, hud, crowd, dust, rubble, debris, bubbles, obstacles, random, stances, bodies,
