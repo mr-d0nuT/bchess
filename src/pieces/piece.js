@@ -814,10 +814,14 @@ export function spawnPiece(kit) {
     const alto = cintura && testa
       ? cintura.getWorldPosition(new THREE.Vector3()).distanceTo(testa.getWorldPosition(new THREE.Vector3()))
       : largo * 0.8;
+    // El largo, en casillas de la pieza a su tamaño: al coronar (o al deshacer) la pieza nace encogida
+    // al 1 % y crece, y si se medía entonces —el primer fotograma, al colocarla en su casilla, cuenta
+    // como que anda— creía tener las piernas cien veces más cortas y pisaba cien veces más deprisa.
+    const escala = figure.getWorldScale(new THREE.Vector3()).x || 1;
     return {
       thigh: a.distanceTo(b) / largo,
       shin: b.distanceTo(c) / largo,
-      length: largo,
+      length: largo / escala,
       halfWidth: ancho / largo, // en largos de pierna, como todo lo demás en `gait.js`
       spine: alto / largo, // de la cintura a la cabeza: cuánto palanca tiene para enderezarse
     };
