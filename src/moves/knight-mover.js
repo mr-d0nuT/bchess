@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../audio/voces.js';
 import { sfx } from '../audio/sfx.js';
 import { LEAP_GRAVITY, LEAP_MIN_PEAK, LEAP_SPEED, leapAt, planLeap } from './leap.js';
 import { BOARD_EDGE, nearestEdgeExit, pickGait, planWalk, pointAlong, shortestTurn } from './walk.js';
@@ -681,6 +682,7 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     const figure = horse.figure;
     looseLegs();
     sfx.play('relincho');
+    clock.wait(REAR_SECONDS).then(() => grita(owner, 'vuela')); // y el jinete, por los aires
     const rearUp = (k) => {
       figure.rotation.x = -THROW_REAR * k;
       figure.position.y = knight.mount.hoofBack * Math.sin(THROW_REAR * k);

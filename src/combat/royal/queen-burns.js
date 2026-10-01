@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
 import { QUEEN, armsDown } from '../../pieces/cast.js';
 import { afterImpact } from '../fight.js';
@@ -64,6 +65,7 @@ export const queenBurns = {
         fx.flame(mano(lado), { seconds: CHARGE_SECONDS + CAST_SECONDS, size: 0.3 });
       }
       const magia = sfx.play('conjuro');
+      grita(attacker, 'grito');
       await clock.wait(CHARGE_SECONDS);
 
       // 3. Lanza las manos al frente y el fuego sale de cada una en una bola, que caen sobre el rival.
@@ -85,6 +87,7 @@ export const queenBurns = {
       hud.flash();
       cinema.shake(0.15);
       shout(bubbles, '¡FUUUSH!', pecho);
+      grita(defender, 'caida');
       sfx.play('fuego', { rate: 0.75 }); // la hoguera prende
       const quieto = victima.play?.('idle', { fade: 0.1 });
       const quema = charring(victima.figure);

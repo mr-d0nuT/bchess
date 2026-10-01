@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { sfx } from '../audio/sfx.js';
+import { grita } from '../audio/voces.js';
 import { TORSO, bestStrike, fightSpots, shieldOf, strikeSpot, usableStrikes } from './plan.js';
 import {
   afterImpact, choose, gripSlideToTarget, knockBack, overlapOf, planPunch, poseAhead, slowToImpact, stanceOf, standing, targetsOf, towardRival,
@@ -283,12 +284,14 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
     await crumbled;
   } else {
     await fall;
+    sfx.play('mareo');
     fx.koStars(findBone(d.object, 'Head') ?? d.figure, { seconds: KO_SECONDS });
     await clock.wait(KO_SECONDS);
     await defender.mover.vanish();
   }
 
-  // 5. La cámara vuelve mientras el gigante ocupa la casilla y vuelve a ser torre.
+  // 5. La cámara vuelve mientras el gigante ocupa la casilla y vuelve a ser torre, rugiendo de triunfo.
+  grita(attacker, 'victoria');
   stances.delete(attacker);
   await Promise.all([cinema.restore(clock), attacker.mover.walkOnto(target)]);
 }

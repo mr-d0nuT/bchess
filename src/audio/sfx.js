@@ -54,6 +54,29 @@ const SOUNDS = {
   tablas: { volume: 0.5 }, // tablas («Success Fanfare Trumpets», 6185)
   torre: { volume: 0.5 }, // piedra que roza: la torre se desliza o se transforma («rock stone slide», 304550)
   corona: { volume: 0.6 }, // la coronación («Level Up», 191997)
+  mareo: { volume: 0.5 }, // las estrellitas del que queda K.O. («Cartoon spin», 7120)
+
+  // LAS VOCES (`voz: true`: se callan aparte, con su propio interruptor). Sin palabras: el juego habla siete
+  // idiomas. Quién dice qué, en `voces.js`. De dónde sale cada una, en `tools/prepara-sonidos.py`.
+  grito_h: { volume: 0.6, variants: 5, voz: true }, // gritos de guerra (Epic War Combat Scream, Middle Ages War Cry…)
+  ataque_h: { volume: 0.5, variants: 6, voz: true }, // gruñidos al golpear (Male Fighter / Soldier Attack Grunt…)
+  dolor_h: { volume: 0.55, variants: 5, voz: true }, // quejidos (male_hurt7, Ough!, ouch…)
+  caida_h: { volume: 0.55, variants: 4, voz: true }, // gritos al caer (Male Death Scream, Man Pain Scream…)
+  vuela_h: { volume: 0.6, voz: true }, // por los aires (Male Falling Scream)
+  ay_comico: { volume: 0.7, voz: true }, // ¡ay! cómico (Comical Character Ouch)
+  huh: { volume: 0.6, variants: 2, voz: true }, // ¿eh? (huh, Confused Male Voice Huh)
+  decepcion: { volume: 0.55, voz: true }, // ooooh… (AWW)
+  victoria_h: { volume: 0.6, variants: 7, voz: true }, // ¡yahoo!, ¡woohoo!, ¡hurra!, risas
+  risa_malvada: { volume: 0.6, variants: 3, voz: true }, // las negras ganan riéndose como villanos
+  grito_m: { volume: 0.55, variants: 5, voz: true }, // la reina, al conjurar (Female Battle Cries, Angry Female)
+  ataque_m: { volume: 0.5, variants: 4, voz: true },
+  dolor_m: { volume: 0.55, variants: 3, voz: true }, // (ow, female-hurt-2, Cartoon Angry Woman Scream)
+  caida_m: { volume: 0.5, variants: 3, voz: true }, // (Female Scream, Scared Woman Scream)
+  victoria_m: { volume: 0.6, variants: 3, voz: true }, // ¡woo!, ¡woohoo!, risa
+  risa_bruja: { volume: 0.6, variants: 2, voz: true }, // la reina negra (Witch Laugh, Evil Witch Laugh)
+  rugido: { volume: 0.6, variants: 5, voz: true }, // el gigante de la torre (Scary Monster Growl Roar, Monster Roar…)
+  gigante_dolor: { volume: 0.6, variants: 3, voz: true }, // (Monster Growl Roar 1 y 6, Low Monster Roar)
+  gigante_victoria: { volume: 0.6, variants: 3, voz: true }, // (Dragon shout, Big monster shout, Monster Warrior Roar)
 };
 for (const [name, sound] of Object.entries(SOUNDS)) {
   sound.srcs = sound.variants
@@ -63,11 +86,12 @@ for (const [name, sound] of Object.entries(SOUNDS)) {
   sound.last = -1;
 }
 const STORE = 'bchess.efectos'; // 'no' si el usuario los ha quitado
+const VOICES_STORE = 'bchess.voces'; // y lo mismo, las voces
 const LEVEL_STORE = 'bchess.efectos.volumen'; // de 0 a 100, lo que ha dejado el usuario
 const VARY = 0.05; // lo que cambia el tono de una vez a otra (±5 %)
 
-function read() {
-  try { return localStorage.getItem(STORE); } catch { return null; }
+function read(key = STORE) {
+  try { return localStorage.getItem(key); } catch { return null; }
 }
 function write(value) {
   try { localStorage.setItem(STORE, value); } catch { /* sin almacenamiento: solo esta sesión */ }
@@ -115,6 +139,7 @@ function pick(sound) {
 }
 
 let muted = null; // se lee al pedirlo por primera vez
+let voicesMuted = null;
 let level = null; // y el volumen, igual
 let master = null;
 const sounding = new Set(); // los que están sonando, para poder callarlos todos
@@ -132,7 +157,7 @@ export const sfx = {
   // sobre el volumen propio del sonido; `rate`, más agudo y corto (>1) o más grave y largo (<1).
   play(name, { volume = 1, rate = 1 } = {}) {
     const sound = SOUNDS[name];
-    if (!sound || this.muted || this.silenced()) return null;
+    if (!sound || this.muted || this.silenced() || (sound.voz && this.voicesMuted)) return null;
     if (!sound.buffers.length) {
       load(name);
       return null;
@@ -190,6 +215,16 @@ export const sfx = {
     level = Math.max(0, Math.min(1, value));
     try { localStorage.setItem(LEVEL_STORE, String(Math.round(level * 100))); } catch { /* solo esta sesión */ }
     if (master) master.gain.value = level;
+  },
+
+  get voicesMuted() {
+    if (voicesMuted === null) voicesMuted = read(VOICES_STORE) === 'no';
+    return voicesMuted;
+  },
+  toggleVoices() {
+    voicesMuted = !this.voicesMuted;
+    try { localStorage.setItem(VOICES_STORE, voicesMuted ? 'no' : 'si'); } catch { /* solo esta sesión */ }
+    return voicesMuted;
   },
 
   // Quita o pone los efectos (y se acuerda para la próxima vez).

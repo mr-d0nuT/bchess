@@ -60,6 +60,87 @@ SONIDOS = {
     'tablas':         ('pixabay/final/6185-success-fanfare-trumpets.mp3', 0.0, 3.6, 0.01, 0.8),
     'torre':          ('pixabay/torre/304550-rock-stone-slide.mp3', 0.05, 1.44, 0.01, 0.3),
     'corona':         ('pixabay/corona/191997-level-up.mp3', 0.04, 1.5, 0.003, 0.4),
+    'mareo':          ('voces/varios/7120-cartoon-spin.mp3', 0.06, 1.95, 0.005, 0.3),
+
+    # LAS VOCES, sin palabras. Hombre (peones, caballeros, alfiles, reyes):
+    # gritos de guerra, al empezar el combate o al cargar
+    'grito_h-1':      ('voces/h_ataque/352707-epic-war-combat-scream.mp3', 0.20, 1.95, 0.01, 0.4),
+    'grito_h-2':      ('voces/h_ataque/39931-middle-ages-war-cry-2.mp3', 0.08, 0.95, 0.01, 0.2),
+    'grito_h-3':      ('voces/h_ataque/250239-human-roar.mp3', 0.16, 0.95, 0.01, 0.2),
+    'grito_h-4':      ('voces/h_ataque/6314-kung-fu-yell.mp3', 2.09, 3.30, 0.01, 0.3),
+    'grito_h-5':      ('voces/h_ataque/65945-male-grunts-and-yells.mp3', 8.93, 10.21, 0.01, 0.3),
+    # gruñidos al golpear
+    'ataque_h-1':     ('voces/h_ataque/544355-male-fighter-heavy-attack-grunt.mp3', 0.04, 0.6, 0.005, 0.12),
+    'ataque_h-2':     ('voces/h_ataque/582547-male-fighter-2-heavy-attack-grunt.mp3', 0.06, 0.62, 0.005, 0.12),
+    'ataque_h-3':     ('voces/h_ataque/520841-male-soldier-attack-grunt.mp3', 0.04, 0.45, 0.005, 0.1),
+    'ataque_h-4':     ('voces/h_ataque/490291-rpg-knight-attack-grunt.mp3', 0.07, 1.1, 0.005, 0.25),
+    'ataque_h-5':     ('voces/h_ataque/45747-male-attack-grunt.mp3', 0.25, 0.72, 0.005, 0.12),
+    'ataque_h-6':     ('voces/h_ataque/520933-male-soldier-attack-grunt-2.mp3', 0.24, 0.65, 0.005, 0.1),
+    # quejidos al recibir
+    'dolor_h-1':      ('voces/h_dolor/48124-male-hurt7.mp3', 0.08, 0.7, 0.005, 0.15),
+    'dolor_h-2':      ('voces/h_dolor/45746-male-grunting-in-pain.mp3', 0.12, 0.55, 0.005, 0.1),
+    'dolor_h-3':      ('voces/h_dolor/47202-ough.mp3', 0.38, 0.7, 0.005, 0.1),
+    'dolor_h-4':      ('voces/h_dolor/95206-male-hurt-sound.mp3', 0.18, 0.8, 0.005, 0.15),
+    'dolor_h-5':      ('voces/h_dolor/43811-ouch.mp3', 0.57, 1.25, 0.005, 0.15),
+    # gritos al caer o morder el polvo
+    'caida_h-1':      ('voces/h_caida/123078-male-death-scream.mp3', 0.13, 1.6, 0.005, 0.35),
+    'caida_h-2':      ('voces/h_caida/352706-male-death-scream-horror.mp3', 0.07, 1.27, 0.005, 0.3),
+    'caida_h-3':      ('voces/h_dolor/567203-man-pain-scream.mp3', 0.04, 1.6, 0.005, 0.4),
+    'caida_h-4':      ('voces/h_dolor/567205-man-pain-scream-02.mp3', 0.05, 1.6, 0.005, 0.4),
+    # por los aires (el peón de la justa, el jinete que tira el caballo)
+    'vuela_h':        ('voces/h_caida/326183-male-falling-scream.mp3', 0.10, 2.2, 0.005, 0.6),
+    # cómicos
+    'ay_comico':      ('voces/h_dolor/543564-comical-ouch-1.mp3', 0.02, 0.72, 0.003, 0.15),
+    'huh-1':          ('voces/varios/88084-huh.mp3', 0.17, 0.5, 0.003, 0.08),
+    'huh-2':          ('voces/varios/352694-confused-male-huh.mp3', 0.23, 0.8, 0.003, 0.12),
+    'decepcion':      ('voces/h_dolor/8277-aww.mp3', 0.30, 1.66, 0.01, 0.35),
+    # victorias de las blancas: ¡yahoo!, ¡woohoo!, ¡hurra! y risas
+    'victoria_h-1':   ('voces/h_victoria/92956-yahoo-2.mp3', 0.58, 3.4, 0.01, 0.6),
+    'victoria_h-2':   ('voces/h_victoria/108116-yahoo-1.mp3', 0.78, 3.62, 0.01, 0.6),
+    'victoria_h-3':   ('voces/h_victoria/92957-yahoo-3.mp3', 0.33, 3.3, 0.01, 0.6),
+    'victoria_h-4':   ('voces/h_victoria/92954-woohoo-1.mp3', 0.56, 3.45, 0.01, 0.6),
+    'victoria_h-5':   ('voces/h_victoria/36461-hooray.mp3', 0.27, 1.62, 0.01, 0.3),
+    'victoria_h-6':   ('voces/h_victoria/104848-yell-laugh.mp3', 0.12, 1.77, 0.01, 0.3),
+    'victoria_h-7':   ('voces/h_victoria/242763-silly-laugh-man.mp3', 0.11, 1.65, 0.01, 0.3),
+    # y de las negras: risas de villano
+    'risa_malvada-1': ('voces/h_victoria/89423-evil-laugh.mp3', 0.14, 2.85, 0.01, 0.5),
+    'risa_malvada-2': ('voces/h_victoria/83217-muahaha-evil-laughter.mp3', 0.15, 2.3, 0.01, 0.4),
+    'risa_malvada-3': ('voces/h_victoria/140131-mischievous-laugh.mp3', 0.0, 2.65, 0.01, 0.5),
+
+    # Mujer (las reinas):
+    'grito_m-1':      ('voces/m_ataque/17275-female-battle-cries-v1.mp3', 2.53, 4.2, 0.01, 0.4),
+    'grito_m-2':      ('voces/m_ataque/17275-female-battle-cries-v1.mp3', 32.65, 34.62, 0.01, 0.4),
+    'grito_m-3':      ('voces/m_ataque/17275-female-battle-cries-v1.mp3', 72.5, 73.4, 0.01, 0.2),
+    'grito_m-4':      ('voces/m_ataque/17275-female-battle-cries-v1.mp3', 92.95, 93.7, 0.01, 0.2),
+    'grito_m-5':      ('voces/m_ataque/144242-angry-female.mp3', 0.13, 1.7, 0.01, 0.3),
+    'ataque_m-1':     ('voces/m_ataque/481720-female-attack-grunt.mp3', 0.1, 0.46, 0.005, 0.1),
+    'ataque_m-2':     ('voces/m_ataque/544351-female-fighter-heavy-attack-grunt.mp3', 0.06, 0.8, 0.005, 0.15),
+    'ataque_m-3':     ('voces/m_ataque/17275-female-battle-cries-v1.mp3', 46.02, 46.5, 0.005, 0.1),
+    'ataque_m-4':     ('voces/m_ataque/17275-female-battle-cries-v1.mp3', 52.1, 52.4, 0.005, 0.08),
+    'dolor_m-1':      ('voces/m_dolor/38861-ow.mp3', 0.27, 0.83, 0.005, 0.15),
+    'dolor_m-2':      ('voces/m_dolor/94301-female-hurt-2.mp3', 0.13, 0.5, 0.005, 0.12),
+    'dolor_m-3':      ('voces/m_dolor/84687-cartoon-angry-woman-scream.mp3', 0.1, 1.15, 0.005, 0.25),
+    'caida_m-1':      ('voces/m_dolor/251068-female-scream-longer.mp3', 0.87, 1.5, 0.005, 0.15),
+    'caida_m-2':      ('voces/m_dolor/191977-scared-woman-scream.mp3', 0.19, 1.1, 0.005, 0.2),
+    'caida_m-3':      ('voces/m_dolor/251067-female-scream-short.mp3', 0.83, 1.2, 0.005, 0.1),
+    'victoria_m-1':   ('voces/m_victoria/186736-woman-says-woo.mp3', 0.03, 1.15, 0.01, 0.25),
+    'victoria_m-2':   ('voces/m_victoria/186739-woman-says-woohoo.mp3', 1.23, 2.37, 0.01, 0.25),
+    'victoria_m-3':   ('voces/m_victoria/149491-girl-laugh.mp3', 0.49, 2.27, 0.01, 0.4),
+    'risa_bruja-1':   ('voces/m_victoria/401713-witch-laugh.mp3', 0.01, 0.95, 0.005, 0.2),
+    'risa_bruja-2':   ('voces/m_victoria/140135-evil-witch-laugh.mp3', 0.04, 2.4, 0.01, 0.4),
+
+    # El gigante de la torre:
+    'rugido-1':       ('voces/gigante/199380-monster-growl-roar-2.mp3', 0.1, 1.35, 0.005, 0.3),
+    'rugido-2':       ('voces/gigante/199377-monster-growl-roar-4.mp3', 0.05, 0.92, 0.005, 0.2),
+    'rugido-3':       ('voces/gigante/199376-monster-growl-roar-3.mp3', 0.02, 0.48, 0.005, 0.1),
+    'rugido-4':       ('voces/gigante/195717-large-monster-roar.mp3', 0.04, 1.9, 0.005, 0.4),
+    'rugido-5':       ('voces/gigante/6985-monster-roar.mp3', 0.1, 1.93, 0.005, 0.4),
+    'gigante_dolor-1': ('voces/gigante/199381-monster-growl-roar-6.mp3', 0.04, 1.52, 0.005, 0.4),
+    'gigante_dolor-2': ('voces/gigante/199379-monster-growl-roar-1.mp3', 0.05, 1.13, 0.005, 0.3),
+    'gigante_dolor-3': ('voces/gigante/97413-low-monster-roar.mp3', 0.16, 2.5, 0.01, 0.6),
+    'gigante_victoria-1': ('voces/gigante/98277-dragon-shout-roar.mp3', 0.16, 2.62, 0.01, 0.5),
+    'gigante_victoria-2': ('voces/gigante/104325-big-monster-shout.mp3', 0.5, 3.4, 0.01, 0.7),
+    'gigante_victoria-3': ('voces/gigante/195877-monster-warrior-roar.mp3', 0.12, 2.6, 0.01, 0.6),
 }
 
 # Sonidos hechos de varias capas: (original, desde, hasta, ganancia, tono). `tono` > 1, más agudo y corto.

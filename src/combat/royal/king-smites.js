@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
 import { t } from '../../i18n.js';
 import { KING, armsDown } from '../../pieces/cast.js';
@@ -73,6 +74,7 @@ export const kingSmites = {
       // 4. Aguanta arriba mientras se carga, y a cámara lenta justo antes de soltarlo.
       fx.charge(punta, { seconds: CHARGE_SECONDS, color, size: 0.5, motes: 18 });
       const magia = sfx.play('conjuro');
+      grita(attacker, 'grito');
       await clock.wait(CHARGE_SECONDS * 0.6);
       clock.timeScale = 0.35;
       await clock.wait(CHARGE_SECONDS * 0.4);
@@ -94,6 +96,7 @@ export const kingSmites = {
       const pecho = chestOf(defender);
       fx.bolt(joya, pecho, { seconds: BOLT_SECONDS, color, width: 0.07, kinks: 11 });
       sfx.play('rayo');
+      grita(defender, 'caida');
       await clock.wait(BOLT_SECONDS * 0.5);
       fx.sigil(center, { radius: 0.78, seconds: 1.2, color, spin: -2.4 });
       fx.burst(pecho, { size: 1.6, sparks: 30 });

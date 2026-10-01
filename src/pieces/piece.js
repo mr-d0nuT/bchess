@@ -328,6 +328,7 @@ export function spawnPiece(kit) {
   let spearDefault = null; // postura en combate de lo que no pide ninguna (reacciones, guardia)
   let currentVariant = null;
   let currentName = null; // qué acción suena ahora ('walk', 'idle'…)
+  let onPlay = null; // a quién se avisa al empezar cada movimiento (las voces); antes del primer `play`
   let spearSpin = 0; // radianes que el báculo lleva volteados sobre el puño
   let gripTarget = 0; // lo que el combate pide que la lanza resbale hacia el regatón
   let grip = 0;
@@ -391,6 +392,7 @@ export function spawnPiece(kit) {
     currentVariant = variant;
     applySpearPose();
     playCount++;
+    onPlay?.(action); // su voz (`audio/voces.js`), si la tiene
     return next;
   }
 
@@ -1099,6 +1101,9 @@ export function spawnPiece(kit) {
     // Los pasos que se oyen: qué hacer cuando se posa un pie, y qué huesos son los pies.
     set onStep(fn) {
       onStep = fn ?? null;
+    },
+    set onPlay(fn) {
+      onPlay = fn ?? null;
     },
     watchFeet,
     // En qué punto del ciclo va la animación que suena ahora, de 0 a 1: sirve para colgarle encima

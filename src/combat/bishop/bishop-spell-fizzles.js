@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
@@ -47,6 +48,7 @@ export const bishopSpellFizzles = {
     fx.burst(tip, { size: 0.35, sparks: 6 });
     dust.puff(tip.clone(), { count: 6, radius: 0.18, duration: 0.5 });
     shout(bubbles, '¡PUF!', tip);
+    grita(defender, 'decepcion'); // ooooh…
     magia?.stop(0.08);
     sfx.play('puf');
     await casting;
@@ -62,6 +64,7 @@ export const bishopSpellFizzles = {
     hud.flash();
     cinema.shake(0.2);
     shout(bubbles, '¡PLAF!', fist);
+    grita(defender, 'dolor');
     sfx.play('punetazo');
     if (bishop.props.spear?.visible) {
       debris.throwPiece(bishop.props.spear, {

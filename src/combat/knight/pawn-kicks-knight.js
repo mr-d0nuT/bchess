@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
 import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js';
 import { strikeSpot } from '../plan.js';
@@ -62,6 +63,7 @@ export const pawnKicksKnight = {
     cinema.shake(0.15);
     shout(bubbles, '¡CLONC!', toe);
     sfx.play('casco');
+    grita(defender, 'ay'); // ¡uy! donde más duele
     if (swing) swing.paused = false;
     rider.play('idle', { fade: 0.2 });
     const knees = clock.tween(KNEES_SECONDS, (t) => {

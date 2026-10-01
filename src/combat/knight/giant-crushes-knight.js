@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
 import { afterImpact, choose, overlapOf, slowToImpact, stanceOf } from '../fight.js';
 import { bestStrike, strikeSpot } from '../plan.js';
@@ -74,6 +75,7 @@ export const giantCrushesKnight = {
     hud.flash();
     cinema.shake(0.3);
     shout(bubbles, '¡CHOF!', puño);
+    grita(defender, 'ay');
     sfx.play('casco', { rate: 0.7 }); // el puño de piedra contra el yelmo
     sfx.play('punetazo', { rate: 0.6 });
     await temblor;

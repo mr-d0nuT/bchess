@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
 import { afterImpact, slowToImpact, stanceOf } from '../fight.js';
 import { chopHit, gripSlideForReach, shieldOf, strikeSpot, usableStrikes } from '../plan.js';
@@ -139,6 +140,7 @@ export const knightRunsThroughPawn = {
     bodies.push(lyingBody({ at: center, angle, length: pawn.height }));
     pawn.resetBones();
     await defender.mover.turnTo(angle + Math.PI, 0.12);
+    grita(defender, 'caida');
     await topple({ clock, figure: pawn.figure, forward: false });
     const nuca = bonePosition(pawn, 'Head');
     dust.puff(new THREE.Vector3(nuca.x, DUST_Y, nuca.z), { count: 12, radius: 0.6, duration: 0.5 });

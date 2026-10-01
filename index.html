@@ -90,6 +90,13 @@
           <input id="efectos-volumen" class="ajustes-volumen" type="range" min="0" max="100" step="5" value="100" data-i18n-attr="aria-label:ajustes.volumen.efectos">
         </div>
       </section>
+      <section>
+        <h3 data-i18n="ajustes.voces">Voces</h3>
+        <button id="voces" type="button" class="ajustes-sonido" aria-pressed="true">
+          <span class="sonido-icono" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v10H11l-4.5 3.5v-3.5H4z"/><path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01"/></svg></span>
+          <span id="voces-estado">Activadas</span>
+        </button>
+      </section>
       <!-- Solo donde el navegador deja vibrar (no en el iPhone): `main.js` la enseña. -->
       <section id="ajustes-vibracion" hidden>
         <h3 data-i18n="ajustes.vibracion">Vibración</h3>

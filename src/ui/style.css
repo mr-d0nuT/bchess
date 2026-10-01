@@ -234,6 +234,7 @@ html, body {
   display: grid;
   place-items: center;
   padding: 16px;
+  overflow-y: auto; /* con todas sus secciones, en un móvil bajito no cabe entero */
   background: rgba(0, 0, 0, 0.55);
 }
 #ajustes-panel[hidden] { display: none; }

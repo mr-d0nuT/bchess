@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
 import { GRIP_SPEED } from '../../pieces/piece.js';
 import { afterImpact, slowToImpact, stanceOf } from '../fight.js';
@@ -99,6 +100,7 @@ export const knightLancesPawn = {
     const baseY = horse.position.y;
     shout(bubbles, '¡A LA CARGA!', bonePosition(rider, 'Head'));
     sfx.play('relincho');
+    grita(attacker, 'grito');
     await clock.tween(PAW_SECONDS, (t) => {
       const k = Math.sin(Math.PI * t) * (1 + 0.35 * Math.sin(6 * Math.PI * t)); // dos manotazos en el aire
       horse.rotation.x = -PAW_REAR * k;
@@ -159,6 +161,7 @@ export const knightLancesPawn = {
     cinema.shake(0.26);
     shout(bubbles, '¡CATAPLÁN!', tip);
     sfx.play('embestida');
+    grita(defender, 'vuela');
     pawn.throwSpear({ x: dir.x, z: dir.z });
     pawn.turnBone('L_Upperarm', null);
     pawn.play('idle', { fade: 0.1 });

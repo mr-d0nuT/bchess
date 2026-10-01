@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
 import { FRENA, twirl } from '../twirl.js';
 import { roomClearance } from '../../moves/room.js';
@@ -155,6 +156,7 @@ export function fallDirection({ at, around, spread, length, rival, overlap }) {
 
 // Estrellitas sobre la cabeza durante `seconds`.
 export async function knockOut({ clock, fx, fighter, seconds = KO_SECONDS }) {
+  sfx.play('mareo');
   fx.koStars(boneOf(fighter, 'Head') ?? fighter.figure, { seconds });
   await clock.wait(seconds);
 }
@@ -187,6 +189,7 @@ export async function victoryLap({ entry, clock, cinema, obstacles = [], move })
 // apuntando AL SUELO. El clip levanta el brazo girando la muñeca, y el palo se va con ella; un
 // vencedor enseñando el regatón al cielo y la punta a sus propios pies no celebra nada.
 export async function celebrate(entry, clock) {
+  grita(entry, 'victoria'); // ¡yahoo!, ¡woohoo!… o, las negras, una risa de villano
   const fighter = fighterOf(entry);
   const lanza = Boolean(fighter.props?.spear);
   if (lanza) {

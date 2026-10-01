@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
 import { QUEEN, armsDown } from '../../pieces/cast.js';
 import { afterImpact } from '../fight.js';
@@ -61,6 +62,7 @@ export const queenCasts = {
       fx.charge(mano('L'), { seconds: CHARGE_SECONDS, color, size: 0.26, motes: 14 });
       fx.charge(mano('R'), { seconds: CHARGE_SECONDS, color, size: 0.26, motes: 14 });
       const magia = sfx.play('conjuro');
+      grita(attacker, 'grito');
       await clock.wait(CHARGE_SECONDS);
 
       // 3. Lanza las manos al frente y la escarcha corre por el suelo hasta el rival, le trepa por el
@@ -75,6 +77,7 @@ export const queenCasts = {
       sfx.play('hielo');
       await clock.wait(FROST_SECONDS);
       const alto = (victima.height ?? defender.piece.height) * 1.05;
+      grita(defender, 'dolor'); // el frío le llega
       const hielo = fx.encase(pies, { height: alto, radius: Math.min(0.42, Math.max(0.28, defender.piece.radius * 0.8)), seconds: FREEZE_SECONDS, color });
       await clock.wait(FREEZE_SECONDS * 0.6);
       const quieto = victima.play?.('idle', { fade: 0.1 }); // se queda helado a medio respirar

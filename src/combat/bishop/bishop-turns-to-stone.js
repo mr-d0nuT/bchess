@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
@@ -212,6 +213,7 @@ export const bishopTurnsToStone = {
     hud.flash();
     cinema.shake(0.12);
     shout(bubbles, '¡ZAS!', tip);
+    grita(defender, 'dolor');
     magia?.stop(0.1);
     sfx.play('hechizo');
     await clock.wait(BOLT_SECONDS * 0.6); // lo que tarda el rayo en llegar
@@ -229,6 +231,7 @@ export const bishopTurnsToStone = {
       dust.puff(new THREE.Vector3(center.x, DUST_Y, center.z), { count: 9, radius: 0.62, duration: 0.5, color: HOLE_DUST });
       cinema.shake(0.12);
       shout(bubbles, '¡AAAH!', at);
+      grita(defender, 'vuela'); // el gigante, tragado por el suelo
       sfx.play('piedra_rompe', { rate: 0.75, volume: 0.7 }); // el suelo se abre
       await afterImpact(clock);
       await casting;

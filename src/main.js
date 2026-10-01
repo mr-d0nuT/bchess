@@ -3,6 +3,7 @@ import { pickQuality, qualityFromQuery } from './quality.js';
 import { createMusic } from './audio/music.js';
 import { unlockAudioOnGesture } from './audio/context.js';
 import { sfx } from './audio/sfx.js';
+import { voicesFor } from './audio/voces.js';
 import { createLoading } from './ui/loading.js';
 import { createStage } from './scene/stage.js';
 import { addLighting } from './scene/lighting.js';
@@ -141,6 +142,27 @@ function wireButtonSounds() {
   }, true);
 }
 
+// Las voces (gritos, quejidos, risas), con su propio interruptor: hay a quien le gustan los golpes y no
+// los gritos. Al ponerlas, se oye un grito de muestra.
+function wireVoicesButton() {
+  const button = document.getElementById('voces');
+  const estado = document.getElementById('voces-estado');
+  if (!button) return;
+  const paint = () => {
+    button.setAttribute('aria-pressed', String(!sfx.voicesMuted));
+    button.setAttribute('aria-label', t('ajustes.voces'));
+    if (estado) estado.textContent = sfx.voicesMuted ? t('ajustes.voces.no') : t('ajustes.voces.si');
+  };
+  paint();
+  onLanguage(paint);
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    sfx.toggleVoices();
+    paint();
+    if (!sfx.voicesMuted) sfx.play('victoria_h', { volume: 0.7 });
+  });
+}
+
 // Los efectos de sonido, igual. Al ponerlos, suena uno de muestra.
 function wireEffectsButton() {
   const button = document.getElementById('efectos');
@@ -207,6 +229,7 @@ async function start() {
   music.startIntro();
   wireMusicButton(music);
   wireEffectsButton();
+  wireVoicesButton();
   wireButtonSounds();
   unlockAudioOnGesture();
   wireSettings();
@@ -1344,6 +1367,11 @@ async function start() {
     // caballo, sus cascos; el gigante de la torre, piedra. Más flojos cuanto más lejos de la cámara (el
     // caballo que huye del tablero se va apagando).
     const pisa = (sound) => function () { sfx.play(sound, { volume: cercania(this) }); };
+    // Y su voz: gruñe al atacar, se queja al recibir y grita al caer (`audio/voces.js`).
+    const voz = voicesFor(entry);
+    if (kind === 'knight') entry.piece.rider.onPlay = voz;
+    else if (kind === 'rook') { if (entry.piece.giant) entry.piece.giant.onPlay = voz; }
+    else entry.piece.onPlay = voz;
     if (kind === 'knight') {
       entry.piece.rider.onStep = pisa('paso_armadura');
       if (entry.piece.horse) {

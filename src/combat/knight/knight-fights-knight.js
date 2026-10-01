@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../../audio/voces.js';
 import { t } from '../../i18n.js';
 import { sfx } from '../../audio/sfx.js';
 import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js';
@@ -86,6 +87,7 @@ export const knightFightsKnight = {
       cinema.shake(0.16);
       shout(bubbles, bone.includes('Thigh') ? '¡ZAS!' : '¡CHAS!', at);
       sfx.play('corte');
+      grita(defender, 'dolor');
       const piece = cutLimb(his.object, bone);
       // El brazo de la espada se va con la espada: su mano la sigue agarrando mientras vuela, y al
       // caer se tumba a lo largo del filo en vez de quedarse clavado de punta.
@@ -168,6 +170,7 @@ export const knightFightsKnight = {
       overlap: (body) => crowd.overlap({ owners: [attacker, defender], bodies: [body] }),
     });
     // Cae de espaldas girando por la cadera, que es donde se apoya el tronco.
+    grita(defender, 'caida');
     await toppleAt({ clock, figure: his.figure, pivot: trunkDrop, forward: false, sound: 'caida_armadura' });
     const donde = bonePosition(his, 'Head');
     dust.puff(new THREE.Vector3(donde.x, DUST_Y, donde.z), { count: 14, radius: 0.7, duration: 0.5 });

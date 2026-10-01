@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
 import { QUEEN, armsDown } from '../../pieces/cast.js';
 import { afterImpact, slowToImpact } from '../fight.js';
@@ -60,6 +61,7 @@ export const queenFalls = {
       fx.charge(mano('L'), { seconds: hastaGolpe, color, size: 0.3, motes: 10 });
       fx.charge(mano('R'), { seconds: hastaGolpe, color, size: 0.3, motes: 10 });
       const magia = sfx.play('conjuro');
+      grita(defender, 'grito'); // ella conjura…
       await clock.wait(HEAD_START);
 
       // 4. Pero él es más rápido: su golpe llega a cámara lenta, y la magia le estalla en las manos.
@@ -75,6 +77,7 @@ export const queenFalls = {
       magia?.stop(0.05);
       sfx.play('punetazo');
       sfx.play('puf'); // la magia le estalla en las manos
+      grita(defender, 'caida');
       await brazos;
       const abiertos = poseTo(queen, QUEEN.summon, QUEEN.fling, { clock, seconds: FLING_SECONDS, ease: rebote });
       await afterImpact(clock);

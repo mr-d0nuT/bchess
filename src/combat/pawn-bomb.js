@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { grita } from '../audio/voces.js';
 import { sfx } from '../audio/sfx.js';
 import { afterImpact } from './fight.js';
 import { charring } from './burn.js';
@@ -75,6 +76,7 @@ export const pawnThrowsBomb = {
     const clavada = /R_Hand|RightHand/.test(strike.body.bone) && plantBeside(pawn, facing);
     const bomba = fx.bomb(hand, { size: BOMB_SIZE });
     shout(bubbles, '¡TACHÁN!', hand.getWorldPosition(new THREE.Vector3()).setY(1.6));
+    grita(attacker, 'risa'); // je, je…
     await clock.wait(0.35);
     bomba.light(FUSE_SECONDS);
     shout(bubbles, '¡FSSS!', bomba.position.clone().setY(bomba.position.y + 0.3));
@@ -100,6 +102,7 @@ export const pawnThrowsBomb = {
     // 4. El rival se la queda mirando, y el peón se tapa los oídos (o se encoge).
     const cabeza = () => chestOf(defender).setY(chestOf(defender).y + 0.55);
     bubbles.say('¡¿?!', cabeza, { seconds: STARE_SECONDS + 0.2 });
+    grita(defender, 'huh');
     await clock.wait(STARE_SECONDS);
 
     // 5. ¡BUUUM!
@@ -112,6 +115,7 @@ export const pawnThrowsBomb = {
     fx.shockwave(suelo, { radius: 2.4, seconds: 0.6, color: '#ffb35a' });
     dust.puff(new THREE.Vector3(donde.x, 0.05, donde.z), { count: 28, radius: 1.3, duration: 1 });
     shout(bubbles, '¡BUUUM!', donde.clone().setY(1.3));
+    grita(defender, 'caida');
     mecha?.stop(0.04);
     sfx.play('explosion');
     if (pawn.has('hit')) pawn.playOnce('hit', { fade: 0.08 }); // la onda también le llega
