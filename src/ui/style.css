@@ -286,6 +286,8 @@ html, body {
   font-size: 17px;
   line-height: 1;
 }
+.ajustes-fila { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
+.ajustes-volumen { width: 132px; accent-color: var(--tinta); cursor: pointer; }
 .sonido-icono svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .ajustes-sonido[aria-pressed="false"] .sonido-icono { background: transparent; color: var(--tinta); border-color: var(--borde-boton); opacity: 0.6; }
 .ajustes-sonido[aria-pressed="false"] .sonido-icono::after {

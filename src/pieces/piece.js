@@ -46,6 +46,14 @@ export const GRIP_SPEED = 4; // casillas por segundo que resbala la lanza cuando
 // como empieza el golpe (`holdBones`). El escudo es para defenderse, no para pegar.
 export const SHIELD_ARM = /^L_(Clavicle|Upperarm|Forearm|Hand)/;
 const SHIELD_UPRIGHT_RATE = 5; // por segundo: lo que tarda el escudo en pasar de seguir al tronco a ir derecho (0,2 s)
+// Los pasos que se oyen (`onStep`), en alturas de la pieza: lo que ha de subir un pie para contar como alzado,
+// lo cerca del suelo que ha de volver para contar como posado, y lo que se deja subir cada segundo el suelo
+// que se recuerda de cada pie (por si cambia: una peana, un escalón).
+const STEP_LIFT = 0.025;
+const STEP_PLANT = 0.008;
+const STEP_DRIFT = 0.01;
+const STEP_GAP = 0.08; // segundos entre dos pasos de la misma pieza, como mínimo (los cascos que caen a la vez)
+const STEP_ACTIONS = new Set(['walk', 'run', 'trot', 'canter', 'gallop', 'turn']);
 const SPEAR_FLIGHT = 0.8; // segundos que tarda en desvanecerse la lanza que sale volando
 const SPEAR_GRAVITY = 6;
 const SPEAR_PLANT_DEPTH = 0.12; // lo que se clava en el tablero la lanza que se deja en el suelo
@@ -880,6 +888,47 @@ export function spawnPiece(kit) {
   // El paso de la reina, hueso a hueso. Su modelo no trae ninguna animación (se exportó pelado,
   // porque cualquier clip le destrozaba la capa), así que andar se lo pone el juego: `gait.js` dice
   // la postura y aquí se le da el compás, sacado de lo que avanza de verdad para que no patine.
+  // LOS PASOS QUE SE OYEN: cada vez que un pie se posa andando, `onStep()`, que pone quien sabe a qué suena
+  // (madera, armadura, piedra o cascos). Con el paso hueso a hueso (la reina, el rey), cuando su ciclo pasa
+  // por el apoyo de cada pie (`applyGait`); con un clip de andar, cuando un pie que venía de arriba vuelve a
+  // ras de suelo. Los pies, por defecto, los de una persona; el caballo dice cuáles son sus cascos.
+  let onStep = null;
+  let stepFeet = null;
+  let lastStep = -Infinity;
+  let stepClock = 0;
+  const stepAt = new THREE.Vector3();
+  const stepRoot = new THREE.Vector3();
+  function watchFeet(names) {
+    stepFeet = names.map((name) => findBone(model, name)).filter(Boolean).map((bone) => ({ bone, low: Infinity, up: false }));
+  }
+  function step() {
+    if (stepClock - lastStep < STEP_GAP) return;
+    lastStep = stepClock;
+    onStep?.call(figure);
+  }
+  function detectSteps(dt) {
+    stepClock += dt;
+    if (!onStep || gaiting || dt <= 0) return;
+    stepFeet ??= ['L_Foot', 'R_Foot'].map((name) => findBone(model, name)).filter(Boolean).map((bone) => ({ bone, low: Infinity, up: false }));
+    if (!stepFeet.length) return;
+    const andando = STEP_ACTIONS.has(currentName) && !current?.paused;
+    if (!andando) {
+      for (const foot of stepFeet) foot.up = false;
+      return;
+    }
+    const alto = kit.spec.height;
+    figure.getWorldPosition(stepRoot);
+    for (const foot of stepFeet) {
+      const y = foot.bone.getWorldPosition(stepAt).y - stepRoot.y;
+      foot.low = Math.min(foot.low + STEP_DRIFT * alto * dt, y);
+      if (y > foot.low + STEP_LIFT * alto) foot.up = true;
+      else if (foot.up && y < foot.low + STEP_PLANT * alto) {
+        foot.up = false;
+        step();
+      }
+    }
+  }
+
   function applyGait(dt) {
     const andando = gait > 0 && moving > 0.02;
     if (!andando) {
@@ -897,7 +946,9 @@ export function spawnPiece(kit) {
     }
     legs ??= measureLegs();
     if (!legs) return;
+    const antes = gaitPhase;
     gaitPhase = (gaitPhase + gaitRate(moving, legs.length) * dt) % 1;
+    if ((antes < 0.5 && gaitPhase >= 0.5) || gaitPhase < antes) step(); // se posa un pie (el derecho, el izquierdo)
     // El contoneo mueve la pelvis, y la pelvis es de donde cuelgan las piernas: hay que decírselo a
     // la cinemática inversa o el pie clavado se va con la cadera. Se calcula aquí la misma postura
     // que luego aplicará `applySway`, para que las dos cuenten lo mismo.
@@ -977,6 +1028,7 @@ export function spawnPiece(kit) {
     }
     aimSword();
     steadyShield(dt);
+    detectSteps(dt);
     const spear = props.spear;
     if (!spear || !isOurs(spear)) return;
     if (flying) {
@@ -1044,6 +1096,11 @@ export function spawnPiece(kit) {
     has: (action) => Boolean(variants[action]?.length),
     addStillBones,
     holdBones,
+    // Los pasos que se oyen: qué hacer cuando se posa un pie, y qué huesos son los pies.
+    set onStep(fn) {
+      onStep = fn ?? null;
+    },
+    watchFeet,
     // En qué punto del ciclo va la animación que suena ahora, de 0 a 1: sirve para colgarle encima
     // movimientos propios (el contoneo de la reina) al compás de los pasos.
     // En qué instante se congela el reposo, para los modelos que no traen clip de reposo propio

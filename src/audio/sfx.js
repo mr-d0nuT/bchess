@@ -26,7 +26,6 @@ const SOUNDS = {
   explosion: { volume: 1 }, // ¡BUUUM! de dibujos animados («Cartoon Explosion», 567193)
   mecha: { volume: 0.45 }, // la mecha, chisporroteando hasta que explota («FUSE», 80913)
   bomba_vuela: { volume: 0.5 }, // silbato que baja, mientras la bomba vuela («Cartoon Slide Whistle Down 1», 176647)
-  galope: { volume: 0.7 }, // la carga al galope («Harse Gallop Loop2», 103633)
   relincho: { volume: 0.6 }, // el caballo se encabrita («Horse Neigh», 390297)
   hielo: { volume: 0.6 }, // la escarcha que trepa («ice freezing», 445024)
   hielo_rompe: { volume: 0.85 }, // el hielo estalla en esquirlas («Shattering Ice», 454251)
@@ -38,9 +37,33 @@ const SOUNDS = {
   piedra_rompe: { volume: 0.85 }, // piedra que se rompe en cascotes («Rock destroy», 6409)
   piedra_cruje: { volume: 0.7 }, // la piedra se asienta con un crujido («Flint Strike», 38491)
   silbido: { volume: 0.7 }, // un golpe que pasa rozando («Whoosh Blow Flutter Short», 14678)
+  // Los pasos, cada uno en varias pisadas distintas (`variants`), que dos seguidas no suenen igual.
+  paso: { volume: 0.3, variants: 3 }, // sobre la madera del tablero («Footsteps on Wood», 397989)
+  paso_armadura: { volume: 0.35, variants: 3 }, // el caballero a pie: su paso y su armadura (y «armor», 6890)
+  paso_gigante: { volume: 0.55, variants: 3 }, // el gigante de piedra («Monster Footstep», 162883, y «Stone Steps», 6748)
+  casco_caballo: { volume: 0.3, variants: 4 }, // los cascos del caballo («Horse Walking», 123782)
+  // La partida.
+  pieza: { volume: 0.5 }, // al tocar una pieza («Chess Pieces hitting wooden board», 99336)
+  clic: { volume: 0.4 }, // los botones («UI click», 43196)
+  jugar: { volume: 0.6 }, // ¡JUGAR! («swoosh», 6428)
+  reloj: { volume: 0.6 }, // pulsar el reloj («Cassette Recorder Stop Button», 359987)
+  tic: { volume: 0.35 }, // cada segundo de los diez últimos («Clock Tick (Tik Tak)», 76043)
+  jaque: { volume: 0.55 }, // ¡JAQUE! («Orchestra Hit», 240475)
+  victoria: { volume: 0.6 }, // fanfarria de quien gana («Medieval Fanfare», 6826)
+  derrota: { volume: 0.55 }, // contra la CPU, al perder («wah wah sad trombone», 6347)
+  tablas: { volume: 0.5 }, // tablas («Success Fanfare Trumpets», 6185)
+  torre: { volume: 0.5 }, // piedra que roza: la torre se desliza o se transforma («rock stone slide», 304550)
+  corona: { volume: 0.6 }, // la coronación («Level Up», 191997)
 };
-for (const [name, sound] of Object.entries(SOUNDS)) sound.src = `assets/audio/efectos/${name}.mp3`;
+for (const [name, sound] of Object.entries(SOUNDS)) {
+  sound.srcs = sound.variants
+    ? Array.from({ length: sound.variants }, (_, i) => `assets/audio/efectos/${name}-${i + 1}.mp3`)
+    : [`assets/audio/efectos/${name}.mp3`];
+  sound.buffers = [];
+  sound.last = -1;
+}
 const STORE = 'bchess.efectos'; // 'no' si el usuario los ha quitado
+const LEVEL_STORE = 'bchess.efectos.volumen'; // de 0 a 100, lo que ha dejado el usuario
 const VARY = 0.05; // lo que cambia el tono de una vez a otra (±5 %)
 
 function read() {
@@ -64,26 +87,35 @@ function load(name) {
   const sound = SOUNDS[name];
   if (!sound) return Promise.resolve(null);
   if (!loading.has(name)) {
-    loading.set(name, fetch(sound.src)
+    loading.set(name, Promise.all(sound.srcs.map((src) => fetch(src)
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.arrayBuffer();
       })
-      .then(decode)
-      .then((buffer) => {
-        sound.buffer = buffer;
-        return buffer;
-      })
-      .catch((err) => {
-        console.warn(`[BChess] No se pudo cargar el sonido «${name}» (${sound.src}):`, err);
-        loading.delete(name); // la próxima vez que se pida, se vuelve a intentar
-        return null;
-      }));
+      .then(decode))).then((buffers) => {
+      sound.buffers = buffers;
+      return buffers;
+    }).catch((err) => {
+      console.warn(`[BChess] No se pudo cargar el sonido «${name}»:`, err);
+      loading.delete(name); // la próxima vez que se pida, se vuelve a intentar
+      return null;
+    }));
   }
   return loading.get(name);
 }
 
+// Una de sus pisadas (o el único que tiene), sin repetir la de la vez anterior.
+function pick(sound) {
+  const n = sound.buffers.length;
+  if (n < 2) return sound.buffers[0];
+  let i = Math.floor(Math.random() * (n - 1));
+  if (i >= sound.last) i += 1;
+  sound.last = i;
+  return sound.buffers[i];
+}
+
 let muted = null; // se lee al pedirlo por primera vez
+let level = null; // y el volumen, igual
 let master = null;
 const sounding = new Set(); // los que están sonando, para poder callarlos todos
 
@@ -101,7 +133,7 @@ export const sfx = {
   play(name, { volume = 1, rate = 1 } = {}) {
     const sound = SOUNDS[name];
     if (!sound || this.muted || this.silenced()) return null;
-    if (!sound.buffer) {
+    if (!sound.buffers.length) {
       load(name);
       return null;
     }
@@ -109,10 +141,11 @@ export const sfx = {
     if (!context) return null; // nadie ha tocado aún la página
     if (!master || master.context !== context) {
       master = context.createGain();
+      master.gain.value = this.volume;
       master.connect(context.destination);
     }
     const source = context.createBufferSource();
-    source.buffer = sound.buffer;
+    source.buffer = pick(sound);
     source.playbackRate.value = rate * (1 + (Math.random() * 2 - 1) * VARY);
     const gain = context.createGain();
     gain.gain.value = sound.volume * volume;
@@ -142,6 +175,21 @@ export const sfx = {
   get muted() {
     if (muted === null) muted = read() === 'no';
     return muted;
+  },
+
+  // El volumen que elige el usuario, de 0 a 1, por encima del propio de cada sonido.
+  get volume() {
+    if (level === null) {
+      let guardado = null;
+      try { guardado = localStorage.getItem(LEVEL_STORE); } catch { /* sin almacenamiento */ }
+      level = guardado === null ? 1 : Math.max(0, Math.min(1, Number(guardado) / 100 || 0));
+    }
+    return level;
+  },
+  set volume(value) {
+    level = Math.max(0, Math.min(1, value));
+    try { localStorage.setItem(LEVEL_STORE, String(Math.round(level * 100))); } catch { /* solo esta sesión */ }
+    if (master) master.gain.value = level;
   },
 
   // Quita o pone los efectos (y se acuerda para la próxima vez).

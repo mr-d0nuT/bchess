@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../audio/sfx.js';
 
 // Transformaciones de la torre (diseño, sección 4), con el reloj de juego. De torre a gigante:
 // tiembla, estalla en rocas y se alza el gigante. De gigante a torre: el gigante se encoge entre
@@ -27,6 +28,7 @@ export async function towerToGiant({ rook, clock, dust, rubble, cinema, obstacle
   const floor = new THREE.Vector3(at.x, DUST_Y, at.z);
 
   // 1. Tiembla, cada vez más, con polvo en la base.
+  sfx.play('torre');
   dust.puff(floor, { count: 6, radius: 0.5, duration: 0.4 });
   await clock.tween(SHAKE_SECONDS, (t) => {
     const k = SHAKE_SIZE * t;
@@ -62,6 +64,7 @@ export async function giantToTower({ rook, clock, dust, rubble, restFacing }) {
   const floor = new THREE.Vector3(at.x, DUST_Y, at.z);
 
   // 1. El gigante se encoge dentro del polvo y las rocas vuelan hacia su casilla.
+  sfx.play('torre', { rate: 0.85 });
   dust.puff(floor, { count: 16, radius: 0.8, duration: 0.7 });
   rubble.implode(at, { color: rook.stone, count: 14, seconds: SHRINK_SECONDS });
   await clock.tween(SHRINK_SECONDS, (t) => {

@@ -150,8 +150,7 @@ export const knightLancesPawn = {
         await clock.wait(DUST_EVERY);
       }
     })();
-    const charging = attacker.mover.chargeTo(end, { seconds: recorrido / GALLOP });
-    const galope = sfx.play('galope');
+    const charging = attacker.mover.chargeTo(end, { seconds: recorrido / GALLOP }); // los cascos suenan solos
     // Avanza a velocidad constante hasta `end`, donde la punta queda BITE dentro: toca BITE antes.
     await slowToImpact(clock, (recorrido - BITE) / GALLOP);
     const tip = rider.props.spear.localToWorld(new THREE.Vector3(0, rider.spearEnds.top, 0));
@@ -182,7 +181,6 @@ export const knightLancesPawn = {
     sfx.play('caida'); // el peón, contra el tablero
     cinema.shake(0.12);
     await frena;
-    galope?.stop(0.35);
     galopa = false;
     await knockOut({ clock, fx, fighter: pawn });
     await defender.mover.vanish();

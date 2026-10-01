@@ -1,5 +1,8 @@
 import { formatClock } from '../chess/timecontrol.js';
 import { t } from '../i18n.js';
+import { sfx } from '../audio/sfx.js';
+
+const TICKS = 10000; // en los diez últimos segundos del que mueve, un tic cada segundo
 
 // El reloj de ajedrez en la pantalla, como uno de verdad: una caja con dos pantallas y dos
 // pulsadores encima. El pulsador del bando al que le corre el tiempo está arriba; el otro, hundido.
@@ -68,9 +71,11 @@ export function createChessClockUi(root = document.body) {
   const botones = Object.fromEntries([...reloj.querySelectorAll('.pulsador')].map((b) => [b.dataset.lado, b]));
   const caras = Object.fromEntries([...reloj.querySelectorAll('.reloj-cara')].map((c) => [c.dataset.lado, c]));
   const textos = { white: '', black: '' };
+  const tics = { white: null, black: null }; // el último segundo en que sonó el tic
   let espera = null; // { side, resolve }: el bando que ha de pulsar para acabar su jugada
 
   function hunde(side) {
+    sfx.play('reloj');
     const boton = botones[side];
     boton.classList.remove('golpe');
     void boton.offsetWidth;
@@ -139,6 +144,10 @@ export function createChessClockUi(root = document.body) {
         }
         caras[side].classList.toggle('activa', running === side);
         caras[side].classList.toggle('apurado', running === side && ms < 10000);
+        // Apurado: tic, tic… uno por segundo, mientras corre (en pausa, durante un combate, no).
+        const segundo = running === side && !paused && ms > 0 && ms < TICKS ? Math.ceil(ms / 1000) : null;
+        if (segundo !== null && segundo !== tics[side]) sfx.play('tic');
+        tics[side] = segundo;
         caras[side].classList.toggle('agotado', ms <= 0);
       }
       reloj.dataset.corre = running ?? '';

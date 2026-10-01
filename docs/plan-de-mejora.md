@@ -20,10 +20,13 @@ vez que ves el mismo, se hace largo.
 **Cómo:** el reloj del combate ya lo controla todo. Para acelerar se sube su velocidad y para saltar
 se termina el combate dejando las piezas en su sitio.
 
-### 2. Efectos de sonido · M · en marcha
-**Hecho:** el sistema y 23 efectos en todos los combates (espadas, escudo, casco, cortes, puñetazos,
-caídas, bomba, magia de hielo, fuego y rayo, piedra, galope y relincho), con interruptores de música y
-de efectos en la configuración. **Falta:** pasos, el reloj, los botones, volumen graduable y vibración.
+### 2. Efectos de sonido · M · ✔ hecho
+**Hecho:** efectos en todos los combates (espadas, escudo, casco, cortes, puñetazos, caídas, bomba,
+magia de hielo, fuego y rayo, piedra, relincho); pasos que suenan al posar cada pie (madera, armadura,
+piedra del gigante, cascos del caballo), más flojos cuanto más lejos; tocar pieza, reloj (y el tic de
+los diez últimos segundos), botones, jaque, final (fanfarria, trombón triste o tablas), coronación y la
+torre que se transforma. En la configuración, música y efectos con su interruptor y su volumen, y
+vibración en los golpes fuertes donde el navegador deja (Android; el iPhone no deja a las webs).
 **Qué:** pasos, galope, choques de metal, lanzazos, espadazos, magia (hielo, fuego, rayo),
 explosiones, caídas, rocas, el reloj de ajedrez y los botones. Volumen de música y de efectos por
 separado en ajustes. Y vibración del móvil en los golpes fuertes.

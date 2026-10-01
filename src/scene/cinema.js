@@ -32,7 +32,8 @@ const CLOSE_FILL = 2.1; // alturas de la pieza a las que se pone
 const CLOSE_MIN = 2.6; // y nunca más cerca que esto
 const smooth = (t) => t * t * (3 - 2 * t);
 
-export function createCinema(stage) {
+// `onShake(size)`: se avisa a quien quiera de cada temblor (la vibración del móvil).
+export function createCinema(stage, { onShake = null } = {}) {
   const { camera, controls } = stage;
   let saved = null;
   let shakeLeft = 0;
@@ -191,6 +192,7 @@ export function createCinema(stage) {
     shake(size) {
       shakeLeft = SHAKE_SECONDS;
       shakeSize = size;
+      onShake?.(size);
     },
 
     // Cada fotograma, antes de que los controles de órbita lean la cámara: quita el temblor del

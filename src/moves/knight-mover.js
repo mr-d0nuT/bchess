@@ -11,6 +11,7 @@ import { BOARD_EDGE, nearestEdgeExit, pickGait, planWalk, pointAlong, shortestTu
 // (`room`, `turnTo`, `leapTo`, `dismount`, `walkTo`, `horseFlee`, `mount`) los usan las batallas, que
 // ya tienen el bloqueo general.
 
+const NEIGH_CHANCE = 0.35; // al saltar, de vez en cuando el caballo relincha (siempre, cansaría)
 const REAR_SECONDS = 0.4;
 const REAR_ANGLE = 0.6; // radianes que se levanta el caballo al encabritarse
 const THROW_REAR = 0.8; // y cuando tira al jinete
@@ -368,6 +369,7 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     const onPedestal = knight.pedestal.visible && figure === knight.figure;
     const startY = figure.position.y;
     dust.puff(new THREE.Vector3(from.x, DUST_Y, from.z));
+    if (horseMoves && Math.random() < NEIGH_CHANCE) sfx.play('relincho', { volume: 0.6 });
     await clock.tween(REAR_SECONDS, (t) => {
       const k = Math.sin((Math.PI / 2) * t);
       if (onPedestal) knight.pedestal.scale.setScalar(Math.max(0.001, 1 - t));
@@ -379,6 +381,7 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     // 2. Vuela: el cuerpo sigue la pendiente del arco y las patas se estiran al subir y se recogen al bajar.
     landing = { x: to.x, z: to.z };
     const rear = figure.rotation.x;
+    sfx.play('silbido', { volume: 0.5, rate: 0.8 });
     if (!horseMoves) rider.play(rider.has('jump') ? 'jump' : 'idle', { loop: false, fade: 0.1 });
     await clock.tween(plan.duration, (u) => {
       const p = leapAt(plan, u);
@@ -392,6 +395,13 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     // 3. Aterriza con un rebote, polvo y un temblor ligero.
     if (horseMoves) setLegs(0, 0);
     figure.position.set(to.x, 0, to.z);
+    // Los cascos (o las botas) contra el tablero, de golpe.
+    if (horseMoves) {
+      sfx.play('casco_caballo', { volume: 2 });
+      sfx.play('casco_caballo', { volume: 1.6 });
+    } else {
+      sfx.play('paso_armadura', { volume: 1.8 });
+    }
     dust.puff(new THREE.Vector3(to.x, DUST_Y, to.z), { count: 12, radius: 0.6, duration: 0.5 });
     cinema.shake(0.06);
     const pitch = figure.rotation.x;

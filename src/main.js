@@ -69,6 +69,10 @@ const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar q
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
 const CPU_MIN_MS = 700; // la CPU nunca contesta antes: una jugada al instante parece un error
 const GUARDA_RELOJ_MS = 5000; // con reloj, cada cuánto se guarda la partida mientras corre
+const SONIDO_CERCA = 6; // a esta distancia de la cámara (o menos), los pasos suenan enteros
+const SONIDO_LEJOS = 0.2; // y nunca por debajo de esto
+const VIBRA_DESDE = 0.12; // temblores más flojos que esto no vibran
+const VIBRA_MS = 220; // milisegundos de vibración por unidad de temblor (el de la bomba, 0,35: 77 ms)
 const NUBE_PASO = 5; // de cada malla, un vértice de cada tantos para saber a quién toca un caballo
 const NUBE_SUELO = 0.45; // y solo lo de encima de las peanas, que no se giran
 const VECINDAD = 1.6; // piezas más lejos que esto (entre centros de casilla) no llegan a tocar a un caballo
@@ -128,6 +132,15 @@ function wireSettings() {
   });
 }
 
+// Los botones suenan al pulsarlos; JUGAR y «Continuar», con su ¡fiuuu! El reloj tiene su propio golpe.
+function wireButtonSounds() {
+  document.addEventListener('click', (event) => {
+    const boton = event.target.closest?.('button');
+    if (!boton || boton.disabled || boton.classList.contains('pulsador')) return;
+    sfx.play(boton.id === 'menu-jugar' || boton.id === 'menu-continuar' ? 'jugar' : 'clic');
+  }, true);
+}
+
 // Los efectos de sonido, igual. Al ponerlos, suena uno de muestra.
 function wireEffectsButton() {
   const button = document.getElementById('efectos');
@@ -146,6 +159,13 @@ function wireEffectsButton() {
     paint();
     if (!sfx.muted) sfx.play('espadas', { volume: 0.6 });
   });
+  // El volumen: se oye cómo queda al soltarlo.
+  const rango = document.getElementById('efectos-volumen');
+  if (rango) {
+    rango.value = String(Math.round(sfx.volume * 100));
+    rango.addEventListener('input', () => { sfx.volume = Number(rango.value) / 100; });
+    rango.addEventListener('change', () => sfx.play('pieza'));
+  }
 }
 
 // La música se quita y se pone desde la configuración (el engranaje): su nota y si suena o no.
@@ -166,6 +186,11 @@ function wireMusicButton(music) {
     music.toggle();
     paint();
   });
+  const rango = document.getElementById('musica-volumen');
+  if (rango) {
+    rango.value = String(Math.round(music.volume * 100));
+    rango.addEventListener('input', () => { music.volume = Number(rango.value) / 100; });
+  }
 }
 
 async function start() {
@@ -182,6 +207,7 @@ async function start() {
   music.startIntro();
   wireMusicButton(music);
   wireEffectsButton();
+  wireButtonSounds();
   unlockAudioOnGesture();
   wireSettings();
   if (!webglAvailable()) {
@@ -208,7 +234,7 @@ async function start() {
       spells.update(dt);
     },
   };
-  const cinema = createCinema(stage);
+  const cinema = createCinema(stage, { onShake: (size) => vibra(size) });
   const rubble = createRubble(stage.scene);
   const debris = createDebris(stage.scene);
   // El punto donde enfoca la cámara: el medio de los que siguen en pie (al final, el que ha ganado,
@@ -341,6 +367,36 @@ async function start() {
     try { localStorage.setItem(clave, valor); } catch { /* sin almacenamiento: solo esta sesión */ }
   };
   let modoCombates = leerPreferencia(COMBATES, 'siempre');
+  // VIBRACIÓN en los golpes fuertes, los que hacen temblar la cámara: más larga cuanto más fuerte. Solo
+  // donde el navegador deja (en el iPhone, Safari no deja vibrar a las páginas): ahí el ajuste no sale.
+  const VIBRACION = 'bchess.vibracion';
+  const puedeVibrar = typeof navigator.vibrate === 'function' && matchMedia('(pointer: coarse)').matches;
+  let vibrar = leerPreferencia(VIBRACION, 'si') !== 'no';
+  function vibra(size) {
+    if (!puedeVibrar || !vibrar || size < VIBRA_DESDE || sfx.silenced()) return;
+    try { navigator.vibrate(Math.round(VIBRA_MS * size)); } catch { /* sin permiso aún */ }
+  }
+  {
+    const seccion = document.getElementById('ajustes-vibracion');
+    const boton = document.getElementById('vibracion');
+    const estado = document.getElementById('vibracion-estado');
+    if (puedeVibrar && seccion && boton) {
+      seccion.hidden = false;
+      const pinta = () => {
+        boton.setAttribute('aria-pressed', String(vibrar));
+        boton.setAttribute('aria-label', t('ajustes.vibracion'));
+        if (estado) estado.textContent = t(vibrar ? 'ajustes.vibracion.si' : 'ajustes.vibracion.no');
+      };
+      pinta();
+      onLanguage(pinta);
+      boton.addEventListener('click', () => {
+        vibrar = !vibrar;
+        guardarPreferencia(VIBRACION, vibrar ? 'si' : 'no');
+        pinta();
+        if (vibrar) navigator.vibrate(60);
+      });
+    }
+  }
   const vistos = new Set((() => {
     try { return JSON.parse(leerPreferencia(VISTOS, '[]')); } catch { return []; }
   })());
@@ -367,6 +423,13 @@ async function start() {
   const salto = { velocidad: 1, saltando: false, desde: 0 };
   // Al saltar un combate, lo que queda pasa de golpe: sus sonidos sonarían todos a la vez.
   sfx.silenced = () => salto.saltando || testing.active;
+  // Lo que se oye algo según lo lejos que esté de la cámara: entero hasta CERCA y, más allá, menos.
+  const enMundo = new Vector3();
+  const cercania = (figure) => {
+    if (!figure?.getWorldPosition) return 1;
+    const lejos = figure.getWorldPosition(enMundo).distanceTo(stage.camera.position);
+    return Math.max(SONIDO_LEJOS, Math.min(1, SONIDO_CERCA / Math.max(1e-3, lejos)));
+  };
   const botonSaltar = document.getElementById('saltar');
   const fundido = document.getElementById('fundido');
   function pintaSalto() {
@@ -475,6 +538,7 @@ async function start() {
 
   // Sin combate posible: el vencido se esfuma y el ganador va hasta su casilla.
   async function plainCapture(attacker, defender, target) {
+    sfx.play('puf');
     await defender.mover.vanish();
     removePiece(defender);
     await attacker.mover.goTo(target);
@@ -597,11 +661,13 @@ async function start() {
         return plan.to === destino || plan.captured === destino;
       });
       if (jugadas.length) {
+        sfx.play('pieza', { rate: 0.8 }); // ¡ahí va!
         await playHuman(jugadas);
         return;
       }
     }
     if (tapped && tapped.color === game.position.side) {
+      if (tapped !== selected) sfx.play('pieza');
       select(tapped === selected ? null : tapped); // tocarla otra vez la suelta
       return;
     }
@@ -665,6 +731,7 @@ async function start() {
     const square = pawn.mover.square;
     const at = board.squareToWorld(square);
     fx.burst(new Vector3(at.x, 0.9, at.z), { size: 1.6, sparks: 30 });
+    sfx.play('corona');
     fx.updraft(new Vector3(at.x, 0, at.z), { seconds: 1.2, count: 30, color: '#ffe7a0', radius: 0.45, height: 2.2 });
     await pawn.mover.vanish();
     removePiece(pawn);
@@ -819,7 +886,10 @@ async function start() {
       await gameOver(status);
       return;
     }
-    if (status === 'check') ui.banner(t('cartel.jaque'));
+    if (status === 'check') {
+      ui.banner(t('cartel.jaque'));
+      sfx.play('jaque');
+    }
     // Con reloj, el que ha movido lo pulsa para parar su tiempo y arrancar el del otro. La CPU lo
     // pulsa sola; el jugador, con su mano (y mientras no lo pulse, su tiempo sigue corriendo).
     if (game.clock) {
@@ -884,6 +954,8 @@ async function start() {
       winner = game.position.hasMatingMaterial(otro) ? otro : null;
     }
     const cartel = status === 'checkmate' ? t('cartel.mate') : status === 'time' ? t('cartel.tiempo') : t('cartel.tablas');
+    // Y suena el final: fanfarria para quien gana; contra la CPU, si gana ella, trombón triste; tablas, trompetas.
+    sfx.play(!winner ? 'tablas' : game.mode === 'cpu' && winner !== game.human ? 'derrota' : 'victoria');
     ui.banner(cartel, { tipo: winner ? 'jaque' : 'tablas', ms: 1700 });
     await new Promise((resolve) => setTimeout(resolve, 1700));
     const que = await ui.gameOver({ status, winner, mode: game.mode, human: game.human, flagged });
@@ -1268,6 +1340,21 @@ async function start() {
       entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing, ...cine });
     }
     entry.nacida = clock.now; // para no medir su forma hasta que tenga su postura (`settleKnights`)
+    // Los pasos que se oyen, cada una con los suyos: madera; el caballero a pie, con su armadura; el
+    // caballo, sus cascos; el gigante de la torre, piedra. Más flojos cuanto más lejos de la cámara (el
+    // caballo que huye del tablero se va apagando).
+    const pisa = (sound) => function () { sfx.play(sound, { volume: cercania(this) }); };
+    if (kind === 'knight') {
+      entry.piece.rider.onStep = pisa('paso_armadura');
+      if (entry.piece.horse) {
+        entry.piece.horse.watchFeet(Object.values(entry.piece.mount?.legs ?? {}).map((leg) => leg.at(-1)));
+        entry.piece.horse.onStep = pisa('casco_caballo');
+      }
+    } else if (kind === 'rook') {
+      if (entry.piece.giant) entry.piece.giant.onStep = pisa('paso_gigante');
+    } else {
+      entry.piece.onStep = pisa('paso');
+    }
     addPiece(entry, square);
     // La mano del rey se cierra sobre el báculo lo último: el puño se busca con los brazos ya
     // bajados y la pieza en su casilla, no sobre el modelo recién cargado.

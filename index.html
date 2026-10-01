@@ -72,16 +72,30 @@
       </section>
       <section>
         <h3 data-i18n="ajustes.musica">Música</h3>
-        <button id="musica" type="button" class="ajustes-sonido" aria-pressed="true">
-          <span class="sonido-icono" aria-hidden="true">♫</span>
-          <span id="musica-estado">Activada</span>
-        </button>
+        <div class="ajustes-fila">
+          <button id="musica" type="button" class="ajustes-sonido" aria-pressed="true">
+            <span class="sonido-icono" aria-hidden="true">♫</span>
+            <span id="musica-estado">Activada</span>
+          </button>
+          <input id="musica-volumen" class="ajustes-volumen" type="range" min="0" max="100" step="5" value="100" data-i18n-attr="aria-label:ajustes.volumen.musica">
+        </div>
       </section>
       <section>
         <h3 data-i18n="ajustes.efectos">Efectos de sonido</h3>
-        <button id="efectos" type="button" class="ajustes-sonido" aria-pressed="true">
-          <span class="sonido-icono" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18.2 6.8a7.4 7.4 0 0 1 0 10.4"/></svg></span>
-          <span id="efectos-estado">Activados</span>
+        <div class="ajustes-fila">
+          <button id="efectos" type="button" class="ajustes-sonido" aria-pressed="true">
+            <span class="sonido-icono" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18.2 6.8a7.4 7.4 0 0 1 0 10.4"/></svg></span>
+            <span id="efectos-estado">Activados</span>
+          </button>
+          <input id="efectos-volumen" class="ajustes-volumen" type="range" min="0" max="100" step="5" value="100" data-i18n-attr="aria-label:ajustes.volumen.efectos">
+        </div>
+      </section>
+      <!-- Solo donde el navegador deja vibrar (no en el iPhone): `main.js` la enseña. -->
+      <section id="ajustes-vibracion" hidden>
+        <h3 data-i18n="ajustes.vibracion">Vibración</h3>
+        <button id="vibracion" type="button" class="ajustes-sonido" aria-pressed="true">
+          <span class="sonido-icono" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="8" y="4" width="8" height="16" rx="1.6"/><path d="M4.6 9v6M19.4 9v6M1.8 10.6v2.8M22.2 10.6v2.8"/></svg></span>
+          <span id="vibracion-estado">Activada</span>
         </button>
       </section>
       <button id="ajustes-cerrar" type="button" data-i18n="ajustes.cerrar">Cerrar</button>

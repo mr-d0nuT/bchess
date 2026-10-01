@@ -125,6 +125,7 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
     const from = board.squareToWorld(square);
     const to = board.squareToWorld(target);
     dust.puff(new THREE.Vector3(from.x, DUST_Y, from.z));
+    sfx.play('torre', { rate: 1.15, volume: 0.7 });
     await clock.tween(from.distanceTo(to) * SLIDE_SECONDS, (t) => {
       const p = pointAlong(from, to, smooth(t));
       rook.tower.position.set(p.x, rook.pedestalHeight, p.z);
