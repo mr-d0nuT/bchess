@@ -1,13 +1,19 @@
 import * as THREE from 'three';
 import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
+import { creep } from '../../fx/creep.js';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
 import { WIND_UP, bonePosition, facingTo, shout, victoryLap, windUp } from '../knight/common.js';
 
 // El alfil se come a cualquiera (mismo espíritu de gag que las batallas del caballero). Baja de su peana,
-// se acerca lo justo, levanta el báculo y lanza el hechizo: fogonazo en la voluta y al rival se le va el
-// color hasta quedar de piedra lisa, y entonces se resquebraja en cascotes.
+// se acerca lo justo y conjura con la mano libre, el báculo en alto: la magia se le junta en la voluta y de
+// ahí sale el rayo al pecho del rival. El rival se encoge de miedo y se queda así, quieto del todo, mientras
+// la piedra le trepa de los pies a la cabeza con un frente de luz.
+//
+// Antes conjuraba con el clip de lanzar hechizos tal cual, que es para manos vacías: con el báculo en la
+// derecha lo lanzaba hacia atrás y el fogonazo salía a su espalda, lejos del rival. Y la estatua seguía
+// respirando y meneando la lanza: ahora se congela (`freeze`).
 //
 // Y no la deja ahí: se arrima y la revienta de un bastonazo, con el báculo por encima de la cabeza.
 //
@@ -20,9 +26,10 @@ import { WIND_UP, bonePosition, facingTo, shout, victoryLap, windUp } from '../k
 const SPELL = 'cast_a_spell';
 const SPELL_COLOR = '#9fd0ff'; // el azul frío de la magia del alfil
 const BOLT_SECONDS = 0.34; // lo que dura el rayo de la voluta al pecho
-const CAST_DISTANCE = 1.15; // lo cerca que se pone a lanzar el hechizo
+const CAST_DISTANCE = 1.4; // lo cerca que se pone a lanzar el hechizo (a 1,15, la estatua encogida le rozaba la mano)
 const CAST_GAP = 0.35; // y lo que se aparta de más si el rival es un vozarrón de piedra
-const STONE_SECONDS = 0.7; // lo que tarda en volverse piedra
+const STONE_SECONDS = 1.2; // lo que tarda la piedra en subirle de los pies a la cabeza
+const FLINCH_SECONDS = 0.45; // lo que se encoge de miedo antes de quedarse de piedra
 const STONE = new THREE.Color('#8f8a82');
 const ADMIRE_SECONDS = 0.5; // lo que se recrea el alfil en su estatua antes de romperla
 const SMASH = 'slash'; // el bastonazo que la hace añicos
@@ -43,27 +50,22 @@ const BOARD_TOP = 0.004; // el ras del tablero: por debajo, recortado
 const DUST_Y = 0.05;
 const HOLE_DUST = '#6b6054'; // el polvo del agujero es de madera rota, no blanco
 
-// Le quita el color a una pieza hasta dejarla de piedra: se le clonan los materiales (los comparten
-// todas las copias del mismo modelo) y se les lleva el color y el brillo a los de la roca.
-function petrify(object) {
-  const materials = [];
-  object.traverse((o) => {
-    if (!o.isMesh || !o.material) return;
-    const list = Array.isArray(o.material) ? o.material : [o.material];
-    o.material = Array.isArray(o.material) ? list.map((m) => m.clone()) : list[0].clone();
-    for (const material of Array.isArray(o.material) ? o.material : [o.material]) {
-      materials.push({ material, color: material.color?.clone() ?? null, map: material.map });
+// Se encoge de miedo, si sabe (el peón y el alfil tienen su gesto de susto): así se queda la estatua.
+function flinch(defender) {
+  const fighter = defender.kind === 'knight' ? defender.piece.rider : defender.piece;
+  for (const clip of ['frightened', 'afraid']) {
+    if (fighter.hasClip?.('fidget', clip)) {
+      fighter.playOnce('fidget', { clip, fade: 0.1 });
+      return true;
     }
-  });
-  return (t) => {
-    for (const { material, color, map } of materials) {
-      if (color) material.color.copy(color).lerp(STONE, t);
-      if (map && t > 0.6) material.map = null; // al final, piedra lisa: la textura delata a la figura
-      material.roughness = Math.max(material.roughness ?? 1, t);
-      material.metalness = (material.metalness ?? 0) * (1 - t);
-      material.needsUpdate = true;
-    }
-  };
+  }
+  return false;
+}
+
+// Quieta como una estatua: sin animación, ni capa, ni lanza que se menee. Al caballero, con su caballo.
+function freeze(defender) {
+  const parts = defender.kind === 'knight' ? [defender.piece.rider, defender.piece.horse] : [defender.piece];
+  for (const part of parts) part?.freeze?.(true);
 }
 
 // Recorta una figura al ras del tablero: lo que baja de ahí deja de verse, que es lo que hace que
@@ -189,7 +191,10 @@ export const bishopTurnsToStone = {
     //    voluta al pecho del rival— y ATERRIZA —otro sello bajo el rival, una onda por el suelo y
     //    el fogonazo. Y todo a cámara lenta, que es cuando se ve.
     const strike = bishop.strikes?.[SPELL];
-    const casting = bishop.playOnce('attack', { clip: SPELL, fade: 0.15 });
+    const casting = bishop.has('conjurar')
+      ? bishop.playOnce('conjurar', { fade: 0.15 })
+      : bishop.playOnce('attack', { clip: SPELL, fade: 0.15 });
+    grita(attacker, 'grito');
     // La punta del báculo, viva: la mano se mueve mientras conjura, y la carga tiene que ir con ella.
     const voluta = () => (bishop.props.spear
       ? bishop.props.spear.localToWorld(new THREE.Vector3(0, bishop.spearEnds.top, 0))
@@ -208,7 +213,8 @@ export const bishopTurnsToStone = {
     const pecho = at.clone().setY(defender.piece.height * 0.55);
 
     const tip = voluta();
-    fx.bolt(tip, pecho, { seconds: BOLT_SECONDS, color: SPELL_COLOR, width: 0.05, kinks: 9 });
+    fx.bolt(tip, pecho, { seconds: BOLT_SECONDS, color: SPELL_COLOR, width: 0.07, kinks: 9 });
+    fx.bolt(tip, pecho, { seconds: BOLT_SECONDS * 0.8, color: '#ffffff', width: 0.03, kinks: 13 });
     fx.burst(tip, { size: 1.2, sparks: 30 });
     hud.flash();
     cinema.shake(0.12);
@@ -267,9 +273,17 @@ export const bishopTurnsToStone = {
       hole.material.map?.dispose();
       hole.material.dispose();
     } else {
-      // 3b. A los demás el hechizo los deja de piedra, tiesos y sin color.
-      const stone = petrify(victim);
-      await clock.tween(STONE_SECONDS, stone);
+      // 3b. A los demás el hechizo los deja de piedra. Se encogen de miedo y se quedan así, quietos del
+      //     todo, mientras la piedra les trepa de los pies a la cabeza con un frente de luz azul.
+      if (flinch(defender)) await clock.wait(FLINCH_SECONDS);
+      freeze(defender);
+      const piedra = creep(victim, { color: STONE, edge: SPELL_COLOR, roughness: 1, metalness: 0, keep: 0.4, grain: 0.35 });
+      const alto = defender.piece.height + 0.15;
+      sfx.play('hielo', { rate: 0.55, volume: 0.9 }); // crepita al subir: piedra, no hielo, más grave
+      await clock.tween(STONE_SECONDS, (t) => {
+        piedra.level = -0.1 + (alto + 0.1) * (1 - (1 - t) * (1 - t));
+      });
+      await clock.tween(0.3, (t) => { piedra.glow = 1.6 * (1 - t); });
       await afterImpact(clock);
       await casting;
       bishop.play('idle', { fade: 0.3 });

@@ -70,6 +70,8 @@ const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar q
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
 const CPU_MIN_MS = 700; // la CPU nunca contesta antes: una jugada al instante parece un error
 const GUARDA_RELOJ_MS = 5000; // con reloj, cada cuánto se guarda la partida mientras corre
+// El brazo del báculo del alfil, con los nombres de Tripo o, como en su esqueleto, los de Mixamo.
+const STAFF_ARM = /^(R_(Clavicle|Upperarm|Forearm|Hand)|mixamorigRight(Shoulder|Arm|ForeArm|Hand))/;
 const SONIDO_CERCA = 6; // a esta distancia de la cámara (o menos), los pasos suenan enteros
 const SONIDO_LEJOS = 0.2; // y nunca por debajo de esto
 const VIBRA_DESDE = 0.12; // temblores más flojos que esto no vibran
@@ -1354,6 +1356,9 @@ async function start() {
       // El peón ataca con la lanza o con los pies, y el escudo se queda en guardia: en la patada, el brazo
       // del escudo se iba hacia delante y abajo y lo dejaba plano a la altura de la rodilla, empujando.
       if (kind === 'pawn' && piece.props.shield) piece.holdBones('attack', (bone) => SHIELD_ARM.test(bone));
+      // El alfil conjura con la mano libre y el báculo quieto: el clip de lanzar hechizos es para manos
+      // vacías, y con el báculo en la derecha lo lanzaba hacia atrás y el fogonazo salía a su espalda.
+      if (kind === 'bishop') piece.addStillBones('conjurar', 'attack', (bone) => STAFF_ARM.test(bone), { clip: 'cast_a_spell' });
       entry = { kind, color, piece };
       // El peón, como el caballo, mueve de cine: la cámara se acerca a verlo andar.
       const cine = kind === 'pawn' ? {

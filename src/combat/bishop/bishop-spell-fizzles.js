@@ -39,7 +39,10 @@ export const bishopSpellFizzles = {
     await bringUp(attacker, { at: spots.attacker, facing: spots.attackerFacing, random });
 
     // 2. El hechizo que no sale: una nubecilla en la voluta y cara de tonto.
-    const casting = bishop.playOnce('attack', { clip: SPELL, fade: 0.15 });
+    // Con el báculo quieto en alto (`conjurar`): el clip, tal cual, lo lanzaba hacia atrás.
+    const casting = bishop.has('conjurar')
+      ? bishop.playOnce('conjurar', { fade: 0.15 })
+      : bishop.playOnce('attack', { clip: SPELL, fade: 0.15 });
     const magia = sfx.play('conjuro', { volume: 0.7 });
     await clock.wait((bishop.strikes?.[SPELL]?.body?.t ?? 1.1));
     const tip = bishop.props.spear

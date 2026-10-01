@@ -419,8 +419,8 @@ export function spawnPiece(kit) {
 
   // Otra versión de un movimiento con algunos huesos quietos en su postura de reposo: celebrar a caballo
   // con el brazo del escudo en su sitio, por ejemplo. Se registra como `name`.
-  function addStillBones(name, from, still) {
-    const source = variants[from]?.[0];
+  function addStillBones(name, from, still, { clip: key = null } = {}) {
+    const source = key ? variants[from]?.find((variant) => variant.key === key) : variants[from]?.[0];
     if (!source || !variants.idle?.length) return false;
     const clip = stillClip(source.action.getClip(), still, 'idle');
     clip.name = `${clip.name}:${name}`;
@@ -1008,7 +1008,11 @@ export function spawnPiece(kit) {
     swaying = true;
   }
 
+  // Quieta del todo, como una estatua: sin animación, sin capa, sin contoneo ni pasos. La petrifica el
+  // alfil: antes, ya de piedra, seguía respirando y meneando la lanza.
+  let frozen = false;
   function update(dt) {
+    if (frozen) return;
     restoreBones();
     mixer.update(dt);
     if (dt > 0) {
@@ -1104,6 +1108,12 @@ export function spawnPiece(kit) {
     },
     set onPlay(fn) {
       onPlay = fn ?? null;
+    },
+    freeze(on = true) {
+      frozen = on;
+    },
+    get frozen() {
+      return frozen;
     },
     watchFeet,
     // En qué punto del ciclo va la animación que suena ahora, de 0 a 1: sirve para colgarle encima
