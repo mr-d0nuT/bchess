@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { afterImpact } from './fight.js';
 import { charring } from './burn.js';
-import { boneOf, facingTo, shout, topple, victoryLap } from './knight/common.js';
+import { boneOf, facingTo, rightOf, shout, topple, victoryLap } from './knight/common.js';
 import { chestOf, faceAttacker, horseBolts, stepDown, victimOf } from './royal/royal.js';
 
 // EL PEÓN GRANADERO. Idea del usuario: el peón no se acerca a pegar. Se planta, se enfada, saca una
@@ -9,13 +9,17 @@ import { chestOf, faceAttacker, horseBolts, stepDown, victimOf } from './royal/r
 // queda mirando —«¡¿?!»— y ¡BUUUM!: una bola de fuego, la onda por el suelo, humo, y el rival negro
 // como un tizón, humeando, que aún se tambalea un momento antes de caer de espaldas.
 //
-// La lanza no se suelta: va en la mano derecha, y la bomba se lanza con el puñetazo de la izquierda.
+// La bomba va en la derecha y se lanza con un directo: la izquierda lleva el escudo, que no es para pegar.
+// Antes se lanzaba con el puñetazo de la izquierda, y el escudo salía disparado hacia el rival con la bomba
+// pegada, como un escudazo. La lanza, mientras tanto, se queda clavada a su lado.
 
 const FUSE_SECONDS = 1.9; // lo que tarda en consumirse la mecha, del encendido a la explosión
 const HOLD_SECONDS = 0.55; // lo que la enseña, encendida, antes de lanzarla
 const FLIGHT_SECONDS = 0.65;
 const FLIGHT_HEIGHT = 0.9;
 const ROLL = 0.18; // lo que rueda al caer
+const THROW_LEAD = 0.9; // lo que se ve del directo antes de soltarla (entero tarda 2,3 s en llegar)
+const SPEAR_ASIDE = 0.14; // la lanza se clava un poco por fuera de la mano: que el brazo no la atraviese
 // Donde se para, a los pies del rival: a esto de su centro (antes, a medio metro por delante).
 const AT_FEET = 0.25;
 const BOMB_SIZE = 1.15; // un poco más pequeña que al principio (1,45): parecía un balón
@@ -23,12 +27,22 @@ const STARE_SECONDS = 0.45; // lo que el rival se la queda mirando
 const SMOKE_SECONDS = 0.9; // tiznado y humeando, antes de caer
 const BOMB_CHANCE = 0.3; // entre peones, cada cuánto hay bomba en vez de duelo (lo decide `capture`)
 
-// El puñetazo con la mano libre (la izquierda, que la derecha lleva la lanza), o el que haya.
+// El puñetazo con la mano que no lleva el escudo (la derecha), o el que haya.
 function throwStrike(pawn) {
   const keys = (pawn.attacks ?? []).map((attack) => attack.key).filter((key) => pawn.strikes?.[key]?.body);
-  const izquierda = keys.find((key) => /L_Hand|LeftHand/.test(pawn.strikes[key].body.bone));
+  const derecha = keys.find((key) => /R_Hand|RightHand/.test(pawn.strikes[key].body.bone));
   const mano = keys.find((key) => /Hand/.test(pawn.strikes[key].body.bone));
-  return izquierda ?? mano ?? null;
+  return derecha ?? mano ?? null;
+}
+
+// Clava la lanza junto a la mano que la lleva, un poco por fuera, y la deja ahí: esa mano queda libre.
+function plantBeside(pawn, facing) {
+  const spear = pawn.props?.spear;
+  if (!spear?.visible) return false;
+  const at = spear.getWorldPosition(new THREE.Vector3());
+  const fuera = rightOf(facing);
+  pawn.plantSpear({ x: at.x + fuera.x * SPEAR_ASIDE, z: at.z + fuera.z * SPEAR_ASIDE });
+  return true;
 }
 
 export const pawnThrowsBomb = {
@@ -54,9 +68,10 @@ export const pawnThrowsBomb = {
     await attacker.mover.turnTo(facing, 0.25);
     await horseBolts(defender, center, home); // al caballero, su caballo lo tira y se va
 
-    // 2. Se enfada, saca la bomba y enciende la mecha.
+    // 2. Se enfada, clava la lanza a su lado, saca la bomba y enciende la mecha.
     if (pawn.has('taunt')) await pawn.playOnce('taunt', { fade: 0.15 });
     pawn.play('idle', { fade: 0.2 });
+    const clavada = /R_Hand|RightHand/.test(strike.body.bone) && plantBeside(pawn, facing);
     const bomba = fx.bomb(hand, { size: BOMB_SIZE });
     shout(bubbles, '¡TACHÁN!', hand.getWorldPosition(new THREE.Vector3()).setY(1.6));
     await clock.wait(0.35);
@@ -64,11 +79,12 @@ export const pawnThrowsBomb = {
     shout(bubbles, '¡FSSS!', bomba.position.clone().setY(bomba.position.y + 0.3));
     await clock.wait(HOLD_SECONDS);
 
-    // 3. La lanza con el puñetazo: se suelta en el momento del golpe y va en arco a los pies del rival.
-    //    La lanza, erguida: con la postura de ese golpe apuntaría al rival como en una estocada.
+    // 3. La lanza con el directo: se suelta en el momento del golpe y va en arco a los pies del rival.
+    //    (Si la lanza siguiera en la mano, erguida: con la postura de ese golpe apuntaría al rival.)
     pawn.setSpearPose('upright');
-    const lanzando = pawn.playOnce('attack', { clip: key, fade: 0.1 });
-    await clock.wait(strike.body.t * 0.85);
+    const desde = Math.max(0, strike.body.t - THROW_LEAD);
+    const lanzando = pawn.playOnce('attack', { clip: key, fade: 0.1, from: desde });
+    await clock.wait((strike.body.t - desde) * 0.85);
     const victima = victimOf(defender);
     const pies = victima.figure.getWorldPosition(new THREE.Vector3());
     const hacia = new THREE.Vector3(pies.x - home.x, 0, pies.z - home.z).normalize();
@@ -111,7 +127,8 @@ export const pawnThrowsBomb = {
     await (defender.kind === 'knight' ? defender.mover.defeated({ avoid: center }) : defender.mover.vanish());
     bodies.length = 0;
 
-    // 7. Y ocupa la casilla, riéndose.
+    // 7. Recoge la lanza y ocupa la casilla, riéndose.
+    if (clavada) pawn.holdSpear();
     await victoryLap({ entry: attacker, clock, cinema, obstacles, move: () => attacker.mover.walkOnto(target) });
   },
 };

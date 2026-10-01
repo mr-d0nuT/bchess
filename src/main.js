@@ -7,7 +7,7 @@ import { addLighting } from './scene/lighting.js';
 import { createBoard } from './scene/board.js';
 import { createHighlights } from './scene/highlights.js';
 import { createHud } from './ui/hud.js';
-import { loadManifest, loadPieceKit, spawnPiece } from './pieces/piece.js';
+import { SHIELD_ARM, loadManifest, loadPieceKit, spawnPiece } from './pieces/piece.js';
 import { loadRookKit, spawnRook } from './pieces/rook.js';
 import { loadKnightKit, spawnKnight } from './pieces/knight.js';
 import { createDust } from './fx/dust.js';
@@ -126,13 +126,16 @@ function wireSettings() {
   });
 }
 
+// La música se quita y se pone desde la configuración (el engranaje): su nota y si suena o no.
 function wireMusicButton(music) {
   const button = document.getElementById('musica');
+  const estado = document.getElementById('musica-estado');
   if (!button) return;
   const paint = () => {
     button.setAttribute('aria-pressed', String(!music.muted));
     button.title = music.muted ? t('boton.musica.poner') : t('boton.musica.quitar');
-    button.setAttribute('aria-label', t('boton.musica'));
+    button.setAttribute('aria-label', t('ajustes.musica'));
+    if (estado) estado.textContent = music.muted ? t('ajustes.musica.no') : t('ajustes.musica.si');
   };
   paint();
   onLanguage(paint);
@@ -513,6 +516,7 @@ async function start() {
       clock.timeScale = 1;
       cinema.reset();
       if (attacker.kind === 'pawn') {
+        attacker.piece.holdSpear(); // la lanza, a la mano (si la había clavado o lanzado)
         attacker.piece.setSpearPose(null);
         attacker.piece.setSpearDefault(null);
         attacker.piece.setGripSlide(0);
@@ -1225,6 +1229,9 @@ async function start() {
         piece.cape = QUEEN_CAPE;
         piece.frozenIdle = QUEEN_STILL;
       }
+      // El peón ataca con la lanza o con los pies, y el escudo se queda en guardia: en la patada, el brazo
+      // del escudo se iba hacia delante y abajo y lo dejaba plano a la altura de la rodilla, empujando.
+      if (kind === 'pawn' && piece.props.shield) piece.holdBones('attack', (bone) => SHIELD_ARM.test(bone));
       entry = { kind, color, piece };
       // El peón, como el caballo, mueve de cine: la cámara se acerca a verlo andar.
       const cine = kind === 'pawn' ? {

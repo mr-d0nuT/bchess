@@ -186,7 +186,7 @@ html, body {
 }
 
 
-/* El botón de la música, arriba a la izquierda. Tachado cuando está quitada. */
+/* Los botones de arriba a la izquierda. */
 #botones {
   position: absolute;
   top: max(10px, env(safe-area-inset-top));
@@ -220,12 +220,11 @@ html, body {
   stroke-linejoin: round;
 }
 .boton:disabled { opacity: 0.35; cursor: default; }
-.boton[aria-pressed="true"]:not(#musica) { border-color: #37b6ff; color: #7fd4ff; box-shadow: 0 0 10px rgba(40, 150, 255, 0.55); }
+.boton[aria-pressed="true"] { border-color: #37b6ff; color: #7fd4ff; box-shadow: 0 0 10px rgba(40, 150, 255, 0.55); }
 #acercar[aria-pressed="true"] .mas { display: none; } /* acercado, la lupa pasa a ser de alejar */
 #pantalla .cerrar, #pantalla[aria-pressed="true"] .abrir { display: none; } /* dentro, el icono es de salir */
 #pantalla[aria-pressed="true"] .cerrar { display: inline; }
 .boton[hidden] { display: none; }
-#musica[aria-pressed="false"] { opacity: 0.55; text-decoration: line-through; }
 
 /* La configuración: un panel en medio, sobre un velo. */
 #ajustes-panel {
@@ -260,6 +259,43 @@ html, body {
   cursor: pointer;
 }
 .ajustes-opciones button[aria-pressed="true"] { background: var(--tinta); color: #1a120b; border-color: var(--tinta); }
+/* La música: su nota y si suena. Quitada, la nota se apaga y se tacha. */
+.ajustes-musica {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px 6px 6px;
+  border: 1px solid var(--borde-boton);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--tinta);
+  font: 600 13px/1 system-ui, sans-serif;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.musica-icono {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--tinta);
+  border-radius: 50%;
+  background: var(--tinta);
+  color: #1a120b;
+  font-size: 17px;
+  line-height: 1;
+}
+.ajustes-musica[aria-pressed="false"] .musica-icono { background: transparent; color: var(--tinta); border-color: var(--borde-boton); opacity: 0.6; }
+.ajustes-musica[aria-pressed="false"] .musica-icono::after {
+  content: '';
+  position: absolute;
+  width: 2px;
+  height: 24px;
+  border-radius: 1px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
 
 /* Saltar combates: el aviso abajo, que también se puede tocar, y el fundido a negro al saltar. */
 #saltar {

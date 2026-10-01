@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { fitToHeight, loadPieceKit, spawnPiece, withShadows } from './piece.js';
+import { SHIELD_ARM, fitToHeight, loadPieceKit, spawnPiece, withShadows } from './piece.js';
 import { createFlag, flagTexture } from './flag.js';
 import { findHorseBones } from './horse-bones.js';
 import { measureBody, measureStrikes } from '../combat/strikes.js';
@@ -14,7 +14,6 @@ import { measureBody, measureStrikes } from '../combat/strikes.js';
 
 const MODELS = 'assets/models/';
 const SEAT_LIFT = 0.06; // de la silla a la cadera del jinete sentado
-const SHIELD_ARM = /^L_(Clavicle|Upperarm|Forearm|Hand)/; // el brazo del escudo
 const RIDER_LEGS = /^(?:[LR]_(?:Thigh|Calf|Foot|ToeBase)|Hip$|Pelvis$)/; // las piernas del jinete y de dónde cuelgan
 const MOUNTED_STILL = /^L_(Clavicle|Upperarm|Forearm|Hand)|^[LR]_(Thigh|Calf|Foot|ToeBase)/; // quietos celebrando a caballo
 const HITBOX_RADIUS = 0.45;

@@ -42,6 +42,10 @@ const THRUST_ARM = 0.05; // lo que ha de distar de la mano el hueso que marca la
 const SPIN_AXIS = new THREE.Vector3(1, 0, 0);
 const SPEAR_FLOOR_MARGIN = 0.02; // lo que queda su extremo más bajo por encima del suelo
 export const GRIP_SPEED = 4; // casillas por segundo que resbala la lanza cuando lo pide el combate
+// El brazo del escudo (el izquierdo, en el peón y en el jinete): en sus ataques se queda en guardia, quieto
+// como empieza el golpe (`holdBones`). El escudo es para defenderse, no para pegar.
+export const SHIELD_ARM = /^L_(Clavicle|Upperarm|Forearm|Hand)/;
+const SHIELD_UPRIGHT_RATE = 5; // por segundo: lo que tarda el escudo en pasar de seguir al tronco a ir derecho (0,2 s)
 const SPEAR_FLIGHT = 0.8; // segundos que tarda en desvanecerse la lanza que sale volando
 const SPEAR_GRAVITY = 6;
 const SPEAR_PLANT_DEPTH = 0.12; // lo que se clava en el tablero la lanza que se deja en el suelo
@@ -533,15 +537,18 @@ export function spawnPiece(kit) {
   // sin cambiar hacia dónde mira, que lo sigue marcando el brazo. Y se endereza girándolo alrededor de la
   // MANO, que es por donde se agarra: su origen cuelga un palmo por debajo, y girando alrededor de él, con
   // el brazo en alto, el escudo acababa flotando por encima de la cabeza.
+  // Mientras ataca, en cambio, sigue la vertical de verdad, no la del tronco: en la patada el peón se echa
+  // atrás casi tumbado, y el escudo, con el tronco, se quedaba plano a la altura de la rodilla. El paso de
+  // una a otra es suave (`SHIELD_UPRIGHT_RATE`), que al cambiar de movimiento no dé un salto.
   const shieldHold = props.shield ? props.shield.quaternion.clone() : null;
   const shieldHoldAt = props.shield ? props.shield.position.clone() : null;
   const trunkLow = findBone(model, 'Hips');
   const trunkHigh = findBone(model, 'Neck') ?? findBone(model, 'Head');
   const steady = {
     up: new THREE.Vector3(), trunk: new THREE.Vector3(), low: new THREE.Vector3(), grip: new THREE.Vector3(), at: new THREE.Vector3(),
-    world: new THREE.Quaternion(), parent: new THREE.Quaternion(), fix: new THREE.Quaternion(),
+    world: new THREE.Quaternion(), parent: new THREE.Quaternion(), fix: new THREE.Quaternion(), upright: 0,
   };
-  function steadyShield() {
+  function steadyShield(dt = 0) {
     const shield = props.shield;
     if (!shield || !shieldHold || !trunkLow || !trunkHigh || !isOurs(shield)) return;
     const hand = shield.parent;
@@ -557,6 +564,11 @@ export function spawnPiece(kit) {
     trunkHigh.getWorldPosition(steady.trunk);
     trunkLow.getWorldPosition(steady.low);
     steady.trunk.sub(steady.low);
+    if (steady.trunk.lengthSq() < 1e-8) return;
+    const derecho = currentName === 'attack' ? 1 : 0;
+    steady.upright += Math.sign(derecho - steady.upright) * Math.min(Math.abs(derecho - steady.upright), SHIELD_UPRIGHT_RATE * dt);
+    steady.trunk.normalize().multiplyScalar(1 - steady.upright);
+    steady.trunk.y += steady.upright;
     if (steady.trunk.lengthSq() < 1e-8) return;
     steady.fix.setFromUnitVectors(steady.up, steady.trunk.normalize());
     steady.world.premultiply(steady.fix);
@@ -964,7 +976,7 @@ export function spawnPiece(kit) {
       cut.resolve(true);
     }
     aimSword();
-    steadyShield();
+    steadyShield(dt);
     const spear = props.spear;
     if (!spear || !isOurs(spear)) return;
     if (flying) {
