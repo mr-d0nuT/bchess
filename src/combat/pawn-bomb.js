@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../audio/sfx.js';
 import { afterImpact } from './fight.js';
 import { charring } from './burn.js';
 import { boneOf, facingTo, rightOf, shout, topple, victoryLap } from './knight/common.js';
@@ -77,6 +78,7 @@ export const pawnThrowsBomb = {
     await clock.wait(0.35);
     bomba.light(FUSE_SECONDS);
     shout(bubbles, '¡FSSS!', bomba.position.clone().setY(bomba.position.y + 0.3));
+    const mecha = sfx.play('mecha');
     await clock.wait(HOLD_SECONDS);
 
     // 3. La lanza con el directo: se suelta en el momento del golpe y va en arco a los pies del rival.
@@ -89,6 +91,7 @@ export const pawnThrowsBomb = {
     const pies = victima.figure.getWorldPosition(new THREE.Vector3());
     const hacia = new THREE.Vector3(pies.x - home.x, 0, pies.z - home.z).normalize();
     const cae = { x: pies.x - hacia.x * (AT_FEET + ROLL), z: pies.z - hacia.z * (AT_FEET + ROLL) };
+    sfx.play('bomba_vuela');
     await bomba.throwTo(cae, { seconds: FLIGHT_SECONDS, height: FLIGHT_HEIGHT, roll: { x: hacia.x * ROLL, z: hacia.z * ROLL } });
     await lanzando;
     pawn.play('idle', { fade: 0.2 });
@@ -109,6 +112,8 @@ export const pawnThrowsBomb = {
     fx.shockwave(suelo, { radius: 2.4, seconds: 0.6, color: '#ffb35a' });
     dust.puff(new THREE.Vector3(donde.x, 0.05, donde.z), { count: 28, radius: 1.3, duration: 1 });
     shout(bubbles, '¡BUUUM!', donde.clone().setY(1.3));
+    mecha?.stop(0.04);
+    sfx.play('explosion');
     if (pawn.has('hit')) pawn.playOnce('hit', { fade: 0.08 }); // la onda también le llega
     const quema = charring(victima.figure);
     await clock.tween(0.25, (t) => quema(t, 0.12 * (1 - t)));
@@ -120,7 +125,7 @@ export const pawnThrowsBomb = {
     victima.play?.('idle', { fade: 0.1 });
     await clock.wait(SMOKE_SECONDS);
     shout(bubbles, '¡PLOF!', chestOf(defender));
-    await topple({ clock, figure: victima.figure, forward: false });
+    await topple({ clock, figure: victima.figure, forward: false, sound: defender.kind === 'knight' ? 'caida_armadura' : 'caida' });
     dust.puff(new THREE.Vector3(pies.x, 0.05, pies.z), { count: 14, radius: 0.7, duration: 0.6 });
     cinema.shake(0.12);
     await clock.wait(0.4);

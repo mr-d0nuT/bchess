@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../../audio/sfx.js';
 import { afterImpact, choose, overlapOf, slowToImpact, stanceOf } from '../fight.js';
 import { bestStrike, strikeSpot } from '../plan.js';
 import {
@@ -69,6 +70,7 @@ export const knightSweepsGiant = {
     fx.burst(puño, { size: 0.8, sparks: 14 });
     cinema.shake(0.1);
     shout(bubbles, '¡FIUUU!', puño);
+    sfx.play('silbido');
     await afterImpact(clock);
 
     // 4. El tajo a las piernas, a cámara lenta: chispas en la espinilla y el gigante se desploma.
@@ -80,6 +82,7 @@ export const knightSweepsGiant = {
     hud.flash();
     cinema.shake(0.25);
     shout(bubbles, '¡ZAS!', at);
+    sfx.play('corte');
     giant.playOnce(giant.has('defeat') ? 'defeat' : 'hit', { fade: 0.1 });
     const crumbled = clock.wait(COLLAPSE_SECONDS).then(() => defender.mover.crumble());
     await afterImpact(clock);

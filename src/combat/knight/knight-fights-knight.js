@@ -85,6 +85,7 @@ export const knightFightsKnight = {
       hud.flash();
       cinema.shake(0.16);
       shout(bubbles, bone.includes('Thigh') ? '¡ZAS!' : '¡CHAS!', at);
+      sfx.play('corte');
       const piece = cutLimb(his.object, bone);
       // El brazo de la espada se va con la espada: su mano la sigue agarrando mientras vuela, y al
       // caer se tumba a lo largo del filo en vez de quedarse clavado de punta.
@@ -120,6 +121,7 @@ export const knightFightsKnight = {
         fx.burst(toe, { size: 0.8, sparks: 16 });
         cinema.shake(0.12);
         shout(bubbles, t('burbuja.toma'), toe);
+        sfx.play('punetazo');
         if (mine.has('hit')) mine.playOnce('hit', { fade: 0.1 });
         await afterImpact(clock);
         await kicking;
@@ -140,6 +142,7 @@ export const knightFightsKnight = {
         dust.puff(golpe, { count: 16, radius: 0.6, duration: 0.5 });
         cinema.shake(0.14);
         shout(bubbles, '¡PUMBA!', bonePosition(his, 'Head'));
+        sfx.play('caida_armadura', { rate: 0.9 }); // el tronco, contra el tablero
         await clock.wait(0.35);
         bodies.push(lyingBody({ at: center, angle: facing, length: his.height * 0.5, radius: 0.3 }));
       }
@@ -154,6 +157,7 @@ export const knightFightsKnight = {
     fx.burst(bonePosition(his, 'Head'), { size: 0.7, sparks: 14 });
     hud.flash();
     shout(bubbles, '¡TOC!', bonePosition(his, 'Head'));
+    sfx.play('casco', { rate: 1.5, volume: 0.5 }); // un toquecito, no un mazazo
     await bocadillo;
     const angle = fallDirection({
       at: center,
@@ -164,7 +168,7 @@ export const knightFightsKnight = {
       overlap: (body) => crowd.overlap({ owners: [attacker, defender], bodies: [body] }),
     });
     // Cae de espaldas girando por la cadera, que es donde se apoya el tronco.
-    await toppleAt({ clock, figure: his.figure, pivot: trunkDrop, forward: false });
+    await toppleAt({ clock, figure: his.figure, pivot: trunkDrop, forward: false, sound: 'caida_armadura' });
     const donde = bonePosition(his, 'Head');
     dust.puff(new THREE.Vector3(donde.x, DUST_Y, donde.z), { count: 14, radius: 0.7, duration: 0.5 });
     cinema.shake(0.12);

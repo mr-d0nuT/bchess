@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../../audio/sfx.js';
 import { GRIP_SPEED } from '../../pieces/piece.js';
 import { afterImpact, slowToImpact, stanceOf } from '../fight.js';
 import {
@@ -97,6 +98,7 @@ export const knightLancesPawn = {
     const hoof = knight.mount?.hoofBack ?? 0.4;
     const baseY = horse.position.y;
     shout(bubbles, '¡A LA CARGA!', bonePosition(rider, 'Head'));
+    sfx.play('relincho');
     await clock.tween(PAW_SECONDS, (t) => {
       const k = Math.sin(Math.PI * t) * (1 + 0.35 * Math.sin(6 * Math.PI * t)); // dos manotazos en el aire
       horse.rotation.x = -PAW_REAR * k;
@@ -149,6 +151,7 @@ export const knightLancesPawn = {
       }
     })();
     const charging = attacker.mover.chargeTo(end, { seconds: recorrido / GALLOP });
+    const galope = sfx.play('galope');
     // Avanza a velocidad constante hasta `end`, donde la punta queda BITE dentro: toca BITE antes.
     await slowToImpact(clock, (recorrido - BITE) / GALLOP);
     const tip = rider.props.spear.localToWorld(new THREE.Vector3(0, rider.spearEnds.top, 0));
@@ -156,6 +159,7 @@ export const knightLancesPawn = {
     hud.flash();
     cinema.shake(0.26);
     shout(bubbles, '¡CATAPLÁN!', tip);
+    sfx.play('embestida');
     pawn.throwSpear({ x: dir.x, z: dir.z });
     pawn.turnBone('L_Upperarm', null);
     pawn.play('idle', { fade: 0.1 });
@@ -175,8 +179,10 @@ export const knightLancesPawn = {
     const caido = { x: figura.position.x, z: figura.position.z };
     bodies.push(lyingBody({ at: caido, angle: Math.atan2(dir.x, dir.z), length: pawn.height }));
     dust.puff(new THREE.Vector3(caido.x, DUST_Y, caido.z), { count: 14, radius: 0.7, duration: 0.6 });
+    sfx.play('caida'); // el peón, contra el tablero
     cinema.shake(0.12);
     await frena;
+    galope?.stop(0.35);
     galopa = false;
     await knockOut({ clock, fx, fighter: pawn });
     await defender.mover.vanish();

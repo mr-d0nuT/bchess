@@ -72,7 +72,7 @@ export async function fallClear(defender, { clock, at, from, crowd, bodies, owne
   });
   bodies.push(lyingBody({ at: donde, angle, length: victima.height }));
   await turnFighter(defender, victima, angle + Math.PI, clock);
-  await topple({ clock, figure: victima.figure, forward: false });
+  await topple({ clock, figure: victima.figure, forward: false, sound: defender.kind === 'knight' ? 'caida_armadura' : 'caida' });
 }
 
 // Lleva a la figura de una postura a otra en `seconds`, con la curva que se le diga. `ease` por

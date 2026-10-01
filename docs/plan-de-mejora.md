@@ -20,7 +20,10 @@ vez que ves el mismo, se hace largo.
 **Cómo:** el reloj del combate ya lo controla todo. Para acelerar se sube su velocidad y para saltar
 se termina el combate dejando las piezas en su sitio.
 
-### 2. Efectos de sonido · M
+### 2. Efectos de sonido · M · en marcha
+**Hecho:** el sistema y 23 efectos en todos los combates (espadas, escudo, casco, cortes, puñetazos,
+caídas, bomba, magia de hielo, fuego y rayo, piedra, galope y relincho), con interruptores de música y
+de efectos en la configuración. **Falta:** pasos, el reloj, los botones, volumen graduable y vibración.
 **Qué:** pasos, galope, choques de metal, lanzazos, espadazos, magia (hielo, fuego, rayo),
 explosiones, caídas, rocas, el reloj de ajedrez y los botones. Volumen de música y de efectos por
 separado en ajustes. Y vibración del móvil en los golpes fuertes.

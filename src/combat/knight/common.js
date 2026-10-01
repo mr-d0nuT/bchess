@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../../audio/sfx.js';
 import { FRENA, twirl } from '../twirl.js';
 import { roomClearance } from '../../moves/room.js';
 import { findBone } from '../../pieces/bone-names.js';
@@ -103,7 +104,8 @@ export async function windUp({ clock, fighter, key }) {
 // Como `topple`, pero girando alrededor de un punto de la figura a `pivot` de altura sobre su origen
 // (el tronco sin piernas, que se apoya en la cadera: girando por los pies, que ya no tiene, se
 // hundiría en el tablero).
-export async function toppleAt({ clock, figure, pivot, forward = true, seconds = TOPPLE_SECONDS }) {
+// `sound`: el golpe contra el suelo al acabar ('caida_armadura' para quien lleva armadura; null, ninguno).
+export async function toppleAt({ clock, figure, pivot, forward = true, seconds = TOPPLE_SECONDS, sound = 'caida' }) {
   figure.rotation.order = 'YXZ';
   const start = figure.rotation.x;
   const end = forward ? Math.PI / 2 : -Math.PI / 2;
@@ -117,15 +119,17 @@ export async function toppleAt({ clock, figure, pivot, forward = true, seconds =
     const ahora = punto.clone().applyEuler(giro);
     figure.position.copy(base).add(antes).sub(ahora);
   });
+  if (sound) sfx.play(sound);
 }
 
-export async function topple({ clock, figure, forward = true, seconds = TOPPLE_SECONDS }) {
+export async function topple({ clock, figure, forward = true, seconds = TOPPLE_SECONDS, sound = 'caida' }) {
   figure.rotation.order = 'YXZ';
   const start = figure.rotation.x;
   const end = forward ? Math.PI / 2 : -Math.PI / 2;
   await clock.tween(seconds, (t) => {
     figure.rotation.x = start + (end - start) * t * t;
   });
+  if (sound) sfx.play(sound);
 }
 
 // Cuerpo tendido en el suelo, para pedir sitio: de los pies (`at`) a la cabeza, hacia `angle`. El `length`

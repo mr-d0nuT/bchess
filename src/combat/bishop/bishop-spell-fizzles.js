@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../../audio/sfx.js';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
 import { aimBlow, blowDistance, blowOf, bringUp, gapTo, playBlow, shaftOf, torsoOf } from '../blow.js';
@@ -38,6 +39,7 @@ export const bishopSpellFizzles = {
 
     // 2. El hechizo que no sale: una nubecilla en la voluta y cara de tonto.
     const casting = bishop.playOnce('attack', { clip: SPELL, fade: 0.15 });
+    const magia = sfx.play('conjuro', { volume: 0.7 });
     await clock.wait((bishop.strikes?.[SPELL]?.body?.t ?? 1.1));
     const tip = bishop.props.spear
       ? bishop.props.spear.localToWorld(new THREE.Vector3(0, bishop.spearEnds.top, 0))
@@ -45,6 +47,8 @@ export const bishopSpellFizzles = {
     fx.burst(tip, { size: 0.35, sparks: 6 });
     dust.puff(tip.clone(), { count: 6, radius: 0.18, duration: 0.5 });
     shout(bubbles, '¡PUF!', tip);
+    magia?.stop(0.08);
+    sfx.play('puf');
     await casting;
     bishop.play('idle', { fade: 0.2 });
     await clock.wait(FIZZLE_SECONDS);
@@ -58,6 +62,7 @@ export const bishopSpellFizzles = {
     hud.flash();
     cinema.shake(0.2);
     shout(bubbles, '¡PLAF!', fist);
+    sfx.play('punetazo');
     if (bishop.props.spear?.visible) {
       debris.throwPiece(bishop.props.spear, {
         velocity: { x: Math.sin(facing) * -0.8, y: 2.2, z: Math.cos(facing) * -0.8 },

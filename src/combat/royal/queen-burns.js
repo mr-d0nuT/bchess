@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../../audio/sfx.js';
 import { QUEEN, armsDown } from '../../pieces/cast.js';
 import { afterImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
@@ -62,12 +63,15 @@ export const queenBurns = {
         fx.charge(mano(lado), { seconds: CHARGE_SECONDS, color: FIRE, size: 0.24, motes: 12 });
         fx.flame(mano(lado), { seconds: CHARGE_SECONDS + CAST_SECONDS, size: 0.3 });
       }
+      const magia = sfx.play('conjuro');
       await clock.wait(CHARGE_SECONDS);
 
       // 3. Lanza las manos al frente y el fuego sale de cada una en una bola, que caen sobre el rival.
       await poseTo(queen, QUEEN.summon, QUEEN.cast, { clock, seconds: CAST_SECONDS, ease: rebote });
       const victima = victimOf(defender);
       const pecho = chestOf(defender);
+      magia?.stop(0.2);
+      sfx.play('fuego');
       fx.fireball(mano('L')(), pecho, { seconds: FLIGHT_SECONDS, arc: 0.3 });
       fx.fireball(mano('R')(), pecho, { seconds: FLIGHT_SECONDS * 1.1, arc: 0.45 });
       await clock.wait(FLIGHT_SECONDS * 1.1);
@@ -81,6 +85,7 @@ export const queenBurns = {
       hud.flash();
       cinema.shake(0.15);
       shout(bubbles, '¡FUUUSH!', pecho);
+      sfx.play('fuego', { rate: 0.75 }); // la hoguera prende
       const quieto = victima.play?.('idle', { fade: 0.1 });
       const quema = charring(victima.figure);
       await clock.tween(CHAR_SECONDS, (t) => {

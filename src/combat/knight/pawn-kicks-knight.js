@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../../audio/sfx.js';
 import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js';
 import { strikeSpot } from '../plan.js';
 import { shaftOf } from '../blow.js';
@@ -60,6 +61,7 @@ export const pawnKicksKnight = {
     hud.flash();
     cinema.shake(0.15);
     shout(bubbles, '¡CLONC!', toe);
+    sfx.play('casco');
     if (swing) swing.paused = false;
     rider.play('idle', { fade: 0.2 });
     const knees = clock.tween(KNEES_SECONDS, (t) => {
@@ -85,7 +87,7 @@ export const pawnKicksKnight = {
     stances.delete(defender);
     bodies.push(lyingBody({ at: center, angle, length: rider.height }));
     await defender.mover.turnTo(angle, 0.12);
-    await topple({ clock, figure: rider.figure, forward: true });
+    await topple({ clock, figure: rider.figure, forward: true, sound: 'caida_armadura' });
     const head = bonePosition(rider, 'Head');
     dust.puff(new THREE.Vector3(head.x, DUST_Y, head.z), { count: 12, radius: 0.6, duration: 0.5 });
     cinema.shake(0.1);

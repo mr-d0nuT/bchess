@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../audio/sfx.js';
 import { TORSO, bestStrike, fightSpots, shieldOf, strikeSpot, usableStrikes } from './plan.js';
 import {
   afterImpact, choose, gripSlideToTarget, knockBack, overlapOf, planPunch, poseAhead, slowToImpact, stanceOf, standing, targetsOf, towardRival,
@@ -256,6 +257,7 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   //    después, se deshace en rocas; a un peón machacado desde arriba se le aplasta el cuerpo.
   const attack = giant.playOnce('attack', { clip: key, fade: 0.15 });
   await slowToImpact(clock, impact.t);
+  sfx.play('punetazo', { rate: 0.6 }); // un puño de piedra
   fx.burst(giant.object.getObjectByName(impact.bone).getWorldPosition(new THREE.Vector3()), { size: 1.2, sparks: 30 });
   hud.flash();
   cinema.shake(0.25);
@@ -336,6 +338,7 @@ async function pawnFellsGiant({ attacker, defender, home, center, target, clock,
   //    después, se deshace en rocas.
   const attack = a.playOnce('attack', { clip: key, fade: 0.15 });
   await slowToImpact(clock, measure.spear.t);
+  sfx.play('escudo', { rate: 1.3 }); // la punta contra la piedra
   fx.burst(spearTip(a), { size: 1.1, sparks: 28 });
   hud.flash();
   cinema.shake(0.2);

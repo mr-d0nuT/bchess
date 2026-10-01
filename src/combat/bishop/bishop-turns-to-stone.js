@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../../audio/sfx.js';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
 import { WIND_UP, bonePosition, facingTo, shout, victoryLap, windUp } from '../knight/common.js';
@@ -195,6 +196,7 @@ export const bishopTurnsToStone = {
     const cuando = strike?.body?.t ?? 1.1;
     fx.sigil(home, { radius: 0.52, seconds: cuando + 0.9, color: SPELL_COLOR, spin: 1.4 });
     fx.charge(voluta, { seconds: cuando, color: SPELL_COLOR, size: 0.34, motes: 14 });
+    const magia = sfx.play('conjuro');
     await slowToImpact(clock, cuando);
 
     const victim = defender.kind === 'knight'
@@ -210,6 +212,8 @@ export const bishopTurnsToStone = {
     hud.flash();
     cinema.shake(0.12);
     shout(bubbles, '¡ZAS!', tip);
+    magia?.stop(0.1);
+    sfx.play('hechizo');
     await clock.wait(BOLT_SECONDS * 0.6); // lo que tarda el rayo en llegar
     fx.sigil(center, { radius: 0.7, seconds: 1.1, color: SPELL_COLOR, spin: -2.2 });
     fx.shockwave(center, { radius: 1.9, seconds: 0.55, color: SPELL_COLOR });
@@ -225,6 +229,7 @@ export const bishopTurnsToStone = {
       dust.puff(new THREE.Vector3(center.x, DUST_Y, center.z), { count: 9, radius: 0.62, duration: 0.5, color: HOLE_DUST });
       cinema.shake(0.12);
       shout(bubbles, '¡AAAH!', at);
+      sfx.play('piedra_rompe', { rate: 0.75, volume: 0.7 }); // el suelo se abre
       await afterImpact(clock);
       await casting;
       bishop.play('idle', { fade: 0.3 });
@@ -252,6 +257,7 @@ export const bishopTurnsToStone = {
       dust.puff(new THREE.Vector3(center.x, DUST_Y, center.z), { count: 12, radius: 0.75, duration: 0.7, color: HOLE_DUST });
       cinema.shake(0.16);
       shout(bubbles, '¡PLOF!', at);
+      sfx.play('caida', { rate: 0.6 }); // el gigante, al fondo del agujero
       await clock.tween(HOLE_SECONDS, (t) => hole.scale.setScalar(Math.max(0.001, radio * (1 - t))));
       board.group.remove(hole);
       hole.geometry.dispose();
@@ -265,6 +271,7 @@ export const bishopTurnsToStone = {
       await casting;
       bishop.play('idle', { fade: 0.3 });
       shout(bubbles, '¡CRIC!', at); // la estatua se asienta, con su crujidito
+      sfx.play('piedra_cruje');
       await clock.wait(ADMIRE_SECONDS); // y el alfil se recrea un momento en su obra
 
       // 3c. Y el remate: se arrima, levanta el báculo por encima de la cabeza, lo deja un instante en
@@ -297,6 +304,7 @@ export const bishopTurnsToStone = {
       dust.puff(new THREE.Vector3(at.x, DUST_Y, at.z), { count: 24, radius: 1.15, duration: 0.9 });
       dust.puff(new THREE.Vector3(at.x, defender.piece.height * 0.5, at.z), { count: 10, radius: 0.5, duration: 0.7 });
       shout(bubbles, '¡CATACROC!', at);
+      sfx.play('piedra_rompe');
       victim.visible = false; // no se desvanece: se hace añicos de golpe
       defender.piece.object.visible = false;
       await afterImpact(clock);

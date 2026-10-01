@@ -45,7 +45,10 @@ una estocada, se derrumba en rocas.
   [Tripo AI](https://www.tripo3d.ai), plan Pro con uso comercial, a partir de imágenes de
   referencia del autor hechas con Gemini. Las telas de los banderines también son de Gemini.
 - **[Three.js](https://threejs.org):** MIT.
-- **Efectos de sonido:** [BigSoundBank](https://bigsoundbank.com), de Joseph Sardin, libres de derechos.
+- **Efectos de sonido:** de [Pixabay](https://pixabay.com/sound-effects/) (licencia de Pixabay: uso
+  libre, sin atribución obligatoria; los autores y los identificadores, en `src/audio/sfx.js`) y uno de
+  [BigSoundBank](https://bigsoundbank.com), de Joseph Sardin, libre de derechos. Los originales se
+  guardan en `raw/sonidos/` (no se publican) y se preparan con `python3 tools/prepara-sonidos.py`.
 - **HDRI `studio_small_09` y texturas `oak_veneer_01` y `rosewood_veneer1`:**
   [Poly Haven](https://polyhaven.com), CC0.
 - ***Battle Chess*** es una marca de Interplay Entertainment. BChess no está afiliado a

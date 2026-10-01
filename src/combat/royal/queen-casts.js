@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../../audio/sfx.js';
 import { QUEEN, armsDown } from '../../pieces/cast.js';
 import { afterImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
@@ -59,6 +60,7 @@ export const queenCasts = {
       await poseTo(queen, reposo, QUEEN.summon, { clock, seconds: SUMMON_SECONDS, ease: suave });
       fx.charge(mano('L'), { seconds: CHARGE_SECONDS, color, size: 0.26, motes: 14 });
       fx.charge(mano('R'), { seconds: CHARGE_SECONDS, color, size: 0.26, motes: 14 });
+      const magia = sfx.play('conjuro');
       await clock.wait(CHARGE_SECONDS);
 
       // 3. Lanza las manos al frente y la escarcha corre por el suelo hasta el rival, le trepa por el
@@ -69,6 +71,8 @@ export const queenCasts = {
       const pies = victima.figure.getWorldPosition(new THREE.Vector3());
       const vida = FROST_SECONDS + FREEZE_SECONDS + FROZEN_SECONDS + 1.2;
       fx.frost(suyo, pies, { seconds: vida, reach: FROST_SECONDS / vida, color });
+      magia?.stop(0.3);
+      sfx.play('hielo');
       await clock.wait(FROST_SECONDS);
       const alto = (victima.height ?? defender.piece.height) * 1.05;
       const hielo = fx.encase(pies, { height: alto, radius: Math.min(0.42, Math.max(0.28, defender.piece.radius * 0.8)), seconds: FREEZE_SECONDS, color });
@@ -87,6 +91,7 @@ export const queenCasts = {
       hud.flash();
       cinema.shake(0.2);
       shout(bubbles, '¡CRAC!', pecho);
+      sfx.play('hielo_rompe');
       await afterImpact(clock);
 
       // 5. Baja los brazos sin despeinarse; del rival no queda nada.

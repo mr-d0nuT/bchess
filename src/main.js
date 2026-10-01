@@ -389,6 +389,7 @@ async function start() {
     }
     salto.saltando = true;
     salto.velocidad = 1;
+    sfx.stopAll();
     fundido?.classList.add('negro');
     pintaSalto();
     await new Promise((resolve) => { setTimeout(resolve, SALTO_FUNDIDO); });

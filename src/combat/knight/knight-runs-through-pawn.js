@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../../audio/sfx.js';
 import { afterImpact, slowToImpact, stanceOf } from '../fight.js';
 import { chopHit, gripSlideForReach, shieldOf, strikeSpot, usableStrikes } from '../plan.js';
 import {
@@ -90,6 +91,7 @@ export const knightRunsThroughPawn = {
       hud.flash();
       cinema.shake(0.12);
       shout(bubbles, '¡CLANC!', at);
+      sfx.play('escudo');
       await afterImpact(clock);
       await guard;
       pawn.setSpearPose(null);
@@ -115,6 +117,7 @@ export const knightRunsThroughPawn = {
     hud.flash();
     cinema.shake(0.22);
     shout(bubbles, '¡CLONC!', golpe);
+    sfx.play('casco');
     const ux = Math.sin(chop.attackerFacing);
     const uz = Math.cos(chop.attackerFacing);
     pawn.throwSpear({ x: ux, z: uz }); // suelta la lanza

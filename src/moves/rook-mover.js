@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../audio/sfx.js';
 import { planWalk, pointAlong, shortestTurn } from './walk.js';
 import { giantToTower, towerToGiant } from './transform.js';
 
@@ -167,6 +168,7 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
   async function crumble() {
     const at = giant.figure.position.clone();
     shrinking = true;
+    sfx.play('piedra_rompe');
     rubble.explode(at, { color: rook.stone, count: 22, height: rook.height, obstacles: others });
     dust.puff(new THREE.Vector3(at.x, DUST_Y, at.z), { count: 20, radius: 1, duration: 0.9 });
     cinema.shake(0.15);

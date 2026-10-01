@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sfx } from '../audio/sfx.js';
 import { fightSpots, gripSlideForReach, planExchanges, shieldOf, usableStrikes } from './plan.js';
 import { twirl } from './twirl.js';
 import { rightOf, victoryLap } from './knight/common.js';
@@ -70,6 +71,7 @@ async function strike({ hitter, receiver, beat, style, spots, clock, fx, cinema,
 
   if (!beat.final) {
     await clock.wait(hasta);
+    sfx.play(style === 'duel' ? 'escudo' : 'punetazo', { volume: 0.8 });
     fx.burst(impactPoint(hitter, measure, style), { size: 0.55, sparks: 12 });
     cinema.shake(0.07);
     const reaction = r.playOnce('hit', { fade: 0.08 });
@@ -91,6 +93,7 @@ async function strike({ hitter, receiver, beat, style, spots, clock, fx, cinema,
   clock.timeScale = SLOW_MOTION;
   await clock.wait(Math.min(SLOW_BEFORE, hasta));
   fx.burst(impactPoint(hitter, measure, style), { size: 1, sparks: 26 });
+  sfx.play(style === 'duel' ? 'escudo' : 'punetazo', { rate: 0.85 });
   hud.flash();
   cinema.shake(0.18);
   const fall = r.playOnce(r.has('defeat') ? 'defeat' : 'fall', { fade: 0.1 });
