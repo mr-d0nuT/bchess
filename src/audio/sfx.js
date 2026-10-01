@@ -55,6 +55,12 @@ const SOUNDS = {
   torre: { volume: 0.5 }, // piedra que roza: la torre se desliza o se transforma («rock stone slide», 304550)
   corona: { volume: 0.6 }, // la coronación («Level Up», 191997)
   mareo: { volume: 0.5 }, // las estrellitas del que queda K.O. («Cartoon spin», 7120)
+  hielo_rayo: { volume: 0.75 }, // el rayo de escarcha de la reina («Frost Spell Impact», 499662)
+  hielo_encierra: { volume: 0.7 }, // el hielo que encierra al rival («Elemental Spell Impact (Ice)», 448564)
+  disparo: { volume: 0.8, variants: 3 }, // la pistola del rey (9mm pistol shoot, Single Pistol Gunshot, pistol shot)
+  amartillar: { volume: 0.7 }, // («Pistol Cock», 6014)
+  trueno: { volume: 0.8, variants: 2 }, // el rayo del rey (Thunder clap, big thunder clap)
+  martillazo: { volume: 0.9, variants: 2 }, // el gigante contra el suelo (Boulder Impact, Ground Impact)
 
   // LAS VOCES (`voz: true`: se callan aparte, con su propio interruptor). Sin palabras: el juego habla siete
   // idiomas. Quién dice qué, en `voces.js`. De dónde sale cada una, en `tools/prepara-sonidos.py`.

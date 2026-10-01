@@ -61,6 +61,20 @@ SONIDOS = {
     'torre':          ('pixabay/torre/304550-rock-stone-slide.mp3', 0.05, 1.44, 0.01, 0.3),
     'corona':         ('pixabay/corona/191997-level-up.mp3', 0.04, 1.5, 0.003, 0.4),
     'mareo':          ('voces/varios/7120-cartoon-spin.mp3', 0.06, 1.95, 0.005, 0.3),
+    # La reina blanca: el rayo de escarcha que corre por el suelo (crece hasta el impacto) y el hielo que
+    # encierra al rival.
+    'hielo_rayo':     ('pixabay/hielo2/499662-frost-spell-impact.mp3', 0.75, 3.5, 0.02, 0.6),
+    'hielo_encierra': ('pixabay/hielo2/448564-elemental-spell-impact-ice.mp3', 1.0, 3.3, 0.02, 0.6),
+    # El rey: su pistola (tres disparos distintos), amartillarla, y el trueno de su rayo.
+    'disparo-1':      ('pixabay/pistola/7152-9mm-pistol-shoot-short-reverb.mp3', 0.0, 1.14, 0.002, 0.35),
+    'disparo-2':      ('pixabay/pistola/37187-single-pistol-gunshot-3-3.mp3', 0.03, 0.9, 0.002, 0.3),
+    'disparo-3':      ('pixabay/pistola/233473-pistol-shot.mp3', 0.15, 1.19, 0.002, 0.35),
+    'amartillar':     ('pixabay/pistola/6014-pistol-cock.mp3', 0.12, 0.6, 0.002, 0.08),
+    'trueno-1':       ('pixabay/trueno/521194-thunder-clap.mp3', 0.56, 4.6, 0.003, 1.4),
+    'trueno-2':       ('pixabay/trueno/99753-big-thunder-clap.mp3', 0.14, 4.2, 0.003, 1.4),
+    # El gigante: su martillazo contra el suelo.
+    'martillazo-1':   ('pixabay/suelo/487673-boulder-impact.mp3', 0.0, 1.43, 0.002, 0.4),
+    'martillazo-2':   ('pixabay/suelo/352053-ground-impact.mp3', 0.18, 0.98, 0.002, 0.25),
 
     # LAS VOCES, sin palabras. Hombre (peones, caballeros, alfiles, reyes):
     # gritos de guerra, al empezar el combate o al cargar

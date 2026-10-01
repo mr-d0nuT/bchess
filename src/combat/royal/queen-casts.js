@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { grita } from '../../audio/voces.js';
 import { sfx } from '../../audio/sfx.js';
+import { creep } from '../../fx/creep.js';
 import { QUEEN, armsDown } from '../../pieces/cast.js';
 import { afterImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
@@ -9,10 +10,15 @@ import { ROYAL_COLOR, chestOf, faceAttacker, horseBolts, pose, poseTo, rebote, r
 
 // LA REINA BLANCA HIELA. El rey sentencia con el báculo —mazazo, rayo, onda y el rival llevado por
 // los aires—; la reina, no: lo suyo es el frío, y se tenían que distinguir de un vistazo. (La negra
-// quema: `queen-burns.js`.) No se acerca a pegar: se
-// planta a distancia y alza las manos, y el frío se le junta en ellas. Entonces las lanza al frente y la
-// escarcha corre por el suelo hasta el rival, le trepa por el cuerpo y lo encierra en cristal. Un
-// instante quieto, congelado… y ella cierra las manos: el hielo estalla en esquirlas y el rival con él.
+// quema: `queen-burns.js`.) No se acerca a pegar: se planta a distancia y alza las manos; el frío se le
+// junta en ellas, arremolinado, y el suelo se le escarcha a los pies. Entonces las lanza al frente y por el
+// suelo corre una ola de picos de hielo, cada vez más grandes, hasta el rival. Al llegar, el rival se
+// encoge, el hielo le trepa de los pies a la cabeza y un racimo de cristal brota a su alrededor y lo
+// encierra. Un instante quieto, congelado… y ella cierra las manos: todo estalla en esquirlas, el rival
+// con ellas, y nieva.
+//
+// Antes el rayo era un reguero de cristalitos que no se veía, el encierro un cilindro gris como de
+// plástico y el rival seguía respirando dentro.
 //
 // Hueso a hueso, como el andar: su modelo no trae ni una animación.
 
@@ -21,17 +27,21 @@ const GAP = 0.35;
 const SUMMON_SECONDS = 0.8; // lo que tarda en alzar las manos
 const CHARGE_SECONDS = 0.7; // y lo que se le junta el frío en ellas
 const CAST_SECONDS = 0.18; // el latigazo de los brazos al frente
-const FROST_SECONDS = 0.45; // lo que tarda la escarcha en llegar al rival
-const FREEZE_SECONDS = 0.7; // y en encerrarlo en hielo
-const FROZEN_SECONDS = 0.55; // el rival congelado, quieto, antes de romperse
+const RAY_SECONDS = 0.6; // lo que tarda la ola de hielo en llegar al rival
+const FLINCH_SECONDS = 0.35; // lo que se encoge el rival antes de quedarse helado
+const FREEZE_SECONDS = 0.9; // lo que tarda el hielo en trepar por él y encerrarlo
+const FROZEN_SECONDS = 0.7; // el rival congelado, quieto, antes de romperse
+const ICE = '#dff4ff'; // la piel de hielo que le trepa
+const ICE_EDGE = '#8fdcff'; // y su frente
 const SNAP_SECONDS = 0.12; // ella cierra las manos
 const RECOVER_SECONDS = 0.55;
+const crece = (t) => 1 - (1 - t) ** 2;
 
 export const queenCasts = {
   matches: (attacker) => attacker.kind === 'queen' && attacker.color !== 'black',
   can: (attacker) => attacker.piece.armDrop >= 0,
 
-  async run({ attacker, defender, board, home, center, target, clock, fx, cinema, hud, crowd, bubbles, obstacles, bodies }) {
+  async run({ attacker, defender, board, home, center, target, clock, fx, cinema, hud, crowd, rubble, bubbles, obstacles, bodies }) {
     const queen = attacker.piece;
     const reposo = armsDown(queen.armDrop || 0);
     const lejos = Math.max(REACH, queen.radius + defender.piece.radius + GAP);
@@ -57,50 +67,72 @@ export const queenCasts = {
       //     conjuro no cae hasta que el animal ha salido del tablero.
       await horseBolts(defender, center, home);
 
-      // 2. Alza las manos y el frío se le junta en ellas.
+      // 2. Alza las manos y el frío se le junta en ellas, arremolinado; a sus pies se abre un sello de
+      //    escarcha y se levanta vaho.
+      const suyo = queen.figure.getWorldPosition(new THREE.Vector3());
+      fx.sigil(suyo, { radius: 0.7, seconds: SUMMON_SECONDS + CHARGE_SECONDS + 0.5, color: ICE_EDGE, spin: 1.2 });
+      fx.updraft(suyo.clone().setY(0.1), { seconds: SUMMON_SECONDS + CHARGE_SECONDS, count: 22, color: '#ffffff', radius: 0.55, height: 1.4 });
       await poseTo(queen, reposo, QUEEN.summon, { clock, seconds: SUMMON_SECONDS, ease: suave });
-      fx.charge(mano('L'), { seconds: CHARGE_SECONDS, color, size: 0.26, motes: 14 });
-      fx.charge(mano('R'), { seconds: CHARGE_SECONDS, color, size: 0.26, motes: 14 });
+      fx.charge(mano('L'), { seconds: CHARGE_SECONDS, color: ICE_EDGE, size: 0.32, motes: 20 });
+      fx.charge(mano('R'), { seconds: CHARGE_SECONDS, color: ICE_EDGE, size: 0.32, motes: 20 });
       const magia = sfx.play('conjuro');
       grita(attacker, 'grito');
       await clock.wait(CHARGE_SECONDS);
 
-      // 3. Lanza las manos al frente y la escarcha corre por el suelo hasta el rival, le trepa por el
-      //    cuerpo y lo encierra en cristal.
+      // 3. Lanza las manos al frente y una ola de picos de hielo corre por el suelo hasta el rival.
       await poseTo(queen, QUEEN.summon, QUEEN.cast, { clock, seconds: CAST_SECONDS, ease: rebote });
       const victima = victimOf(defender);
-      const suyo = queen.figure.getWorldPosition(new THREE.Vector3());
       const pies = victima.figure.getWorldPosition(new THREE.Vector3());
-      const vida = FROST_SECONDS + FREEZE_SECONDS + FROZEN_SECONDS + 1.2;
-      fx.frost(suyo, pies, { seconds: vida, reach: FROST_SECONDS / vida, color });
+      const vida = RAY_SECONDS + FLINCH_SECONDS + FREEZE_SECONDS + FROZEN_SECONDS + 1;
+      const ola = fx.iceRay(suyo, pies, { seconds: RAY_SECONDS, life: vida, color: ICE_EDGE });
       magia?.stop(0.3);
-      sfx.play('hielo');
-      await clock.wait(FROST_SECONDS);
+      sfx.play('hielo_rayo');
+      cinema.shake(0.06);
+      await clock.wait(RAY_SECONDS);
+
+      // 4. Le llega: se encoge, se queda helado y el hielo le trepa de los pies a la cabeza mientras un
+      //    racimo de cristal brota a su alrededor y lo encierra.
+      grita(defender, 'dolor');
+      fx.shockwave(pies, { radius: 1.3, seconds: 0.45, color: ICE_EDGE });
+      for (const clip of ['frightened', 'afraid']) {
+        if (victima.hasClip?.('fidget', clip)) {
+          victima.playOnce('fidget', { clip, fade: 0.1 });
+          await clock.wait(FLINCH_SECONDS);
+          break;
+        }
+      }
+      victima.freeze?.(true);
       const alto = (victima.height ?? defender.piece.height) * 1.05;
-      grita(defender, 'dolor'); // el frío le llega
-      const hielo = fx.encase(pies, { height: alto, radius: Math.min(0.42, Math.max(0.28, defender.piece.radius * 0.8)), seconds: FREEZE_SECONDS, color });
-      await clock.wait(FREEZE_SECONDS * 0.6);
-      const quieto = victima.play?.('idle', { fade: 0.1 }); // se queda helado a medio respirar
-      await clock.wait(FREEZE_SECONDS * 0.4);
-      if (quieto) quieto.paused = true;
+      const piel = creep(victima.object, { color: ICE, edge: ICE_EDGE, roughness: 0.12, metalness: 0.3, keep: 0.6, grain: 0.12, band: 0.06, glow: 2 });
+      const hielo = fx.encase(pies, { height: alto, radius: Math.min(0.46, Math.max(0.3, defender.piece.radius * 0.85)), seconds: FREEZE_SECONDS, color: ICE_EDGE });
+      sfx.play('hielo_encierra');
+      sfx.play('hielo', { volume: 0.7 });
+      await clock.tween(FREEZE_SECONDS, (t) => { piel.level = -0.1 + (alto + 0.15) * crece(t); });
+      piel.glow = 0.6;
+      cinema.shake(0.08);
       await clock.wait(FROZEN_SECONDS);
 
-      // 4. Cierra las manos: el hielo estalla en esquirlas y el rival se rompe con él.
+      // 5. Cierra las manos: el hielo estalla en esquirlas, el rival se rompe con él en trozos de hielo, y
+      //    nieva.
       await poseTo(queen, QUEEN.cast, QUEEN.summon, { clock, seconds: SNAP_SECONDS, ease: rebote });
       const pecho = chestOf(defender);
       hielo.shatter();
+      ola.shatter();
       victima.figure.visible = false;
-      fx.burst(pecho, { size: 1.5, sparks: 32 });
+      rubble?.explode(pies.clone().setY(0.1), { color: ICE, count: 26, height: alto, force: 1.6, obstacles: () => crowd.obstacles([attacker, defender]) });
+      fx.burst(pecho, { size: 1.15, sparks: 40 });
+      fx.snow(pies, { seconds: 2.4, count: 50, radius: 1.3, height: 2.6 });
       hud.flash();
-      cinema.shake(0.2);
+      cinema.shake(0.24);
       shout(bubbles, '¡CRAC!', pecho);
       sfx.play('hielo_rompe');
       await afterImpact(clock);
 
-      // 5. Baja los brazos sin despeinarse; del rival no queda nada.
+      // 6. Baja los brazos sin despeinarse; del rival no queda nada.
       await Promise.all([
         poseTo(queen, QUEEN.summon, reposo, { clock, seconds: RECOVER_SECONDS, ease: suave }),
-        defender.kind === 'knight' ? defender.mover.defeated({ avoid: center }) : defender.mover.vanish(),
+        // Ya ha estallado: sin la nube de polvo de quien se esfuma (al caballero, su caballo ya se fue).
+        defender.kind === 'knight' ? defender.mover.defeated({ avoid: center }) : Promise.resolve(defender.piece.object.visible = false),
       ]);
       bodies.length = 0;
 

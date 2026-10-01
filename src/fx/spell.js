@@ -306,21 +306,23 @@ export function createSpellFx(scene) {
     }
   }
 
-  // EL HIELO. Nada de rayos: el frío se arrastra por el suelo, trepa por el rival hasta encerrarlo en
-  // cristal y luego se rompe con él dentro. Los cristales son pirámides de seis caras, finas y
-  // translúcidas, con un brillo propio del color de quien conjura: así se leen como hielo de lejos.
-  function cristal(color) {
-    const geometry = new THREE.CylinderGeometry(0, 1, 1, 6, 1);
+  // EL HIELO. El frío se arrastra por el suelo en una ola de picos, trepa por el rival hasta encerrarlo en un
+  // racimo de cristal y luego se rompe con él dentro. Los cristales son columnas de seis caras que se
+  // afinan hacia la punta, translúcidas, con un brillo propio del color de quien conjura y el reflejo del
+  // entorno: así se leen como hielo de lejos. (Antes el rayo era un reguero de cristalitos que no se veía y
+  // el encierro, un cilindro gris como de plástico.)
+  function cristal(color, { punta = 0 } = {}) {
+    const geometry = new THREE.CylinderGeometry(punta, 1, 1, 6, 1);
     geometry.translate(0, 0.5, 0); // la base en el origen: crece hacia arriba
     const tono = new THREE.Color(color);
     const object = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
-      color: tono.clone().lerp(new THREE.Color('#ffffff'), 0.5),
+      color: tono.clone().lerp(new THREE.Color('#ffffff'), 0.3),
       emissive: tono,
-      emissiveIntensity: 0.4,
-      roughness: 0.08,
-      metalness: 0.1,
+      emissiveIntensity: 0.42,
+      roughness: 0.05,
+      metalness: 0.2,
       transparent: true,
-      opacity: 0.68,
+      opacity: 0.58,
       depthWrite: false,
       flatShading: true,
     }));
@@ -329,116 +331,214 @@ export function createSpellFx(scene) {
     return object;
   }
   const crece = (t) => 1 - (1 - t) ** 3;
+  // Crece pasándose un poco y vuelve: el hielo brota de golpe.
+  const brota = (t) => (t >= 1 ? 1 : 1 - (1 - t) ** 3 + Math.sin(Math.PI * t) * 0.18);
 
-  // La escarcha: de `from` a `to` (puntos del suelo) brotan cristalitos al paso de un frente que tarda
-  // `reach` de la vida en llegar, con vaho frío por encima. Se funden al final.
-  function frost(from, to, { seconds = 1.6, reach = 0.35, color = '#bfe6ff', count = 28 } = {}) {
-    const a = new THREE.Vector3().copy(from).setY(0);
-    const b = new THREE.Vector3().copy(to).setY(0);
-    const lado = new THREE.Vector3().subVectors(b, a).cross(ARRIBA).normalize();
+  // Esquirlas que saltan de `pieza` (un cristal ya puesto) hacia fuera, girando, y caen.
+  function esquirlas(donde, { count = 3, color, size = 0.05, fuerza = 2 } = {}) {
     for (let i = 0; i < count; i++) {
-      const t = (i + Math.random()) / count;
-      const hielo = cristal(color);
-      hielo.position.copy(a).lerp(b, t).addScaledVector(lado, (Math.random() - 0.5) * 0.3);
-      hielo.rotation.set((Math.random() - 0.5) * 0.9, Math.random() * Math.PI, (Math.random() - 0.5) * 0.9);
-      const alto = 0.06 + Math.random() * 0.12;
-      const grueso = 0.018 + Math.random() * 0.022;
-      vive(hielo, seconds, (k) => {
-        const g = Math.max(0, Math.min(1, (k - t * reach) / 0.06));
-        hielo.scale.set(grueso * crece(g), alto * crece(g), grueso * crece(g));
-        hielo.material.opacity = 0.68 * (k > 0.8 ? (1 - k) / 0.2 : 1);
-      });
-    }
-    for (let i = 0; i < 10; i++) {
-      const t = i / 9;
-      const vaho = mota(brasa, color);
-      const sitio = new THREE.Vector3().copy(a).lerp(b, t).setY(0.08);
-      vive(vaho, seconds, (k) => {
-        const g = Math.max(0, Math.min(1, (k - t * reach) / 0.1));
-        vaho.position.copy(sitio).setY(0.08 + 0.12 * k);
-        vaho.scale.setScalar(0.35 + 0.25 * g);
-        vaho.material.opacity = 0.35 * g * (1 - k);
+      const esquirla = cristal(color);
+      const angulo = Math.random() * Math.PI * 2;
+      esquirla.position.copy(donde);
+      esquirla.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+      const tam = size * (0.5 + Math.random());
+      esquirla.scale.set(tam * 0.6, tam * 1.7, tam * 0.6);
+      const empuje = fuerza * (0.5 + Math.random());
+      const velocidad = new THREE.Vector3(Math.cos(angulo) * empuje, 0.8 + Math.random() * 2.4, Math.sin(angulo) * empuje);
+      const giro = new THREE.Vector3((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14);
+      vive(esquirla, 0.9 + Math.random() * 0.6, (k, dt) => {
+        velocidad.y -= 7 * dt;
+        esquirla.position.addScaledVector(velocidad, dt);
+        if (esquirla.position.y < 0.02) {
+          esquirla.position.y = 0.02;
+          velocidad.multiplyScalar(0.35);
+          velocidad.y = Math.abs(velocidad.y) * 0.3;
+        }
+        esquirla.rotation.x += giro.x * dt;
+        esquirla.rotation.y += giro.y * dt;
+        esquirla.rotation.z += giro.z * dt;
+        esquirla.material.opacity = 0.7 * (k > 0.6 ? (1 - k) / 0.4 : 1);
       });
     }
   }
 
-  // El bloque: cristales que crecen alrededor de `at` (los pies del rival), de abajo arriba, hasta
-  // `height`, y un prisma de hielo que lo envuelve. Devuelve `shatter()`, que lo rompe en esquirlas
-  // que salen despedidas y caen. Hasta que se rompe, se queda.
-  function encase(at, { height = 1.6, radius = 0.3, seconds = 0.8, color = '#bfe6ff', count = 22 } = {}) {
+  // EL RAYO DE HIELO. De `from` a `to` (por el suelo), en `seconds`, corre un frente que hace brotar
+  // racimos de picos, cada vez más altos según se acerca al rival, con una estela de luz y vaho frío por
+  // encima. Los picos se quedan hasta `life`, o hasta que `shatter()` los hace añicos.
+  function iceRay(from, to, { seconds = 0.6, life = 4, color = '#bfe6ff', count = 20 } = {}) {
+    const a = new THREE.Vector3().copy(from).setY(0);
+    const b = new THREE.Vector3().copy(to).setY(0);
+    const largo = Math.max(0.01, a.distanceTo(b));
+    const dir = new THREE.Vector3().subVectors(b, a).normalize();
+    const lado = new THREE.Vector3().crossVectors(dir, ARRIBA).normalize();
+    const estado = { edad: 0, roto: false };
+    const picos = [];
+    // La estela: una franja de luz por el suelo que se alarga con el frente y luego se apaga.
+    const estela = plano(brasa, color);
+    estela.geometry.dispose();
+    estela.geometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0, 0, -0.5);
+    estela.position.copy(a).setY(0.015);
+    estela.rotation.y = Math.atan2(-dir.x, -dir.z);
+    vive(estela, life, (k, dt, age) => {
+      const llega = Math.min(1, age / seconds);
+      estela.scale.set(0.5, 1, largo * llega);
+      estela.material.opacity = (age < seconds ? 0.9 : Math.max(0, 0.9 - (age - seconds) * 0.5)) * (1 - k * k);
+    });
+    // El frente: un resplandor que corre a ras de suelo, con vaho que se levanta a su paso.
+    const frente = mota(brasa, '#ffffff');
+    vive(frente, seconds + 0.15, (k, dt, age) => {
+      const t = Math.min(1, age / seconds);
+      frente.position.copy(a).addScaledVector(dir, largo * t).setY(0.18);
+      frente.scale.setScalar(0.55 + Math.random() * 0.2);
+      frente.material.opacity = age < seconds ? 1 : Math.max(0, 1 - (age - seconds) / 0.15);
+    });
+    for (let i = 0; i < 9; i++) {
+      const t = (i + 0.5) / 9;
+      const vaho = nube('#eaf7ff');
+      const sitio = new THREE.Vector3().copy(a).addScaledVector(dir, largo * t);
+      vive(vaho, 1.4, (k, dt, age) => {
+        const g = Math.max(0, Math.min(1, (age - t * seconds) / 0.3));
+        vaho.position.copy(sitio).setY(0.1 + 0.35 * g);
+        vaho.scale.setScalar(0.3 + 0.4 * g);
+        vaho.material.opacity = 0.32 * g * (1 - k);
+      });
+    }
+    // Los picos: racimos de dos o tres, inclinados hacia delante y hacia fuera, más grandes al final.
+    for (let i = 0; i < count; i++) {
+      const t = (i + 0.3 + Math.random() * 0.5) / count;
+      const racimo = 1 + Math.floor(Math.random() * 3);
+      for (let j = 0; j < racimo; j++) {
+        const pico = cristal(color);
+        const fuera = (Math.random() - 0.5) * (0.18 + 0.3 * t);
+        pico.position.copy(a).addScaledVector(dir, largo * t).addScaledVector(lado, fuera);
+        const alto = 0.12 + 0.5 * t ** 1.4 + Math.random() * 0.12;
+        const grueso = 0.035 + 0.05 * t + Math.random() * 0.02;
+        // Hacia delante (hacia el rival) y hacia el lado en que queda.
+        const inclina = new THREE.Vector3().copy(dir).multiplyScalar(0.45).addScaledVector(lado, Math.sign(fuera) * 0.5).add(ARRIBA).normalize();
+        pico.quaternion.setFromUnitVectors(ARRIBA, inclina);
+        pico.rotateY(Math.random() * Math.PI);
+        pico.scale.setScalar(0.001);
+        picos.push(pico);
+        vive(pico, life, (k, dt, age) => {
+          if (estado.roto) return;
+          const g = Math.max(0, Math.min(1, (age - t * seconds) / 0.14));
+          const s = brota(g);
+          pico.scale.set(grueso * s, alto * s, grueso * s);
+          if (k > 0.85) pico.material.opacity = 0.62 * (1 - k) / 0.15; // si nadie los rompe, se funden
+        });
+      }
+    }
+    return {
+      shatter() {
+        if (estado.roto) return;
+        estado.roto = true;
+        const donde2 = new THREE.Vector3();
+        for (const pico of picos) {
+          pico.visible = false;
+          const item = vivos.find((v) => v.object === pico);
+          if (item) item.life = item.age;
+          esquirlas(donde2.copy(pico.position).setY(0.05 + pico.scale.y * 0.5), { count: 2, color, size: 0.04 + pico.scale.x * 0.4, fuerza: 1.2 });
+        }
+      },
+    };
+  }
+
+  // El encierro: un racimo de columnas de cristal que brotan alrededor de `at` (los pies del rival), de
+  // abajo arriba, abriéndose hacia fuera, con un prisma de hielo tenue dentro que lo envuelve y una corona
+  // de picos por el suelo. Devuelve `shatter()`, que lo rompe en esquirlas. Hasta que se rompe, se queda.
+  function encase(at, { height = 1.6, radius = 0.3, seconds = 0.8, color = '#bfe6ff', count = 11 } = {}) {
     const pie = new THREE.Vector3().copy(at).setY(0);
     const piezas = [];
-    const bloque = cristal(color);
-    bloque.geometry.dispose();
-    bloque.geometry = new THREE.CylinderGeometry(radius, radius * 1.12, 1, 6, 1).translate(0, 0.5, 0);
-    bloque.material.opacity = 0.32;
-    bloque.position.copy(pie);
-    bloque.scale.set(1, 0.001, 1);
-    piezas.push(bloque);
     const estado = { edad: 0, roto: false };
+    const bloque = cristal(color, { punta: 0.35 }); // en punta: con la tapa plana asomaba como una caja
+    bloque.material.opacity = 0.12;
+    bloque.material.emissiveIntensity = 0.8;
+    bloque.position.copy(pie);
+    bloque.scale.set(radius * 1.02, 0.001, radius * 1.02);
+    piezas.push(bloque);
     vive(bloque, 3600, (k, dt) => {
       if (estado.roto) return;
       estado.edad += dt;
-      bloque.scale.y = height * crece(Math.min(1, estado.edad / seconds));
+      bloque.scale.y = height * 0.92 * crece(Math.min(1, estado.edad / seconds));
     });
+    // Las columnas, alrededor, abriéndose hacia fuera y cada una de su alto.
     for (let i = 0; i < count; i++) {
-      const hielo = cristal(color);
-      const angulo = (i / count) * Math.PI * 2 + Math.random() * 0.4;
-      const altura = Math.random() * height * 0.85;
-      const r = radius * (0.85 + Math.random() * 0.25);
-      hielo.position.set(pie.x + Math.cos(angulo) * r, altura, pie.z + Math.sin(angulo) * r);
-      // Hacia fuera y hacia arriba, más echados cuanto más altos.
-      const echa = 0.35 + (altura / height) * 0.6;
-      hielo.lookAt(pie.x + Math.cos(angulo) * (r + 1), altura + 1 / Math.tan(echa), pie.z + Math.sin(angulo) * (r + 1));
-      hielo.rotateX(Math.PI / 2);
-      const largo = (altura < 0.1 ? 0.35 : 0.18) + Math.random() * 0.25;
-      const grueso = 0.035 + Math.random() * 0.04;
-      const cuando = (altura / height) * 0.75;
-      hielo.scale.setScalar(0.001);
-      piezas.push(hielo);
-      vive(hielo, 3600, () => {
+      const columna = cristal(color, { punta: 0.4 });
+      const angulo = (i / count) * Math.PI * 2 + Math.random() * 0.35;
+      const r = radius * (0.55 + Math.random() * 0.35);
+      columna.position.set(pie.x + Math.cos(angulo) * r, 0, pie.z + Math.sin(angulo) * r);
+      const abre = 0.12 + Math.random() * 0.22;
+      const eje = new THREE.Vector3(Math.cos(angulo) * Math.sin(abre), Math.cos(abre), Math.sin(angulo) * Math.sin(abre));
+      columna.quaternion.setFromUnitVectors(ARRIBA, eje);
+      columna.rotateY(Math.random() * Math.PI);
+      const alto = height * (0.55 + Math.random() * 0.6);
+      const grueso = radius * (0.22 + Math.random() * 0.18);
+      const cuando = Math.random() * 0.3;
+      columna.scale.setScalar(0.001);
+      piezas.push(columna);
+      vive(columna, 3600, () => {
         if (estado.roto) return;
-        const g = Math.max(0, Math.min(1, (estado.edad / seconds - cuando) / 0.25));
-        hielo.scale.set(grueso * crece(g), largo * crece(g), grueso * crece(g));
+        const g = Math.max(0, Math.min(1, (estado.edad / seconds - cuando) / 0.55));
+        const s = brota(g);
+        columna.scale.set(grueso * s, alto * crece(g), grueso * s);
+      });
+    }
+    // Y la corona de picos por el suelo, hacia fuera.
+    for (let i = 0; i < 12; i++) {
+      const pico = cristal(color);
+      const angulo = (i / 12) * Math.PI * 2 + Math.random() * 0.3;
+      const r = radius * (1 + Math.random() * 0.3);
+      pico.position.set(pie.x + Math.cos(angulo) * r, 0, pie.z + Math.sin(angulo) * r);
+      const eje = new THREE.Vector3(Math.cos(angulo) * 0.7, 0.7, Math.sin(angulo) * 0.7).normalize();
+      pico.quaternion.setFromUnitVectors(ARRIBA, eje);
+      const alto = 0.14 + Math.random() * 0.18;
+      const grueso = 0.035 + Math.random() * 0.03;
+      pico.scale.setScalar(0.001);
+      piezas.push(pico);
+      vive(pico, 3600, () => {
+        if (estado.roto) return;
+        const g = Math.max(0, Math.min(1, estado.edad / (seconds * 0.4)));
+        const s = brota(g);
+        pico.scale.set(grueso * s, alto * s, grueso * s);
       });
     }
     return {
-      // Se rompe: cada cristal y el bloque se van en esquirlas hacia fuera, girando, y caen.
-      shatter({ shards = 70 } = {}) {
+      // Se rompe: cada cristal salta en esquirlas, hacia fuera, girando, y caen.
+      shatter({ shards = 90 } = {}) {
         estado.roto = true;
-        const donde = new THREE.Vector3();
         for (const pieza of piezas) {
           pieza.visible = false;
           const item = vivos.find((v) => v.object === pieza);
           if (item) item.life = item.age; // fuera en el próximo fotograma
         }
+        const donde2 = new THREE.Vector3();
         for (let i = 0; i < shards; i++) {
-          const esquirla = cristal(color);
           const angulo = Math.random() * Math.PI * 2;
-          donde.set(pie.x + Math.cos(angulo) * radius * Math.random(), Math.random() * height, pie.z + Math.sin(angulo) * radius * Math.random());
-          esquirla.position.copy(donde);
-          esquirla.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
-          const tam = 0.03 + Math.random() * 0.06;
-          esquirla.scale.set(tam * 0.6, tam * 1.6, tam * 0.6);
-          const fuerza = 1.2 + Math.random() * 2.2;
-          const velocidad = new THREE.Vector3(Math.cos(angulo) * fuerza, 0.8 + Math.random() * 2.4, Math.sin(angulo) * fuerza);
-          const giro = new THREE.Vector3((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14);
-          vive(esquirla, 0.9 + Math.random() * 0.5, (k, dt) => {
-            velocidad.y -= 7 * dt;
-            esquirla.position.addScaledVector(velocidad, dt);
-            if (esquirla.position.y < 0.02) {
-              esquirla.position.y = 0.02;
-              velocidad.multiplyScalar(0.35);
-              velocidad.y = Math.abs(velocidad.y) * 0.3;
-            }
-            esquirla.rotation.x += giro.x * dt;
-            esquirla.rotation.y += giro.y * dt;
-            esquirla.rotation.z += giro.z * dt;
-            esquirla.material.opacity = 0.75 * (k > 0.6 ? (1 - k) / 0.4 : 1);
-          });
+          donde2.set(pie.x + Math.cos(angulo) * radius * Math.random(), Math.random() * height, pie.z + Math.sin(angulo) * radius * Math.random());
+          esquirlas(donde2, { count: 1, color, size: 0.06, fuerza: 2.2 });
         }
       },
     };
+  }
+
+  // Nieve que cae despacio, meciéndose, alrededor de `at`.
+  function snow(at, { seconds = 2.2, count = 45, radius = 1.2, height = 2.4 } = {}) {
+    const centro = new THREE.Vector3().copy(at);
+    for (let i = 0; i < count; i++) {
+      const copo = mota(brasa, '#ffffff');
+      const angulo = Math.random() * Math.PI * 2;
+      const r = radius * Math.sqrt(Math.random());
+      const x = centro.x + Math.cos(angulo) * r;
+      const z = centro.z + Math.sin(angulo) * r;
+      const arriba = height * (0.5 + Math.random() * 0.5);
+      const fase = Math.random() * Math.PI * 2;
+      const tam = 0.04 + Math.random() * 0.05;
+      vive(copo, seconds * (0.7 + Math.random() * 0.3), (k, dt, age) => {
+        copo.position.set(x + Math.sin(fase + age * 2.2) * 0.12, Math.max(0.02, arriba * (1 - k)), z + Math.cos(fase + age * 1.7) * 0.12);
+        copo.scale.setScalar(tam);
+        copo.material.opacity = Math.min(1, k * 6) * (1 - k * k);
+      });
+    }
   }
 
   // EL FUEGO. Lo de la reina negra, que con el hielo no pegaba: el rojo de su bando es el del fuego.
@@ -742,5 +842,5 @@ export function createSpellFx(scene) {
     }
   }
 
-  return { charge, sigil, bolt, shockwave, updraft, frost, encase, flame, fireball, blaze, ashes, bomb, update };
+  return { charge, sigil, bolt, shockwave, updraft, iceRay, encase, snow, flame, fireball, blaze, ashes, bomb, update };
 }
