@@ -148,6 +148,30 @@ function measureFans(kit, spawnPiece, actions) {
 // - `torso` es donde un rayo horizontal a media altura toca su pecho;
 // - `walk`, hasta dónde llegan los huesos en reposo y al andar, más el margen;
 // - `fans`, el alcance en abanico de cada versión de `actions` (`measureFans`).
+// Lo que sobresale de verdad una figura por delante de su centro, en reposo (con la pieza de prueba mirando
+// hacia +Z). El `torso` de `measureBody` es el pecho a media altura, y en una persona basta; el gigante de
+// la torre es una mole con brazos, puños y rodillas que le sobresalen casi el triple (0,63 contra 0,24), y
+// plantándolo según su torso se le echaba encima al peón. Solo cuenta lo que queda por encima de los
+// tobillos: los pies, al andar o al pegar, sí pueden quedar cerca del otro.
+const ANKLE_SHARE = 0.15;
+export function measureFront(kit, spawnPiece) {
+  const test = spawnPiece(kit);
+  test.play('idle', { fade: 0 });
+  test.update(0);
+  test.object.updateMatrixWorld(true);
+  const vertex = new THREE.Vector3();
+  let front = 0;
+  test.object.traverse((o) => {
+    if (!o.isSkinnedMesh) return;
+    const position = o.geometry.attributes.position;
+    for (let i = 0; i < position.count; i += 3) {
+      o.getVertexPosition(i, vertex).applyMatrix4(o.matrixWorld);
+      if (vertex.y >= kit.spec.height * ANKLE_SHARE) front = Math.max(front, vertex.z);
+    }
+  });
+  return front;
+}
+
 export function measureBody(kit, spawnPiece, { actions = ['idle', 'walk', 'attack', 'hit', 'taunt', 'defeat'] } = {}) {
   kit.model.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(kit.model);

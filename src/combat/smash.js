@@ -190,7 +190,12 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   const rival = giantOf(defender);
   const d = rival ?? defender.piece;
   const rest = Boolean(rival);
-  const closest = rook.body.torso + (rival ? defender.piece.body.torso : PAWN_BODY) + BODY_GAP;
+  // Lo más cerca que se planta: su frente de verdad (`giantFront`, con brazos y rodillas), no su torso, más
+  // el cuerpo del otro y un hueco. Con el torso, el golpe de arriba abajo lo dejaba a 0,85 del peón, encima
+  // de él: el brazo le atravesaba el escudo y la rodilla le pisaba los pies. Si desde ahí el puño no le llega
+  // a la coronilla, pega de frente.
+  const frente = (piece) => Math.max(piece.body.torso, piece.giantFront ?? 0);
+  const closest = frente(rook) + (rival ? frente(defender.piece) : PAWN_BODY) + BODY_GAP;
   // Si tiene un golpe de arriba abajo y el puño llega a la coronilla del rival, le machaca el cráneo;
   // si no, o si el puño se queda corto, un puñetazo de frente. Contra un rival de su tamaño lo
   // intenta siempre; contra uno bajito, la mitad de las veces, que así hay variedad.

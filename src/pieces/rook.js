@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { fitToHeight, loadPieceKit, spawnPiece, withShadows } from './piece.js';
 import { createFlag, flagTexture } from './flag.js';
-import { measureBody, measureStrikes } from '../combat/strikes.js';
+import { measureBody, measureFront, measureStrikes } from '../combat/strikes.js';
 
 // La torre: una pieza con dos formas en el mismo objeto. En reposo, la torre estática sobre su peana,
 // con un banderín que ondea; para moverse y pelear, el gigante de piedra, una pieza con esqueleto que
@@ -36,6 +36,7 @@ export async function loadRookKit(spec, quality) {
   if (giant) {
     giant.strikes = measureStrikes(giant, spawnPiece, { faces: true });
     giant.body = measureBody(giant, spawnPiece);
+    giant.front = measureFront(giant, spawnPiece);
   }
   // La peana de los peones, ensanchada para que la torre se asiente en ella.
   const pedestalHeight = spec.pedestalModel?.height ?? 0;
@@ -112,6 +113,7 @@ export function spawnRook(kit) {
     height: kit.pedestalHeight + spec.tower.height,
     stone: spec.stone ?? DEFAULT_STONE,
     body: kit.giant?.body ?? null,
+    giantFront: kit.giant?.front ?? null, // lo que sobresale el gigante por delante de su centro (`measureFront`)
     get figure() {
       return giant ? giant.figure : tower;
     },
