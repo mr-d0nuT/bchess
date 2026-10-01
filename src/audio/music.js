@@ -1,3 +1,5 @@
+import { audioContext } from './context.js';
+
 // La música. Mientras carga suena la melodía de la intro; al acabar la carga se funde y empiezan las
 // canciones del juego, una detrás de otra y en orden aleatorio (al volver a barajar, la que acaba de
 // sonar no sale la primera).
@@ -104,8 +106,7 @@ export function createMusic({ onNeedGesture = () => {}, onGesture = () => {} } =
     const unlock = () => {
       for (const type of ['pointerdown', 'keydown', 'touchend']) window.removeEventListener(type, unlock, true);
       waiting = false;
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!context && Ctx) context = new Ctx();
+      context ??= audioContext(); // el mismo que los efectos (`context.js`)
       context?.resume?.();
       wire(intro);
       if (song) wire(song);

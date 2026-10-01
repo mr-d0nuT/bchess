@@ -1,6 +1,8 @@
 import { DefaultLoadingManager, Vector3 } from 'three';
 import { pickQuality, qualityFromQuery } from './quality.js';
 import { createMusic } from './audio/music.js';
+import { unlockAudioOnGesture } from './audio/context.js';
+import { sfx } from './audio/sfx.js';
 import { createLoading } from './ui/loading.js';
 import { createStage } from './scene/stage.js';
 import { addLighting } from './scene/lighting.js';
@@ -126,6 +128,26 @@ function wireSettings() {
   });
 }
 
+// Los efectos de sonido, igual. Al ponerlos, suena uno de muestra.
+function wireEffectsButton() {
+  const button = document.getElementById('efectos');
+  const estado = document.getElementById('efectos-estado');
+  if (!button) return;
+  const paint = () => {
+    button.setAttribute('aria-pressed', String(!sfx.muted));
+    button.setAttribute('aria-label', t('ajustes.efectos'));
+    if (estado) estado.textContent = sfx.muted ? t('ajustes.efectos.no') : t('ajustes.efectos.si');
+  };
+  paint();
+  onLanguage(paint);
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    sfx.toggle();
+    paint();
+    if (!sfx.muted) sfx.play('espadas', { volume: 0.6 });
+  });
+}
+
 // La música se quita y se pone desde la configuración (el engranaje): su nota y si suena o no.
 function wireMusicButton(music) {
   const button = document.getElementById('musica');
@@ -159,6 +181,8 @@ async function start() {
   });
   music.startIntro();
   wireMusicButton(music);
+  wireEffectsButton();
+  unlockAudioOnGesture();
   wireSettings();
   if (!webglAvailable()) {
     loading.finish();
@@ -341,6 +365,8 @@ async function start() {
   const SALTO_IGNORA = 450; // ms tras empezar el combate en que un toque no cuenta
   const SALTO_FUNDIDO = 260; // ms del fundido a negro antes de saltar
   const salto = { velocidad: 1, saltando: false, desde: 0 };
+  // Al saltar un combate, lo que queda pasa de golpe: sus sonidos sonarían todos a la vez.
+  sfx.silenced = () => salto.saltando || testing.active;
   const botonSaltar = document.getElementById('saltar');
   const fundido = document.getElementById('fundido');
   function pintaSalto() {
@@ -1312,6 +1338,7 @@ async function start() {
   loading.progress(0.02, t('carga.antorchas'));
   await addLighting(stage, quality);
   await loadPieces();
+  sfx.preload();
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
     stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music, view,

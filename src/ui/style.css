@@ -259,8 +259,8 @@ html, body {
   cursor: pointer;
 }
 .ajustes-opciones button[aria-pressed="true"] { background: var(--tinta); color: #1a120b; border-color: var(--tinta); }
-/* La música: su nota y si suena. Quitada, la nota se apaga y se tacha. */
-.ajustes-musica {
+/* La música y los efectos: su icono y si suenan. Quitados, el icono se apaga y se tacha. */
+.ajustes-sonido {
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -273,7 +273,7 @@ html, body {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.musica-icono {
+.sonido-icono {
   position: relative;
   display: grid;
   place-items: center;
@@ -286,8 +286,9 @@ html, body {
   font-size: 17px;
   line-height: 1;
 }
-.ajustes-musica[aria-pressed="false"] .musica-icono { background: transparent; color: var(--tinta); border-color: var(--borde-boton); opacity: 0.6; }
-.ajustes-musica[aria-pressed="false"] .musica-icono::after {
+.sonido-icono svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ajustes-sonido[aria-pressed="false"] .sonido-icono { background: transparent; color: var(--tinta); border-color: var(--borde-boton); opacity: 0.6; }
+.ajustes-sonido[aria-pressed="false"] .sonido-icono::after {
   content: '';
   position: absolute;
   width: 2px;

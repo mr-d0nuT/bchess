@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { t } from '../../i18n.js';
+import { sfx } from '../../audio/sfx.js';
 import { afterImpact, punchDistance, slowToImpact, stanceOf } from '../fight.js';
 import { strikeSpot } from '../plan.js';
 import { cutLimb, longAxisOf } from '../../pieces/limbs.js';
@@ -60,6 +61,7 @@ export const knightFightsKnight = {
       const suyo = hisSlashes.length ? his.playOnce('attack', { clip: hisSlashes[i % hisSlashes.length], fade: 0.15 }) : null;
       await slowToImpact(clock, mine.strikes[slashes[i % slashes.length]].blade.t);
       const cruce = swordTip(mine).lerp(his.props.sword ? swordTip(his) : swordTip(mine), 0.5);
+      sfx.play('espadas'); // las hojas se cruzan y una resbala por la otra
       fx.burst(cruce, { size: 0.8, sparks: 18 });
       hud.flash();
       cinema.shake(0.1);
