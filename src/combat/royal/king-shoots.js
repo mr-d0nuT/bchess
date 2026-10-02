@@ -22,7 +22,7 @@ import { chestOf, faceAttacker, fallClear, horseBolts, ladeado, pose, poseTo, re
 
 const SHOOT_REACH = 1.9; // a qué distancia dispara, si viene de lejos (de cerca, desde donde está)
 const GAP = 0.35;
-const PISTOL_SIZE = 1.3; // algo grande para su mano, como en los dibujos
+const PISTOL_SIZE = 0.85; // a 1,3 se veía enorme y tapaba la mano entera
 const DRAW_SECONDS = 0.45;
 const TWIRL_TURNS = 2; // vueltas sobre el dedo
 const TWIRL_SECONDS = 0.6;
@@ -91,17 +91,22 @@ export const kingShoots = {
       const derecha = new THREE.Vector3(-frente.z, 0, frente.x); // la derecha del rey (+X es su izquierda)
       const lado = cinema.side() ?? derecha.clone();
       const mano = boneOf(king, 'R_Hand');
+      const nudillos = boneOf(king, 'mixamorigRightHandMiddle1');
 
       // La pistola, cada fotograma en el puño: entre apuntando al rival y el cañón al cielo (con la culata
       // hacia él), y con su molinete y su retroceso encima.
       arma.blanco.copy(chestOf(defender));
       const guia = new THREE.Object3D();
       const puño = new THREE.Vector3();
+      const dedos = new THREE.Vector3();
+      const agarre = new THREE.Vector3();
       const apunta = new THREE.Quaternion();
       const alCielo = new THREE.Quaternion();
       const colocar = () => {
+        // El puño: entre la muñeca (de donde sale el hueso de la mano) y los nudillos. Puesta en la
+        // muñeca, la culata le tapaba la mano.
         (mano ?? king.figure).getWorldPosition(puño);
-        pistola.position.copy(puño);
+        if (nudillos) puño.lerp(nudillos.getWorldPosition(dedos), 0.55);
         guia.position.copy(puño);
         guia.up.set(0, 1, 0);
         guia.lookAt(arma.blanco);
@@ -112,7 +117,11 @@ export const kingShoots = {
         pistola.quaternion.slerpQuaternions(apunta, alCielo, arma.arriba);
         if (arma.giro) pistola.rotateX(arma.giro);
         if (arma.retroceso) pistola.rotateX(-arma.retroceso);
-        pistola.scale.setScalar(Math.max(0.001, PISTOL_SIZE * arma.escala));
+        const tam = Math.max(0.001, PISTOL_SIZE * arma.escala);
+        pistola.scale.setScalar(tam);
+        // Y la culata, dentro del puño: la pistola gira (molinete, retroceso) alrededor de ella.
+        agarre.copy(pistola.userData.grip).multiplyScalar(tam).applyQuaternion(pistola.quaternion);
+        pistola.position.copy(puño).sub(agarre);
       };
       const boca = () => pistola.localToWorld(pistola.userData.muzzle.clone());
 

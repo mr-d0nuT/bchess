@@ -2,11 +2,11 @@ import * as THREE from 'three';
 
 // LA PISTOLA DEL REY: una de chispa, de las de pirata, hecha en código. Cañón de hierro pavonado con su
 // boca de latón, caja y culata de madera con la cantonera de latón, la llave con su martillo y el
-// guardamonte con el gatillo. Algo grande para su mano, como en los dibujos: que se lea de lejos.
+// guardamonte con el gatillo. A tamaño de su mano (más grande se veía enorme y le tapaba el puño).
 //
-// El origen es el puño (donde se agarra); el cañón apunta a +Z y la culata baja hacia -Y, así que
-// `lookAt` la apunta tal cual. `userData.muzzle`: la boca del cañón, en su sistema (el fogonazo y el humo).
-// Unidad: casillas.
+// El cañón apunta a +Z y la culata baja hacia -Y, así que `lookAt` la apunta tal cual. En su sistema,
+// `userData.grip` es por dónde se agarra (lo alto de la culata, que es lo que ha de quedar dentro del puño)
+// y `userData.muzzle`, la boca del cañón (el fogonazo y el humo). Unidad: casillas.
 
 export function createPistol({ size = 1 } = {}) {
   const group = new THREE.Group();
@@ -54,5 +54,6 @@ export function createPistol({ size = 1 } = {}) {
   group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   group.scale.setScalar(size);
   group.userData.muzzle = new THREE.Vector3(0, alto, 0.03 + largo + 0.016);
+  group.userData.grip = new THREE.Vector3(0, -0.03, -0.022);
   return group;
 }
