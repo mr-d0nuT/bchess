@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { REST_FACING, planWalk, pointAlong, shortestTurn } from './walk.js';
+import { TRAVEL } from '../scene/cinema.js';
 
 // Coreografía de «ir a una casilla», de las acciones de los botones y de los pasos del combate.
 // Los tiempos van con el reloj del juego (`clock`), así que la cámara lenta del combate también
@@ -73,8 +74,9 @@ export function createMover({ piece, board, dust, clock, onBusy = () => {}, rest
       const from = board.squareToWorld(square);
       const to = board.squareToWorld(target);
       try {
-        await cinema.frame(clock, from, to, obstacles());
-        cinema.follow(() => piece.figure.position);
+        // De cerca y de tres cuartos por delante, y en travelling mientras anda (lo pidió el usuario).
+        await cinema.track(clock, { from, to, height: piece.height, obstacles: obstacles() });
+        cinema.follow(() => piece.figure.position, TRAVEL);
         await walkOver(target);
       } finally {
         cinema.follow(null);

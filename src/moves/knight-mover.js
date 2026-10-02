@@ -3,6 +3,7 @@ import { grita } from '../audio/voces.js';
 import { sfx } from '../audio/sfx.js';
 import { LEAP_GRAVITY, LEAP_MIN_PEAK, LEAP_SPEED, leapAt, planLeap } from './leap.js';
 import { BOARD_EDGE, nearestEdgeExit, pickGait, planWalk, pointAlong, shortestTurn } from './walk.js';
+import { TRAVEL } from '../scene/cinema.js';
 
 // Mover del caballero (diseño en docs/superpowers/specs/2026-09-15-bchess-caballero-design.md,
 // secciones 4 a 6), con la misma forma que los de los peones y las torres. Para ir a otra casilla, el
@@ -498,8 +499,9 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
       // La cámara se acerca a seguir la jugada y, al acabar, vuelve a donde la tenía el usuario.
       const obstacles = pieces().filter((entry) => entry !== owner).map((entry) => board.squareToWorld(entry.mover.square));
       try {
-        await cinema.frame(clock, from, to, obstacles);
-        cinema.follow(() => knight.figure.position);
+        // De cerca y en travelling; con algo más de aire por arriba, que salta.
+        await cinema.track(clock, { from, to, height: knight.height * 1.15, obstacles });
+        cinema.follow(() => knight.figure.position, { ...TRAVEL, lift: 0.75 }); // y sube con el salto
         await moveTo(to);
         cinema.follow(null);
         await rise(to);

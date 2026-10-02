@@ -17,7 +17,11 @@ const GAME_VOLUME = 0.45;
 const INTRO_FADE = 2; // segundos en que se apaga la intro al acabar la carga
 const SONG_FADE = 1.5; // y en que entra cada canción
 const STORE = 'bchess.musica'; // 'no' si el usuario la ha quitado
-const LEVEL_STORE = 'bchess.musica.volumen'; // de 0 a 100, lo que ha dejado el usuario
+// El volumen de la música DURANTE LA PARTIDA, de 0 a 100, el que deja el usuario. Por defecto, al 20 %: a
+// tope no se oían los efectos (lo pidió el usuario). La intro y el menú suenan siempre a tope. (La clave es
+// nueva: con la de antes, 'bchess.musica.volumen', a quien ya la había tocado no le llegaba el 20 %.)
+const LEVEL_STORE = 'bchess.musica.partida';
+const DEFAULT_LEVEL = 0.2;
 
 export function createMusic({ onNeedGesture = () => {}, onGesture = () => {} } = {}) {
   let context = null;
@@ -32,9 +36,9 @@ export function createMusic({ onNeedGesture = () => {}, onGesture = () => {} } =
   function read(key = STORE) {
     try { return localStorage.getItem(key); } catch { return null; }
   }
-  // El volumen que ha elegido el usuario, de 0 a 1, por encima del propio de cada pista.
-  let level = Math.max(0, Math.min(1, Number(read(LEVEL_STORE) ?? 100) / 100 || 0));
-  if (read(LEVEL_STORE) === null) level = 1;
+  // El volumen que ha elegido el usuario para la partida, de 0 a 1, por encima del propio de cada pista.
+  const guardado = read(LEVEL_STORE);
+  let level = guardado === null ? DEFAULT_LEVEL : Math.max(0, Math.min(1, Number(guardado) / 100 || 0));
   function write(value) {
     try { localStorage.setItem(STORE, value); } catch { /* sin almacenamiento: solo esta sesión */ }
   }
@@ -84,7 +88,7 @@ export function createMusic({ onNeedGesture = () => {}, onGesture = () => {} } =
 
   async function play(t, base, fadeIn = 0) {
     wire(t);
-    const volume = base * level;
+    const volume = base * (t === intro ? 1 : level); // la intro (y el menú), a tope
     setVolume(t, fadeIn ? 0 : volume);
     try {
       await t.audio.play();
@@ -173,14 +177,13 @@ export function createMusic({ onNeedGesture = () => {}, onGesture = () => {} } =
     get muted() {
       return muted;
     },
-    // El volumen que elige el usuario (de 0 a 1): se aplica en el acto a lo que suene.
+    // El volumen que elige el usuario para la partida (de 0 a 1): se aplica en el acto a la canción que suene.
     get volume() {
       return level;
     },
     set volume(value) {
       level = Math.max(0, Math.min(1, value));
       try { localStorage.setItem(LEVEL_STORE, String(Math.round(level * 100))); } catch { /* solo esta sesión */ }
-      if (phase === 'intro' && !intro.audio.paused) setVolume(intro, INTRO_VOLUME * level);
       if (song && !song.audio.paused) setVolume(song, GAME_VOLUME * level);
     },
     // Qué suena ahora, para depurar desde la consola.

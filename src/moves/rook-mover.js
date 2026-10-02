@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { sfx } from '../audio/sfx.js';
 import { planWalk, pointAlong, shortestTurn } from './walk.js';
 import { giantToTower, towerToGiant } from './transform.js';
+import { TRAVEL } from '../scene/cinema.js';
 
 // Mover de la torre, con la misma forma que el de los peones. Para ir a otra casilla se transforma
 // en gigante, anda y vuelve a ser torre, pidiendo sitio a las piezas de alrededor (`crowd`). Sin
@@ -148,10 +149,9 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
       const from = board.squareToWorld(square);
       const to = board.squareToWorld(target);
       try {
-        await cinema.frame(clock, from, from, others());
+        await cinema.track(clock, { from, to, height: giant.height ?? rook.height * 1.6, obstacles: others() });
         await awaken();
-        await cinema.frame(clock, from, to, others());
-        cinema.follow(() => giant.figure.position);
+        cinema.follow(() => giant.figure.position, TRAVEL);
         await walkOnto(target);
       } catch (err) {
         console.error('[BChess] La torre no pudo moverse:', err);

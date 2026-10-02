@@ -259,7 +259,8 @@ async function start() {
       spells.update(dt);
     },
   };
-  const cinema = createCinema(stage, { onShake: (size) => vibra(size) });
+  // Al devolver la cámara al usuario, fuera el desenfoque: si no, se quedaba un momento sobre el tablero entero.
+  const cinema = createCinema(stage, { onShake: (size) => vibra(size), onRestore: () => focus.off() });
   const rubble = createRubble(stage.scene);
   const debris = createDebris(stage.scene);
   // El punto donde enfoca la cámara: el medio de los que siguen en pie (al final, el que ha ganado,
@@ -278,6 +279,11 @@ async function start() {
   };
   // Cómo ve el atenuado a una pieza: dónde está y cuánto ocupa.
   const describe = (entry) => ({ object: entry.piece.object, anchor: entry.piece.figure, height: entry.piece.height, radius: entry.piece.radius });
+  // Y a la que se mueve, que no la tape nadie: la torre anda como gigante, que es otra figura y más alta.
+  const describeMoving = (entry) => {
+    const giant = entry.kind === 'rook' ? entry.piece.giant : null;
+    return giant ? { ...describe(entry), anchor: giant.figure, height: giant.height ?? entry.piece.height * 1.6 } : describe(entry);
+  };
   const fade = createFade(clock);
   const focus = createFocus(stage.renderer, stage.scene, stage.camera, quality);
   const bubbles = createBubbles({ camera: stage.camera, canvas: stage.renderer.domElement, clock });
@@ -590,7 +596,10 @@ async function start() {
       // en cada fotograma, no se fija aquí, porque los dos se mueven durante todo el combate.
       focus.on(() => centerOf(enPie().length ? enPie() : [attacker]));
       // Y la cámara, mientras pelean, se ajusta a donde están los dos (se acerca a medida que se juntan).
-      cinema.watch(() => enPie().map((entry) => entry.piece.figure.position));
+      cinema.watch(() => enPie().map((entry) => {
+        const p = entry.piece.figure.position;
+        return { x: p.x, z: p.z, height: entry.piece.height, radius: entry.piece.radius };
+      }));
       // Los combates que le pueden tocar a esta pareja, cada uno con su peso al echarlo a suertes. Entre
       // peones, un duelo y, de vez en cuando (`pawnThrowsBomb.chance`), la bomba; el estilo del duelo se
       // alterna, pero si en el que toca no tienen golpes, el otro (el cuerpo a cuerpo solo tenía un
@@ -731,12 +740,13 @@ async function start() {
         const victima = pieceAt(plan.captured);
         if (victima) await capture(actor, victima);
         // En la captura al paso, el que come se queda donde estaba el comido: le falta un paso.
-        if (actor.mover.square !== plan.to) await actor.mover.goTo(plan.to);
+        if (actor.mover.square !== plan.to) await conCamara(actor, () => actor.mover.goTo(plan.to));
       } else {
-        await actor.mover.goTo(plan.to);
+        await conCamara(actor, () => actor.mover.goTo(plan.to));
       }
       // El enroque: primero el rey y después la torre, que al andar hace que el rey se aparte.
-      if (plan.castle) await pieceAt(plan.castle.rookFrom)?.mover.goTo(plan.castle.rookTo);
+      const torre = plan.castle ? pieceAt(plan.castle.rookFrom) : null;
+      if (torre) await conCamara(torre, () => torre.mover.goTo(plan.castle.rookTo));
       if (plan.promotion) await promote(actor, plan.promotion);
     } catch (err) {
       console.error('[BChess] La jugada no se pudo animar:', err);
@@ -748,6 +758,22 @@ async function start() {
     game.enCurso = null;
     squareUp();
     await afterMove();
+  }
+
+  // Mientras una pieza se mueve, la cámara la sigue de cerca (cada `mover` lo hace con `cinema.track`): las
+  // que se le pongan delante se apagan mientras la tapen, como en los combates, y el resto del tablero se
+  // desenfoca, que el ojo vaya a ella.
+  async function conCamara(entry, mueve) {
+    fade.dim(pieces.filter((other) => other !== entry).map(describe), { opacity: 1 });
+    fade.watch(() => [describeMoving(entry)]);
+    focus.on(() => stage.controls.target);
+    try {
+      return await mueve();
+    } finally {
+      focus.off();
+      fade.watch(null);
+      await fade.restore();
+    }
   }
 
   // El peón que llega al final se convierte: se esfuma entre destellos y en su casilla crece de la
@@ -1360,12 +1386,12 @@ async function start() {
       // vacías, y con el báculo en la derecha lo lanzaba hacia atrás y el fogonazo salía a su espalda.
       if (kind === 'bishop') piece.addStillBones('conjurar', 'attack', (bone) => STAFF_ARM.test(bone), { clip: 'cast_a_spell' });
       entry = { kind, color, piece };
-      // El peón, como el caballo, mueve de cine: la cámara se acerca a verlo andar.
-      const cine = kind === 'pawn' ? {
-        cinema,
+      // Todas mueven de cine, como el caballo y la torre: la cámara se acerca a verlas andar (lo pidió el
+      // usuario: «cuando cualquier pieza se mueve, la cámara debe mostrarla de cerca»).
+      entry.mover = createMover({
+        piece, board, dust, clock, onBusy, restFacing, cinema,
         obstacles: () => pieces.filter((other) => other !== entry).map((other) => board.squareToWorld(other.mover.square)),
-      } : {};
-      entry.mover = createMover({ piece, board, dust, clock, onBusy, restFacing, ...cine });
+      });
     }
     entry.nacida = clock.now; // para no medir su forma hasta que tenga su postura (`settleKnights`)
     // Los pasos que se oyen, cada una con los suyos: madera; el caballero a pie, con su armadura; el

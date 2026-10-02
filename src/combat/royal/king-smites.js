@@ -114,10 +114,11 @@ export const kingSmites = {
       // 3. LA INVOCACIÓN. La cámara se echa atrás y abajo, en contrapicado, para que quepan los dos y el
       //    cielo; el rey alza el báculo con los dos brazos, se abren los sellos —a sus pies, que invoca; a
       //    los del rival, que está sentenciado— y sobre el rival se junta la tormenta mientras se va la luz.
+      const vertical = cinema.portrait; // en el móvil, más de tres cuartos: de lado solo caben desde lejos
       cinema.shot(clock, {
         look: suyo.clone().lerp(pies, 0.55).setY((nubeAlto + 0.8) / 2),
-        dir: ladeado(lado, frente, 0.2),
-        box: { width: suyo.distanceTo(pies) + 1.5, height: nubeAlto + 1.4 },
+        dir: ladeado(lado, frente, vertical ? 0.9 : 0.2),
+        box: { width: suyo.distanceTo(pies) * (vertical ? 0.65 : 1) + (vertical ? 1 : 1.5), height: nubeAlto + 1.4 },
         rise: -0.25,
         seconds: 1.1,
       });

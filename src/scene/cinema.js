@@ -1,45 +1,85 @@
 import * as THREE from 'three';
 
-// Cámara de cine del combate. Se pone de lado para encuadrar a los dos luchadores, tiembla con
-// los golpes y al terminar vuelve a donde la tenía el usuario. Mientras actúa, los controles
-// de órbita no responden.
+// LA CÁMARA DE CINE. Toma la cámara cuando pasa algo —una pieza que se mueve, un combate— y al acabar se
+// la devuelve al usuario donde la tenía. Mientras actúa, los controles de órbita no responden.
+//
+// Lo pidió el usuario: las escenas tienen que ser de cine, y lo más vistosas posible. Así que:
+// - Una pieza que se mueve se ve DE CERCA (`track`): la cámara se le pone de tres cuartos por delante, del
+//   lado que menos piezas tapen, y la acompaña en travelling (`follow` con `TRAVEL`): la rodea despacio
+//   hacia su cara y se le va acercando mientras anda.
+// - En un combate encuadra a los dos LO MÁS CERCA QUE QUEPAN, contando lo que mide y lo que ocupa cada uno
+//   (`frame`, y luego `watch`, que se ajusta sola a donde están de verdad); y el plano no se queda quieto:
+//   los rodea despacio y se va cerrando poco a poco, un travelling lento que le da vida.
+// - Cada golpe fuerte, además de temblar, cierra el plano de golpe (`punch`): un zoom de impacto.
+// - Los combates pueden pedir tomas a mano (`shot`): una grúa, un contrapicado, un primer plano.
+// - Quien gana sale en primer plano, de frente (`closeUp`), y la cámara lo rodea mientras lo celebra
+//   (`follow` con `ORBIT`).
 //
 // El encuadre del principio se hace con la casilla de la que sale el atacante, que puede estar lejos (una
 // torre o un alfil que comen desde el otro lado del tablero); mientras pelean, la cámara se ajusta sola a
-// donde están de verdad los dos (`watch`), así que se va acercando a medida que se juntan. Antes se
-// quedaba donde la había puesto el primer encuadre: demasiado lejos de los que peleaban.
+// donde están de verdad los dos, así que se va acercando a medida que se juntan.
 
 const MOVE_SECONDS = 0.8;
 const SHAKE_SECONDS = 0.3;
-const MIN_DISTANCE = 3.4;
-const MAX_DISTANCE = 8; // aunque el atacante salga de muy lejos: el combate es cerca de la víctima
-const FRAME_MARGIN = 1.4; // lo que se deja a lo ancho, además de lo que se separan: su anchura y algo de aire
-const FRAME_MARGIN_TALL = 0.8; // en una pantalla vertical (el móvil), menos: si no, la cámara se iba lejísimos
-const CLOSER = 0.2; // al elegir desde dónde encuadrar, lo que pesa cada unidad de distancia de más
+const UP = new THREE.Vector3(0, 1, 0);
+
+// EL COMBATE. Antes se quedaba a 3,4 casillas como poco y mirando desde arriba: los dos se veían pequeños.
+const MIN_DISTANCE = 2.2;
+const MAX_DISTANCE = 7.5; // aunque el atacante salga de muy lejos: el combate es cerca de la víctima
+const AIR = 0.28; // aire a cada lado de los que pelean, además de lo que ocupa cada uno
+const AIR_TALL = 0.18; // en una pantalla vertical (el móvil), menos: si no, la cámara se iba lejísimos
+const HEAD_ROOM = 0.6; // media altura de encuadre por cada altura del más alto: entero, con aire
+const LOOK = 0.47; // a qué parte de la altura del más alto mira
+const DEFAULT_HEIGHT = 1.6; // lo que mide quien no lo dice
+const DEFAULT_RADIUS = 0.35; // y lo que ocupa
+const CLOSER = 0.35; // al elegir desde dónde encuadrar, lo que pesa cada unidad de distancia de más
 // Lo que pesa ponerse del lado contrario al pedido (`favor`): más que una pieza en medio, que el
 // atenuado la deja ver a través, y un escudo por delante no.
 const FAVOR_WEIGHT = 1.5;
 const LIVE_RATE = 2.2; // lo deprisa que se ajusta a los que pelean (por segundo): suave, sin tirones
-const ELEVATION = 0.65; // altura de la cámara por cada casilla de distancia: mira por encima
+const ELEVATION = 0.5; // altura de la cámara por cada casilla de distancia: algo por encima, cerca de los ojos
 const PIECE_TOP = 1.75; // altura de una pieza sobre su peana, para saber si tapa el encuadre
 const ANGLE_STEP = Math.PI / 6; // se prueban direcciones cada 30° alrededor de la de lado
-const TARGET_HEIGHT = 0.75; // a qué altura de la pieza mira la cámara
-// Plano de quien gana, de frente: entero y con algo de tablero alrededor. Más cerca (a 1,2 alturas),
-// al usuario le quedaba la cámara encima de la figura.
+// El travelling lento del combate: rodea a los que pelean y se va cerrando.
+const DRIFT = 0.07; // lo que los rodea, en radianes por segundo (4°)
+const DRIFT_MAX = 0.4; // hasta 23° del encuadre del principio, y vuelta
+const PUSH_FROM = 1.1; // empieza un 10 % más lejos de lo justo…
+const PUSH_TO = 0.96; // …y se va cerrando hasta algo más cerca
+const PUSH_SECONDS = 8;
+
+// UNA PIEZA QUE SE MUEVE: de cerca, de tres cuartos por delante, y en travelling.
+const TRACK_SECONDS = 0.65;
+const TRACK_FILL = 1.6; // alturas de la pieza a las que se pone
+const TRACK_MIN = 2.3; // y nunca más cerca que esto
+const TRACK_LOOK = 0.5; // a qué parte de su altura mira
+const TRACK_ELEVATION = 0.55;
+const TRACK_LEAN = 0.7; // lo que se adelanta hacia donde va: unos 35°, se le ve la cara
+const TRACK_ARC = 0.9; // lo que sube la cámara de más al ir hacia ella (y al volver al usuario)
+export const TRAVEL = { orbit: 0.12, push: 0.035 }; // mientras anda: la rodea (rad/s) y se le acerca (por s)
+const PUSH_LIMIT = 0.8; // acercándose, no más de un 20 %
+
+// QUIEN GANA: primer plano de frente. Más cerca (a 1,2 alturas), al usuario le quedaba la cámara encima de
+// la figura.
 const CLOSE_LOOK = 0.55; // a qué parte de su altura mira
 const CLOSE_RISE = 0.55; // lo que la cámara queda por encima de ese punto
 const CLOSE_FILL = 2.1; // alturas de la pieza a las que se pone
 const CLOSE_MIN = 2.6; // y nunca más cerca que esto
+export const ORBIT = { orbit: 0.24, push: 0 }; // mientras lo celebra, la cámara lo rodea
+
 // Las tomas a mano (`shot`): nunca más cerca que esto, y con este aire alrededor de lo que se encuadra.
 const SHOT_MIN = 1.5;
 const SHOT_AIR = 1.12;
 // El zoom de impacto (`punch`): se cierra de golpe y se vuelve a abrir despacio.
 const PUNCH_SECONDS = 0.55;
 const PUNCH_IN = 0.1; // la parte del zoom que es cerrarse
+const PUNCH_FROM_SHAKE = 0.14; // a partir de este temblor, el golpe también cierra el plano
+const PUNCH_PER_SHAKE = 0.4; // y tanto como esto por cada unidad de temblor
+const PUNCH_MAX = 0.14;
 const smooth = (t) => t * t * (3 - 2 * t);
 
-// `onShake(size)`: se avisa a quien quiera de cada temblor (la vibración del móvil).
-export function createCinema(stage, { onShake = null } = {}) {
+// `onShake(size)`: se avisa a quien quiera de cada temblor (la vibración del móvil). `onRestore()`: y de que
+// la cámara vuelve al usuario.
+export function createCinema(stage, { onShake = null, onRestore = null } = {}) {
   const { camera, controls } = stage;
   let saved = null;
   let shakeLeft = 0;
@@ -48,9 +88,14 @@ export function createCinema(stage, { onShake = null } = {}) {
   const offset = new THREE.Vector3();
   const behind = new THREE.Vector3(); // lo que la cámara se queda por detrás de a quien sigue
   const aim = new THREE.Vector3();
-  let aimHeight = TARGET_HEIGHT; // a qué altura mira mientras sigue a una pieza: la del encuadre que había
-  let watching = null; // () => [{x, z}…]: dónde están los que pelean, para ajustar el encuadre
-  let framing = null; // { dir }: desde dónde encuadra ahora (unitario, del centro a la cámara), o null
+  let aimHeight = 0.75; // a qué altura mira mientras sigue a una pieza: la del encuadre que había
+  let travel = { orbit: 0, push: 0, sense: 1, from: 0 }; // el travelling de `follow`
+  let liftFrom = 0; // la altura a la que estaba la pieza al empezar a seguirla
+  let liftRate = 0; // y cuánto de lo que suba (un salto) sube también la cámara
+  let ahead = null; // hacia dónde va la pieza del último `track`, para rodearla hacia su cara
+  let tracking = false; // la cámara está en un plano de seguimiento (al volver, en arco)
+  let watching = null; // () => [{x, z, height?, radius?}…]: dónde están los que pelean
+  let framing = null; // { dir, base, drift, sense, age }: desde dónde encuadra ahora, o null
   let gliding = 0; // viajes de cámara en curso: mientras tanto, no se ajusta
   let held = false; // una toma a mano (`shot`) manda hasta que se suelte (`free`)
   let punchLeft = 0;
@@ -68,13 +113,22 @@ export function createCinema(stage, { onShake = null } = {}) {
     return true;
   };
 
-  function glide(clock, toPosition, toTarget, { seconds = MOVE_SECONDS, ease = smooth } = {}) {
+  // La cámara pasa a ser del cine (si no lo era ya): se apunta dónde la tenía el usuario.
+  function take() {
+    if (!saved) saved = { position: camera.position.clone(), target: controls.target.clone() };
+    controls.enabled = false;
+  }
+
+  // Lleva la cámara a `toPosition` mirando a `toTarget`. Con `arc`, sube por el camino esa altura de más y
+  // vuelve a bajar, como una grúa: bajando en línea recta desde lo alto a un plano corto, rozaba las piezas.
+  function glide(clock, toPosition, toTarget, { seconds = MOVE_SECONDS, ease = smooth, arc = 0 } = {}) {
     const fromPosition = camera.position.clone().sub(offset);
     const fromTarget = controls.target.clone();
     gliding += 1;
     return clock.tween(seconds, (t) => {
       const k = ease(t);
       camera.position.lerpVectors(fromPosition, toPosition, k).add(offset);
+      if (arc) camera.position.y += Math.sin(Math.PI * k) * arc;
       controls.target.lerpVectors(fromTarget, toTarget, k);
       camera.lookAt(controls.target);
     }).finally(() => {
@@ -82,29 +136,46 @@ export function createCinema(stage, { onShake = null } = {}) {
     });
   }
 
-  // Dónde mirar y a qué distancia ponerse para que quepan los puntos ({x, z}) vistos desde `dir`: lo
-  // justo para que quepan a lo ancho —lo que se separan de lado, vistos desde ahí, más su anchura—, y ni
-  // más cerca de MIN_DISTANCE ni más lejos de MAX_DISTANCE.
+  // Dónde mirar y a qué distancia ponerse para que quepan los que pelean (`points`: {x, z} y, si lo
+  // saben, `height` y `radius`) vistos desde `dir`: lo justo para que quepan a lo ancho —lo que se separan
+  // de lado vistos desde ahí, más lo que ocupa cada uno y un poco de aire— y a lo alto el más alto entero;
+  // ni más cerca de MIN_DISTANCE ni más lejos de MAX_DISTANCE.
   function fit(points, dir, mid = new THREE.Vector3()) {
-    mid.set(0, TARGET_HEIGHT, 0);
+    let alto = 0;
+    mid.set(0, 0, 0);
     for (const p of points) {
       mid.x += p.x / points.length;
       mid.z += p.z / points.length;
+      alto = Math.max(alto, p.height ?? 0);
     }
-    let lo = 0;
-    let hi = 0;
+    if (!alto) alto = DEFAULT_HEIGHT;
+    mid.y = alto * LOOK;
+    let lo = Infinity;
+    let hi = -Infinity;
     for (const p of points) {
       const side = (p.x - mid.x) * dir.z - (p.z - mid.z) * dir.x;
-      lo = Math.min(lo, side);
-      hi = Math.max(hi, side);
+      const r = p.radius ?? DEFAULT_RADIUS;
+      lo = Math.min(lo, side - r);
+      hi = Math.max(hi, side + r);
     }
-    const halfWidth = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * Math.min(camera.aspect, 1.6);
-    const margin = camera.aspect < 1 ? FRAME_MARGIN_TALL : FRAME_MARGIN;
-    const distance = Math.min(MAX_DISTANCE, Math.max(MIN_DISTANCE, (hi - lo + margin) / (2 * halfWidth)));
+    const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    const tanH = tanV * Math.min(camera.aspect, 1.6);
+    const air = camera.aspect < 1 ? AIR_TALL : AIR;
+    const ancho = (hi - lo + air * 2) / (2 * tanH);
+    const altura = (alto * HEAD_ROOM) / tanV;
+    const distance = Math.min(MAX_DISTANCE, Math.max(MIN_DISTANCE, ancho, altura));
     return { mid, distance };
   }
 
-  const cameraAt = (mid, dir, distance, out = new THREE.Vector3()) => out.copy(mid).addScaledVector(dir, distance).setY(mid.y + distance * ELEVATION);
+  const cameraAt = (mid, dir, distance, out = new THREE.Vector3(), elevation = ELEVATION) => out.copy(mid).addScaledVector(dir, distance).setY(mid.y + distance * elevation);
+
+  // Si la pieza en `o` ({x, z}) se mete entre la cámara —en `dir` desde `at`, a `distance`, mirando a
+  // `lookY` y subiendo `elevation` por casilla— y lo que se mira.
+  function blocks(o, at, dir, distance, lookY, elevation) {
+    const along = (o.x - at.x) * dir.x + (o.z - at.z) * dir.z;
+    const aside = Math.abs((o.x - at.x) * dir.z - (o.z - at.z) * dir.x);
+    return along > 0.3 && along < distance && aside < 0.55 && lookY + elevation * along < PIECE_TOP;
+  }
 
   // A qué distancia ponerse para que quepa una caja de `width` de ancho por `height` de alto.
   function fitBox({ width, height }) {
@@ -113,22 +184,39 @@ export function createCinema(stage, { onShake = null } = {}) {
     return Math.max(SHOT_MIN, width / 2 / tanH, height / 2 / tanV) * SHOT_AIR;
   }
 
+  // ZOOM DE IMPACTO: el plano se cierra de golpe un `size` (0,1 es un 10 %) y se vuelve a abrir.
+  function punch(size = 0.1) {
+    const queda = punchLeft > 0 ? punchSize * (punchLeft / PUNCH_SECONDS) : 0; // lo que aún cerraba el anterior
+    if (punchLeft <= 0) {
+      punchBase = camera.fov;
+      punchSet = 0;
+    }
+    punchLeft = PUNCH_SECONDS;
+    punchSize = Math.max(size, queda);
+  }
+
   return {
     get active() {
       return saved !== null;
     },
 
-    // Encuadra a los luchadores en `a` y `b` ({x, z}) desde arriba y, a ser posible, de lado.
-    // Prueba direcciones cada 30° alrededor de las dos de lado y se queda con la que menos
-    // piezas (`obstacles`, {x, z}) meten entre la cámara y el combate. Penaliza un poco alejarse
-    // de lado y el lado contrario al de la cámara del usuario.
+    // Si la pantalla es vertical (el móvil): ahí dos de lado solo caben desde lejos, y conviene mirarlos
+    // más de tres cuartos, uno algo detrás del otro.
+    get portrait() {
+      return camera.aspect < 1;
+    },
+
+    // Encuadra a los luchadores en `a` y `b` ({x, z}, y si lo saben `height` y `radius`) de lado y algo por
+    // encima. Prueba direcciones cada 30° alrededor de las dos de lado y se queda con la que menos piezas
+    // (`obstacles`, {x, z}) meten entre la cámara y el combate y más cerca los deja. Penaliza un poco
+    // alejarse de lado y el lado contrario al de la cámara del usuario.
     // `favor` ({x, z}, opcional): el lado desde el que conviene mirar —el del arma del atacante: desde el
     // del escudo, el escudo tapaba el golpe—.
     frame(clock, a, b, obstacles = [], { favor = null } = {}) {
       tracked = null;
       held = false;
-      if (!saved) saved = { position: camera.position.clone(), target: controls.target.clone() };
-      controls.enabled = false;
+      tracking = false;
+      take();
       const center = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
       const toUser = new THREE.Vector3(saved.position.x - center.x, 0, saved.position.z - center.z);
       const sideways = Math.atan2(b.x - a.x, -(b.z - a.z)); // ángulo (en x, z) perpendicular a la línea
@@ -138,11 +226,7 @@ export function createCinema(stage, { onShake = null } = {}) {
           const angle = base + step * ANGLE_STEP;
           const dir = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
           const { mid, distance } = fit([a, b], dir);
-          const blockers = obstacles.filter((o) => {
-            const along = (o.x - mid.x) * dir.x + (o.z - mid.z) * dir.z;
-            const aside = Math.abs((o.x - mid.x) * dir.z - (o.z - mid.z) * dir.x);
-            return along > 0.3 && along < distance && aside < 0.55 && 0.75 + ELEVATION * along < PIECE_TOP;
-          }).length;
+          const blockers = obstacles.filter((o) => blocks(o, mid, dir, distance, mid.y, ELEVATION)).length;
           // Mejor de lado, pero también mejor de cerca: en una pantalla vertical, de lado solo caben los
           // dos desde muy lejos, y un plano de tres cuartos los pone uno más cerca que el otro y cabe mucho
           // más cerca. Por eso ahí ladearse penaliza menos.
@@ -152,15 +236,57 @@ export function createCinema(stage, { onShake = null } = {}) {
           if (!best || score < best.score) best = { score, dir, mid, distance };
         }
       }
-      framing = { dir: best.dir };
-      return glide(clock, cameraAt(best.mid, best.dir, best.distance), best.mid);
+      framing = { dir: best.dir.clone(), base: best.dir.clone(), drift: 0, sense: Math.random() < 0.5 ? 1 : -1, age: 0 };
+      return glide(clock, cameraAt(best.mid, best.dir, best.distance * PUSH_FROM), best.mid);
     },
 
-    // Dónde están los que pelean (`at` → [{x, z}…]), para que el encuadre de `frame` se ajuste a ellos
-    // mientras dure: desde el mismo lado, solo acercándose o alejándose y corriéndose con ellos. null, deja
-    // de ajustarse.
+    // Dónde están los que pelean (`at` → [{x, z, height?, radius?}…]), para que el encuadre de `frame` se
+    // ajuste a ellos mientras dure. null, deja de ajustarse.
     watch(at) {
       watching = at ?? null;
+    },
+
+    // PLANO DE SEGUIMIENTO: una pieza que mide `height` va a moverse de `from` a `to` ({x, z}). La cámara se
+    // le pone cerca y de tres cuartos por delante —se le ve la cara mientras viene—, del lado que menos
+    // piezas (`obstacles`, {x, z}) tapen en todo el camino y, a igualdad, del de la cámara del usuario.
+    // Luego `follow` la acompaña.
+    track(clock, { from, to = from, height = DEFAULT_HEIGHT, obstacles = [], seconds = TRACK_SECONDS }) {
+      tracked = null;
+      held = false;
+      framing = null;
+      take();
+      const toUser = new THREE.Vector3(saved.position.x - from.x, 0, saved.position.z - from.z);
+      let ax = to.x - from.x;
+      let az = to.z - from.z;
+      const largo = Math.hypot(ax, az);
+      if (largo > 1e-6) {
+        ax /= largo;
+        az /= largo;
+      } else {
+        // Sin camino (la torre que despierta en su casilla): de cara a la cámara del usuario.
+        const u = toUser.lengthSq() > 1e-6 ? toUser.clone().normalize() : new THREE.Vector3(0, 0, 1);
+        ax = u.x;
+        az = u.z;
+      }
+      ahead = new THREE.Vector3(ax, 0, az);
+      const distance = Math.max(TRACK_MIN, height * TRACK_FILL);
+      const lookY = height * TRACK_LOOK;
+      let best = null;
+      for (const side of [1, -1]) {
+        for (const lean of [TRACK_LEAN, TRACK_LEAN * 0.4, TRACK_LEAN * 1.8]) {
+          const dir = new THREE.Vector3(-az * side + ax * lean, 0, ax * side + az * lean).normalize();
+          let blockers = 0;
+          for (const t of [0, 0.5, 1]) {
+            const at = { x: from.x + (to.x - from.x) * t, z: from.z + (to.z - from.z) * t };
+            blockers += obstacles.filter((o) => blocks(o, at, dir, distance, lookY, TRACK_ELEVATION)).length;
+          }
+          const score = blockers + Math.abs(lean - TRACK_LEAN) * 0.4 + (dir.dot(toUser) < 0 ? 0.6 : 0);
+          if (!best || score < best.score) best = { score, dir };
+        }
+      }
+      const look = new THREE.Vector3(from.x, lookY, from.z);
+      tracking = true;
+      return glide(clock, cameraAt(look, best.dir, distance, new THREE.Vector3(), TRACK_ELEVATION), look, { seconds, arc: TRACK_ARC });
     },
 
     // PRIMER PLANO de quien ha ganado, de frente: la cámara se le pone delante —hacia donde mira—, a la
@@ -170,8 +296,7 @@ export function createCinema(stage, { onShake = null } = {}) {
       tracked = null;
       held = false;
       framing = null; // el primer plano manda: ya no se ajusta a los dos
-      if (!saved) saved = { position: camera.position.clone(), target: controls.target.clone() };
-      controls.enabled = false;
+      take();
       const at = piece.figure.getWorldPosition(new THREE.Vector3());
       const facing = piece.figure.rotation.y;
       const height = piece.height ?? PIECE_TOP;
@@ -189,6 +314,7 @@ export function createCinema(stage, { onShake = null } = {}) {
         const score = blockers + Math.abs(step) * 0.35;
         if (!best || score < best.score) best = { score, dir };
       }
+      ahead = null;
       const position = look.clone().addScaledVector(best.dir, distance).add(new THREE.Vector3(0, CLOSE_RISE, 0));
       return glide(clock, position, look);
     },
@@ -200,8 +326,7 @@ export function createCinema(stage, { onShake = null } = {}) {
     // Hasta que se suelte (`free`), el encuadre automático no la toca.
     shot(clock, { look, dir = null, distance = null, box = null, rise = null, seconds = MOVE_SECONDS, ease = smooth }) {
       tracked = null;
-      if (!saved) saved = { position: camera.position.clone(), target: controls.target.clone() };
-      controls.enabled = false;
+      take();
       held = true;
       const desde = (dir ? dir.clone() : framing?.dir.clone() ?? camera.position.clone().sub(look)).setY(0).normalize();
       const lejos = distance ?? fitBox(box ?? { width: 2, height: 2 });
@@ -220,28 +345,27 @@ export function createCinema(stage, { onShake = null } = {}) {
       return framing ? framing.dir.clone() : null;
     },
 
-    // ZOOM DE IMPACTO: el plano se cierra de golpe un `size` (0,1 es un 10 %) y se vuelve a abrir.
-    punch(size = 0.1) {
-      if (punchLeft <= 0) {
-        punchBase = camera.fov;
-        punchSet = 0;
-      }
-      punchLeft = PUNCH_SECONDS;
-      punchSize = size;
-    },
+    punch,
 
-    // Sigue a una pieza que se mueve: la cámara mantiene el encuadre de ahora y viaja con ella, que
-    // se queda en el centro. `at` devuelve dónde está ({x, z}); con null, deja de seguirla. Solo
-    // mientras la cámara es del cine: si es la del usuario, no se la toca.
-    follow(at) {
+    // Sigue a una pieza que se mueve: la cámara mantiene el encuadre de ahora y viaja con ella, que se
+    // queda en el centro. `at` devuelve dónde está ({x, z}); con null, deja de seguirla. Con `orbit`
+    // (radianes por segundo) además la va rodeando —hacia su cara, si viene de `track`— y con `push` se le
+    // va acercando (esa fracción por segundo, hasta un 20 %): un travelling. Solo mientras la cámara es
+    // del cine: si es la del usuario, no se la toca.
+    follow(at, { orbit = 0, push = 0, lift = 0 } = {}) {
       if (!at || !saved) {
         tracked = null;
         return false;
       }
       const point = at();
       aimHeight = controls.target.y;
+      liftFrom = point.y ?? 0;
+      liftRate = lift;
       aim.set(point.x, aimHeight, point.z);
       behind.copy(camera.position).sub(offset).sub(aim);
+      // Hacia su cara: el sentido en que el giro lleva la cámara hacia donde va la pieza.
+      const sense = ahead ? Math.sign(behind.z * ahead.x - behind.x * ahead.z) || 1 : 1;
+      travel = { orbit, push, sense, from: behind.length() };
       tracked = at;
       return true;
     },
@@ -250,6 +374,7 @@ export function createCinema(stage, { onShake = null } = {}) {
       shakeLeft = SHAKE_SECONDS;
       shakeSize = size;
       onShake?.(size);
+      if (size >= PUNCH_FROM_SHAKE) punch(Math.min(PUNCH_MAX, size * PUNCH_PER_SHAKE));
     },
 
     // Cada fotograma, antes de que los controles de órbita lean la cámara: quita el temblor del
@@ -263,16 +388,27 @@ export function createCinema(stage, { onShake = null } = {}) {
     update(dt) {
       if (tracked) {
         const point = tracked();
-        aim.set(point.x, aimHeight, point.z);
+        if (travel.orbit) behind.applyAxisAngle(UP, travel.orbit * travel.sense * dt);
+        if (travel.push && behind.length() > travel.from * PUSH_LIMIT) behind.multiplyScalar(1 - travel.push * dt);
+        aim.set(point.x, aimHeight + Math.max(0, (point.y ?? 0) - liftFrom) * liftRate, point.z);
         camera.position.copy(aim).add(behind);
         controls.target.copy(aim);
         camera.lookAt(aim);
       } else if (watching && framing && !gliding && !held && saved) {
         const points = watching();
         if (points?.length) {
+          // El travelling lento: rodea (yendo y viniendo) y se va cerrando.
+          framing.age += dt;
+          framing.drift += framing.sense * DRIFT * dt;
+          if (Math.abs(framing.drift) > DRIFT_MAX) {
+            framing.drift = Math.sign(framing.drift) * DRIFT_MAX;
+            framing.sense = -framing.sense;
+          }
+          framing.dir.copy(framing.base).applyAxisAngle(UP, framing.drift);
+          const cierra = PUSH_FROM + (PUSH_TO - PUSH_FROM) * smooth(Math.min(1, framing.age / PUSH_SECONDS));
           const { distance } = fit(points, framing.dir, liveMid);
           const k = 1 - Math.exp(-dt * LIVE_RATE);
-          camera.position.lerp(cameraAt(liveMid, framing.dir, distance, livePosition), k);
+          camera.position.lerp(cameraAt(liveMid, framing.dir, distance * cierra, livePosition), k);
           controls.target.lerp(liveMid, k);
           camera.lookAt(controls.target);
         }
@@ -301,8 +437,12 @@ export function createCinema(stage, { onShake = null } = {}) {
       tracked = null;
       framing = null;
       held = false;
+      ahead = null;
       if (!saved) return;
-      await glide(clock, saved.position, saved.target);
+      onRestore?.();
+      const arc = tracking ? TRACK_ARC * 0.6 : 0;
+      tracking = false;
+      await glide(clock, saved.position, saved.target, { arc });
       camera.position.sub(offset);
       offset.set(0, 0, 0);
       shakeLeft = 0;
@@ -312,9 +452,11 @@ export function createCinema(stage, { onShake = null } = {}) {
 
     // Vuelta inmediata, para errores.
     reset() {
+      tracking = false;
       tracked = null;
       framing = null;
       held = false;
+      ahead = null;
       if (punchLeft > 0) {
         punchLeft = 0;
         camera.fov = punchBase;

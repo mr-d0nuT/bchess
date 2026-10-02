@@ -4,6 +4,7 @@ import { sfx } from '../../audio/sfx.js';
 import { FRENA, twirl } from '../twirl.js';
 import { roomClearance } from '../../moves/room.js';
 import { findBone } from '../../pieces/bone-names.js';
+import { ORBIT } from '../../scene/cinema.js';
 
 // Lo que comparten las batallas del caballero (diseño en docs/superpowers/specs/
 // 2026-09-15-bchess-caballero-design.md, sección 7).
@@ -173,7 +174,7 @@ export async function victoryLap({ entry, clock, cinema, obstacles = [], move })
     cinema.follow(null);
   }
   await cinema.closeUp(clock, entry.piece, obstacles); // primer plano, de frente, del que ha ganado
-  cinema.follow(figure);
+  cinema.follow(figure, ORBIT); // y la cámara lo va rodeando mientras lo celebra
   try {
     await celebrate(entry, clock);
   } finally {
