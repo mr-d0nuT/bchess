@@ -114,10 +114,27 @@ function dibujaHumo(g, size) {
   g.fillRect(0, 0, size, size);
 }
 
+// Una bola de nubarrón de dibujo animado: redonda, de borde casi limpio, clara arriba a la izquierda y
+// oscura abajo, que es lo que le da volumen. Varias, montadas unas sobre otras, hacen la nube de tormenta.
+function dibujaNubarron(g, size) {
+  const c = size / 2;
+  const luz = g.createRadialGradient(c * 0.72, c * 0.62, 0, c, c, c);
+  luz.addColorStop(0, 'rgba(255,255,255,1)');
+  luz.addColorStop(0.45, 'rgba(196,200,210,1)');
+  luz.addColorStop(0.8, 'rgba(118,122,136,1)');
+  luz.addColorStop(0.92, 'rgba(92,96,110,0.95)');
+  luz.addColorStop(1, 'rgba(92,96,110,0)');
+  g.fillStyle = luz;
+  g.beginPath();
+  g.arc(c, c, c, 0, Math.PI * 2);
+  g.fill();
+}
+
 export function createSpellFx(scene) {
   const brasa = lienzo(dibujaBrasa, 128);
   const llama = lienzo(dibujaLlama, 128);
   const humo = lienzo(dibujaHumo, 64);
+  const nubarron = lienzo(dibujaNubarron, 128);
   const sello = lienzo(dibujaSello, 256);
   const onda = lienzo(dibujaOnda, 256);
   const vivos = []; // { object, life, age, step(k, dt, age) }
@@ -133,6 +150,7 @@ export function createSpellFx(scene) {
       blending: THREE.AdditiveBlending,
     }));
     object.renderOrder = 11;
+    object.scale.setScalar(0.001); // hasta su primer paso: si nace dentro de `update`, se pintaba un fotograma a tamaño 1
     scene.add(object);
     return object;
   }
@@ -163,6 +181,7 @@ export function createSpellFx(scene) {
       depthWrite: false,
     }));
     object.renderOrder = 10;
+    object.scale.setScalar(0.001);
     scene.add(object);
     return object;
   }
@@ -170,6 +189,12 @@ export function createSpellFx(scene) {
   function vive(object, life, step) {
     vivos.push({ object, life, age: 0, step });
     return object;
+  }
+
+  // Acaba ya con lo que vive en `object`: se quita en el próximo fotograma.
+  function acaba(object) {
+    const item = vivos.find((v) => v.object === object);
+    if (item) item.life = Math.min(item.life, item.age);
   }
 
   // 1. LA CARGA. En `at` (un punto o una función que lo devuelve, para que siga a la mano) crece un
@@ -759,7 +784,7 @@ export function createSpellFx(scene) {
       vuelo: null, fin: null,
     };
     const punta = () => grupo.localToWorld(curva.getPointAt(Math.max(0.05, 1 - estado.quema * 0.9)).clone());
-    const item = vive(grupo, 3600, (k, dt) => {
+    vive(grupo, 3600, (k, dt) => {
       estado.aparece = Math.min(1, estado.aparece + dt / 0.25);
       const pop = estado.aparece < 1 ? 1 + Math.sin(Math.PI * estado.aparece) * 0.25 : 1;
       grupo.scale.setScalar(Math.max(0.001, estado.aparece * pop * size));
@@ -815,13 +840,364 @@ export function createSpellFx(scene) {
       explode() {
         const donde = grupo.position.clone();
         grupo.visible = false;
-        item.life = item.age;
+        acaba(grupo);
         return donde;
       },
       get position() {
         return grupo.position;
       },
     };
+  }
+
+  // EL CIELO DEL REY: la tormenta que se le junta encima al rival, el rayo que cae de ella, los chispazos
+  // del que se electrocuta, el humo del chamuscado y la estela del molinete.
+  //
+  // Una línea mide un píxel por gruesa que se pida (WebGL no sabe de grosores): así era el rayo de antes,
+  // un hilo. Estos tienen cuerpo: un tramo de cilindro por quiebro, con un núcleo blanco y un halo del
+  // color de quien conjura alrededor.
+  const eje = new THREE.Vector3();
+  function tender(tramo, a, b, radio) {
+    eje.subVectors(b, a);
+    const largo = eje.length();
+    tramo.position.copy(a);
+    if (largo < 1e-5) {
+      tramo.scale.set(radio, 1e-4, radio);
+      return;
+    }
+    tramo.quaternion.setFromUnitVectors(ARRIBA, eje.divideScalar(largo));
+    tramo.scale.set(radio, largo, radio);
+  }
+
+  // Una cuerda de rayo de `n` tramos. `trazar(puntos)` la tiende por ellos; `brillo`, de 0 a 1.
+  function cuerda(n, { color, nucleo = 0.02, halo = 0.07 }) {
+    const grupo = new THREE.Group();
+    const geometria = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true).translate(0, 0.5, 0);
+    const blanco = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const aura = new THREE.MeshBasicMaterial({ color: new THREE.Color(color), transparent: true, opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending });
+    const tramos = [];
+    for (let i = 0; i < n; i++) {
+      const dentro = new THREE.Mesh(geometria, blanco);
+      const fuera = new THREE.Mesh(geometria, aura);
+      dentro.renderOrder = 12;
+      fuera.renderOrder = 11;
+      dentro.visible = fuera.visible = false;
+      grupo.add(dentro, fuera);
+      tramos.push([dentro, fuera]);
+    }
+    scene.add(grupo);
+    return {
+      grupo,
+      trazar(puntos) {
+        tramos.forEach(([dentro, fuera], i) => {
+          const hay = i + 1 < puntos.length;
+          dentro.visible = fuera.visible = hay;
+          if (!hay) return;
+          tender(dentro, puntos[i], puntos[i + 1], nucleo);
+          tender(fuera, puntos[i], puntos[i + 1], halo);
+        });
+      },
+      set brillo(v) {
+        blanco.opacity = v;
+        aura.opacity = 0.4 * v;
+      },
+    };
+  }
+
+  // Un camino quebrado de `a` a `b` en `kinks` tramos, que se aparta hasta `amplitude` de la recta (menos
+  // cerca de las puntas, que están clavadas).
+  const LADO_X = new THREE.Vector3(1, 0, 0);
+  function quiebra(a, b, kinks, amplitude, out = []) {
+    const dir = new THREE.Vector3().subVectors(b, a);
+    const vertical = Math.abs(dir.y) > 0.9 * dir.length();
+    const lado = new THREE.Vector3().crossVectors(dir, vertical ? LADO_X : ARRIBA).normalize();
+    const otro = new THREE.Vector3().crossVectors(dir, lado).normalize();
+    for (let i = 0; i <= kinks; i++) {
+      const t = i / kinks;
+      const p = out[i] ?? (out[i] = new THREE.Vector3());
+      p.copy(a).addScaledVector(dir, t);
+      if (i > 0 && i < kinks) {
+        const cabe = Math.sqrt(Math.sin(Math.PI * t)) * amplitude * 2;
+        p.addScaledVector(lado, (Math.random() - 0.5) * cabe).addScaledVector(otro, (Math.random() - 0.5) * cabe);
+      }
+    }
+    out.length = kinks + 1;
+    return out;
+  }
+
+  // EL RAYO. De `from` a `to` (puntos, o funciones si se mueven) en un trazo grueso que se requiebra sin
+  // parar (`jag`: cuánto), con ramas que se abren hacia abajo y un resplandor a lo largo. Con `flicker`, parpadea como
+  // los de verdad: cae, se apaga, vuelve a caer y se va. Con `ground`, deja en el suelo, donde cae, un
+  // fogonazo y una quemadura. Sin las dos cosas es un hilo de energía que va de un sitio a otro.
+  function lightning(from, to, { seconds = 0.6, color = '#cfe6ff', width = 1, branches = 4, kinks = 16, flicker = true, ground = true, jag = 1 } = {}) {
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    donde(from, a);
+    donde(to, b);
+    const todo = new THREE.Group();
+    scene.add(todo);
+    const tronco = cuerda(kinks, { color, nucleo: 0.026 * width, halo: 0.08 * width });
+    const ramas = Array.from({ length: branches }, () => cuerda(6, { color, nucleo: 0.011 * width, halo: 0.036 * width }));
+    const brillos = Array.from({ length: Math.max(2, Math.ceil(a.distanceTo(b) / 0.3)) }, () => mota(brasa, color));
+    todo.add(tronco.grupo, ...ramas.map((r) => r.grupo), ...brillos);
+    let puntos = [];
+    let siguiente = 0;
+    const encendido = (age) => {
+      if (!flicker) return Math.min(1, age / 0.06) * (age > seconds * 0.75 ? Math.max(0, (seconds - age) / (seconds * 0.25)) : 1);
+      if (age < 0.08) return 1;
+      if (age < 0.13) return 0.12;
+      if (age < 0.24) return 1;
+      if (age < 0.29) return 0.2;
+      return Math.max(0, 1 - (age - 0.29) / Math.max(0.05, seconds - 0.29)) ** 0.7;
+    };
+    vive(todo, seconds, (k, dt, age) => {
+      donde(from, a);
+      donde(to, b);
+      if (age >= siguiente) {
+        siguiente = age + 0.045; // se requiebra 22 veces por segundo
+        puntos = quiebra(a, b, kinks, (0.06 + a.distanceTo(b) * 0.045) * jag, puntos);
+        tronco.trazar(puntos);
+        for (const rama of ramas) {
+          const desde = puntos[2 + Math.floor(Math.random() * Math.max(1, kinks - 5))];
+          const hasta = desde.clone().add(new THREE.Vector3((Math.random() - 0.5) * 1.1, -(0.25 + Math.random() * 0.5), (Math.random() - 0.5) * 1.1));
+          rama.trazar(quiebra(desde, hasta, 6, 0.07));
+        }
+        brillos.forEach((brillo, i) => brillo.position.copy(puntos[Math.round((i / (brillos.length - 1)) * kinks)]));
+      }
+      const v = encendido(age);
+      tronco.brillo = v;
+      for (const rama of ramas) rama.brillo = v * 0.85;
+      for (const brillo of brillos) {
+        brillo.scale.setScalar(0.62 * width);
+        brillo.material.opacity = 0.32 * v;
+      }
+    });
+    if (!ground) return;
+    // El fogonazo del suelo, que se cierra enseguida…
+    const fogonazo = plano(brasa, color);
+    fogonazo.rotation.x = -Math.PI / 2;
+    fogonazo.position.set(b.x, 0.014, b.z);
+    vive(fogonazo, 0.7, (k) => {
+      fogonazo.scale.setScalar(3 * width * (1 - k * 0.6));
+      fogonazo.material.opacity = (1 - k) ** 2;
+    });
+    // …y la quemadura, que se queda un rato.
+    const quemadura = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
+      map: humo, color: '#000000', transparent: true, opacity: 0, depthWrite: false,
+    }));
+    quemadura.rotation.x = -Math.PI / 2;
+    quemadura.position.set(b.x, 0.008, b.z);
+    quemadura.scale.setScalar(1.05 * width);
+    quemadura.renderOrder = 9;
+    scene.add(quemadura);
+    vive(quemadura, 4, (k) => {
+      quemadura.material.opacity = 0.85 * Math.min(1, k * 20) * (k > 0.7 ? (1 - k) / 0.3 : 1);
+    });
+  }
+
+  // LA TORMENTA. Sobre `at` (los pies de quien la va a recibir), a `height`, se junta en `seconds` una nube
+  // negra que gira despacio y se enciende por dentro con relámpagos; y mientras, el tablero se queda a
+  // oscuras (`dark`: la luz que queda) y frío, como cuando se nubla de golpe. `strike()` es el fogonazo
+  // de un rayo, que lo ilumina todo un instante, dos veces; `clear(seconds)` la deshace y devuelve la luz
+  // (con 0, de golpe). Si nadie la deshace, se deshace sola a los `life` segundos: la luz no se puede
+  // quedar apagada.
+  const FRIO = new THREE.Color('#8faaf0');
+  function storm(at, { height = 2.8, radius = 0.9, seconds = 1.2, color = '#cfe6ff', dark = 0.3, life = 16 } = {}) {
+    const centro = new THREE.Vector3().copy(at).setY(height);
+    const grupo = new THREE.Group();
+    scene.add(grupo);
+    const luces = [];
+    scene.traverse((o) => {
+      if (o.isLight) luces.push({ luz: o, intensidad: o.intensity, color: o.color.clone() });
+    });
+    const ambiente = scene.environmentIntensity ?? 1;
+    const estado = { edad: 0, fin: null, fogonazo: 0, repite: null, devuelta: false };
+    const devuelve = () => {
+      if (estado.devuelta) return;
+      estado.devuelta = true;
+      for (const { luz, intensidad, color: tono } of luces) {
+        luz.intensity = intensidad;
+        luz.color.copy(tono);
+      }
+      scene.environmentIntensity = ambiente;
+    };
+    // La nube: bocanadas oscuras que llegan desde fuera, se juntan y giran.
+    // Bolas de nubarrón, más oscuras las de abajo; gris azulado y no negro, que con el fondo negro una nube
+    // negra no se veía, solo sus relámpagos.
+    const bocanadas = [];
+    for (let i = 0; i < 26; i++) {
+      const y = (Math.random() - 0.45) * radius * 0.5;
+      const abajo = Math.max(0, Math.min(1, 0.5 - y / (radius * 0.5)));
+      const tono = new THREE.Color('#7d879c').lerp(new THREE.Color('#2a2f3c'), abajo * 0.8 + Math.random() * 0.2);
+      const bocanada = new THREE.Sprite(new THREE.SpriteMaterial({ map: nubarron, color: tono, transparent: true, depthWrite: false }));
+      bocanada.renderOrder = 10;
+      bocanada.scale.setScalar(0.001);
+      grupo.add(bocanada);
+      const angulo = Math.random() * Math.PI * 2;
+      const r = radius * Math.sqrt(Math.random());
+      bocanadas.push({
+        bocanada, angulo, r, y,
+        tam: radius * (0.55 + Math.random() * 0.55),
+        gira: 0.25 + Math.random() * 0.25,
+        cuando: Math.random() * 0.4,
+      });
+    }
+    // Los relámpagos de dentro: resplandores que se encienden un instante aquí y allá.
+    const dentro = Array.from({ length: 3 }, () => {
+      const luz = mota(brasa, color);
+      grupo.add(luz);
+      return { luz, hasta: -1 };
+    });
+    let proximo = 0.3;
+    vive(grupo, life, (k, dt, age) => {
+      estado.edad = age;
+      const junta = crece(Math.min(1, age / seconds));
+      const vaSe = estado.fin ? Math.min(1, (age - estado.fin.desde) / estado.fin.seconds) : 0;
+      for (const p of bocanadas) {
+        const g = Math.max(0, Math.min(1, (junta - p.cuando) / (1 - p.cuando)));
+        const a = p.angulo + age * p.gira;
+        const r = p.r * (1 + (1 - g) * 1.6 + vaSe * 1.2);
+        p.bocanada.position.set(centro.x + Math.cos(a) * r, centro.y + p.y + vaSe * 0.4, centro.z + Math.sin(a) * r);
+        p.bocanada.scale.setScalar(p.tam * (0.3 + 0.7 * g) * (1 + vaSe * 0.6));
+        p.bocanada.material.opacity = Math.min(1, g * 1.5) * (1 - vaSe);
+      }
+      // Relámpagos dentro, cada poco, más a menudo según se carga.
+      if (age >= proximo && !estado.fin) {
+        proximo = age + 0.08 + Math.random() * (0.4 - 0.25 * junta);
+        const libre = dentro.find((d) => d.hasta < age) ?? dentro[0];
+        const angulo = Math.random() * Math.PI * 2;
+        const r = radius * 0.6 * Math.random();
+        libre.luz.position.set(centro.x + Math.cos(angulo) * r, centro.y + (Math.random() - 0.5) * 0.2, centro.z + Math.sin(angulo) * r);
+        libre.hasta = age + 0.05 + Math.random() * 0.1;
+        libre.tam = radius * (0.7 + Math.random() * 0.7) * junta;
+      }
+      if (estado.repite !== null && age >= estado.repite) {
+        estado.fogonazo = Math.max(estado.fogonazo, 0.75);
+        estado.repite = null;
+      }
+      for (const d of dentro) {
+        const on = d.hasta >= age ? 1 : 0;
+        d.luz.scale.setScalar(Math.max(0.001, (d.tam ?? radius) * (1 + estado.fogonazo)));
+        d.luz.material.opacity = Math.max(on * 0.6, estado.fogonazo * 0.8) * (1 - vaSe);
+      }
+      // La luz del tablero: a oscuras y fría mientras dura, y blanca de golpe con cada rayo.
+      if (k >= 1 || vaSe >= 1) {
+        devuelve();
+        if (vaSe >= 1) acaba(grupo);
+        return;
+      }
+      const oscuro = Math.min(1, age / (seconds * 0.8)) * (1 - vaSe);
+      const nivel = 1 - (1 - dark) * oscuro;
+      const f = estado.fogonazo;
+      for (const { luz, intensidad, color: tono } of luces) {
+        luz.intensity = intensidad * (nivel + f * 2.4);
+        luz.color.copy(tono).lerp(FRIO, Math.max(oscuro * 0.55, f * 0.8));
+      }
+      scene.environmentIntensity = ambiente * (nivel + f * 1.6);
+      estado.fogonazo = Math.max(0, estado.fogonazo - dt * 6);
+    });
+    return {
+      center: centro,
+      strike(power = 1) {
+        estado.fogonazo = Math.max(estado.fogonazo, power);
+        estado.repite = estado.edad + 0.17;
+      },
+      clear(segundos = 1) {
+        if (estado.devuelta) return;
+        if (!(segundos > 0)) {
+          devuelve();
+          for (const p of bocanadas) p.bocanada.visible = false;
+          acaba(grupo);
+          return;
+        }
+        if (!estado.fin) estado.fin = { desde: estado.edad, seconds: segundos };
+      },
+    };
+  }
+
+  // CHISPAZOS: arcos eléctricos que saltan aquí y allá alrededor de `at` (los pies de quien se
+  // electrocuta, o una función), en un cilindro de `radius` por `height` desde `base`, durante `seconds`.
+  function arcs(at, { seconds = 1, radius = 0.3, height = 1.4, base = 0, color = '#cfe6ff', every = 0.05, width = 1, count = 3 } = {}) {
+    const punto = new THREE.Vector3();
+    const grupo = new THREE.Group();
+    scene.add(grupo);
+    const hilos = Array.from({ length: count }, () => {
+      const hilo = cuerda(5, { color, nucleo: 0.008 * width, halo: 0.028 * width });
+      grupo.add(hilo.grupo);
+      return hilo;
+    });
+    const p = new THREE.Vector3();
+    const q = new THREE.Vector3();
+    let siguiente = 0;
+    vive(grupo, seconds, (k, dt, age) => {
+      if (age >= siguiente) {
+        siguiente = age + every;
+        donde(at, punto);
+        for (const hilo of hilos) {
+          hilo.grupo.visible = Math.random() < 0.8;
+          const y = base + Math.random() * height;
+          const angulo = Math.random() * Math.PI * 2;
+          const otro = angulo + (Math.random() - 0.5) * 2.4;
+          const y2 = Math.min(base + height, Math.max(base, y + (Math.random() - 0.5) * height * 0.6));
+          p.set(punto.x + Math.cos(angulo) * radius, punto.y + y, punto.z + Math.sin(angulo) * radius);
+          q.set(punto.x + Math.cos(otro) * radius, punto.y + y2, punto.z + Math.sin(otro) * radius);
+          hilo.trazar(quiebra(p, q, 5, radius * 0.3 + 0.02));
+        }
+      }
+      for (const hilo of hilos) hilo.brillo = 1 - k * k * 0.6;
+    });
+  }
+
+  // HUMO que sale de `at` (un punto o una función) y sube abriéndose, en bocanadas cada `every` segundos
+  // durante `seconds`: lo que echa un cuerpo chamuscado, o un cañón que acaba de disparar.
+  function smoke(at, { seconds = 1.5, every = 0.08, size = 0.25, rise = 0.9, life = 1.2, color = '#3a3632', opacity = 0.55, spread = 0.15 } = {}) {
+    const punto = new THREE.Vector3();
+    const emisor = new THREE.Object3D();
+    scene.add(emisor);
+    let siguiente = 0;
+    vive(emisor, seconds, (k, dt, age) => {
+      while (age >= siguiente) {
+        siguiente += every;
+        donde(at, punto);
+        const bocanada = nube(color);
+        const desde = punto.clone().add(new THREE.Vector3((Math.random() - 0.5) * spread, 0, (Math.random() - 0.5) * spread));
+        const deriva = new THREE.Vector3((Math.random() - 0.5) * 0.35, 0, (Math.random() - 0.5) * 0.35);
+        const gira = (Math.random() - 0.5) * 2;
+        const fuerza = 1 - k * 0.6; // va echando menos
+        vive(bocanada, life * (0.8 + Math.random() * 0.4), (kk) => {
+          bocanada.position.copy(desde).addScaledVector(deriva, kk);
+          bocanada.position.y = desde.y + rise * (1 - (1 - kk) ** 2);
+          bocanada.scale.setScalar(size * (0.5 + 2 * kk));
+          bocanada.material.opacity = opacity * fuerza * Math.min(1, kk * 6) * (1 - kk);
+          bocanada.material.rotation = gira * kk;
+        });
+      }
+    });
+  }
+
+  // UNA ESTELA: motas que se quedan donde ha ido pasando `at` (una función) y se apagan enseguida. Si
+  // `at` da vueltas, dibujan el aro: el molinete del báculo, que antes apenas se veía.
+  function trail(at, { seconds = 1, color = '#cfe6ff', size = 0.16, fade = 0.3 } = {}) {
+    const punto = new THREE.Vector3();
+    const ultimo = new THREE.Vector3();
+    const emisor = new THREE.Object3D();
+    scene.add(emisor);
+    let primero = true;
+    vive(emisor, seconds, () => {
+      donde(at, punto);
+      // Entre un fotograma y otro la punta avanza mucho (va lanzada): se rellena el hueco.
+      const pasos = primero ? 1 : Math.min(8, Math.max(1, Math.ceil(punto.distanceTo(ultimo) / (size * 0.3))));
+      for (let i = 1; i <= pasos; i++) {
+        const chispa = mota(brasa, color);
+        chispa.position.copy(primero ? punto : ultimo).lerp(punto, i / pasos);
+        chispa.scale.setScalar(size);
+        vive(chispa, fade, (k) => {
+          chispa.scale.setScalar(size * (1 - k * 0.6));
+          chispa.material.opacity = 0.9 * (1 - k);
+        });
+      }
+      ultimo.copy(punto);
+      primero = false;
+    });
   }
 
   function update(dt) {
@@ -842,5 +1218,8 @@ export function createSpellFx(scene) {
     }
   }
 
-  return { charge, sigil, bolt, shockwave, updraft, iceRay, encase, snow, flame, fireball, blaze, ashes, bomb, update };
+  return {
+    charge, sigil, bolt, shockwave, updraft, iceRay, encase, snow, flame, fireball, blaze, ashes, bomb,
+    lightning, storm, arcs, smoke, trail, update,
+  };
 }

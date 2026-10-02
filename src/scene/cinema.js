@@ -30,6 +30,12 @@ const CLOSE_LOOK = 0.55; // a qué parte de su altura mira
 const CLOSE_RISE = 0.55; // lo que la cámara queda por encima de ese punto
 const CLOSE_FILL = 2.1; // alturas de la pieza a las que se pone
 const CLOSE_MIN = 2.6; // y nunca más cerca que esto
+// Las tomas a mano (`shot`): nunca más cerca que esto, y con este aire alrededor de lo que se encuadra.
+const SHOT_MIN = 1.5;
+const SHOT_AIR = 1.12;
+// El zoom de impacto (`punch`): se cierra de golpe y se vuelve a abrir despacio.
+const PUNCH_SECONDS = 0.55;
+const PUNCH_IN = 0.1; // la parte del zoom que es cerrarse
 const smooth = (t) => t * t * (3 - 2 * t);
 
 // `onShake(size)`: se avisa a quien quiera de cada temblor (la vibración del móvil).
@@ -46,6 +52,11 @@ export function createCinema(stage, { onShake = null } = {}) {
   let watching = null; // () => [{x, z}…]: dónde están los que pelean, para ajustar el encuadre
   let framing = null; // { dir }: desde dónde encuadra ahora (unitario, del centro a la cámara), o null
   let gliding = 0; // viajes de cámara en curso: mientras tanto, no se ajusta
+  let held = false; // una toma a mano (`shot`) manda hasta que se suelte (`free`)
+  let punchLeft = 0;
+  let punchSize = 0;
+  let punchBase = 0; // el campo de visión de verdad, mientras el zoom de impacto lo cierra
+  let punchSet = 0; // y el que le ha puesto el zoom: si cambia, es que la ventana ha cambiado de tamaño
   const liveMid = new THREE.Vector3();
   const livePosition = new THREE.Vector3();
 
@@ -57,12 +68,12 @@ export function createCinema(stage, { onShake = null } = {}) {
     return true;
   };
 
-  function glide(clock, toPosition, toTarget) {
+  function glide(clock, toPosition, toTarget, { seconds = MOVE_SECONDS, ease = smooth } = {}) {
     const fromPosition = camera.position.clone().sub(offset);
     const fromTarget = controls.target.clone();
     gliding += 1;
-    return clock.tween(MOVE_SECONDS, (t) => {
-      const k = smooth(t);
+    return clock.tween(seconds, (t) => {
+      const k = ease(t);
       camera.position.lerpVectors(fromPosition, toPosition, k).add(offset);
       controls.target.lerpVectors(fromTarget, toTarget, k);
       camera.lookAt(controls.target);
@@ -95,6 +106,13 @@ export function createCinema(stage, { onShake = null } = {}) {
 
   const cameraAt = (mid, dir, distance, out = new THREE.Vector3()) => out.copy(mid).addScaledVector(dir, distance).setY(mid.y + distance * ELEVATION);
 
+  // A qué distancia ponerse para que quepa una caja de `width` de ancho por `height` de alto.
+  function fitBox({ width, height }) {
+    const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    const tanH = tanV * camera.aspect;
+    return Math.max(SHOT_MIN, width / 2 / tanH, height / 2 / tanV) * SHOT_AIR;
+  }
+
   return {
     get active() {
       return saved !== null;
@@ -108,6 +126,7 @@ export function createCinema(stage, { onShake = null } = {}) {
     // del escudo, el escudo tapaba el golpe—.
     frame(clock, a, b, obstacles = [], { favor = null } = {}) {
       tracked = null;
+      held = false;
       if (!saved) saved = { position: camera.position.clone(), target: controls.target.clone() };
       controls.enabled = false;
       const center = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
@@ -149,6 +168,7 @@ export function createCinema(stage, { onShake = null } = {}) {
     // ladeándose de 30 en 30°, y se queda con la que menos tapa, mejor cuanto más de frente.
     closeUp(clock, piece, obstacles = []) {
       tracked = null;
+      held = false;
       framing = null; // el primer plano manda: ya no se ajusta a los dos
       if (!saved) saved = { position: camera.position.clone(), target: controls.target.clone() };
       controls.enabled = false;
@@ -171,6 +191,43 @@ export function createCinema(stage, { onShake = null } = {}) {
       }
       const position = look.clone().addScaledVector(best.dir, distance).add(new THREE.Vector3(0, CLOSE_RISE, 0));
       return glide(clock, position, look);
+    },
+
+    // UNA TOMA A MANO: un travelling, una grúa, un acercamiento… lo que pida el combate en cada momento
+    // (subir a ver la tormenta, irse a la cara del que la recibe). Mira a `look` desde `dir` (en el suelo;
+    // por defecto, desde donde encuadra ahora), a `distance` —o a la que haga falta para que quepa `box`,
+    // { width, height }— y con la cámara `rise` por encima de lo que mira (por debajo, un contrapicado).
+    // Hasta que se suelte (`free`), el encuadre automático no la toca.
+    shot(clock, { look, dir = null, distance = null, box = null, rise = null, seconds = MOVE_SECONDS, ease = smooth }) {
+      tracked = null;
+      if (!saved) saved = { position: camera.position.clone(), target: controls.target.clone() };
+      controls.enabled = false;
+      held = true;
+      const desde = (dir ? dir.clone() : framing?.dir.clone() ?? camera.position.clone().sub(look)).setY(0).normalize();
+      const lejos = distance ?? fitBox(box ?? { width: 2, height: 2 });
+      const position = look.clone().addScaledVector(desde, lejos);
+      position.y = look.y + (rise ?? lejos * ELEVATION);
+      return glide(clock, position, look, { seconds, ease });
+    },
+
+    // Suelta la toma a mano: el encuadre automático vuelve, suave, a los que pelean.
+    free() {
+      held = false;
+    },
+
+    // Desde dónde encuadra ahora (unitario, en el suelo, del centro a la cámara), o null.
+    side() {
+      return framing ? framing.dir.clone() : null;
+    },
+
+    // ZOOM DE IMPACTO: el plano se cierra de golpe un `size` (0,1 es un 10 %) y se vuelve a abrir.
+    punch(size = 0.1) {
+      if (punchLeft <= 0) {
+        punchBase = camera.fov;
+        punchSet = 0;
+      }
+      punchLeft = PUNCH_SECONDS;
+      punchSize = size;
     },
 
     // Sigue a una pieza que se mueve: la cámara mantiene el encuadre de ahora y viaja con ella, que
@@ -210,7 +267,7 @@ export function createCinema(stage, { onShake = null } = {}) {
         camera.position.copy(aim).add(behind);
         controls.target.copy(aim);
         camera.lookAt(aim);
-      } else if (watching && framing && !gliding && saved) {
+      } else if (watching && framing && !gliding && !held && saved) {
         const points = watching();
         if (points?.length) {
           const { distance } = fit(points, framing.dir, liveMid);
@@ -228,12 +285,22 @@ export function createCinema(stage, { onShake = null } = {}) {
         offset.set(0, 0, 0);
       }
       camera.position.add(offset);
+      if (punchLeft > 0) {
+        if (punchSet && camera.fov !== punchSet) punchBase = camera.fov; // la ventana ha cambiado
+        punchLeft = Math.max(0, punchLeft - dt);
+        const u = 1 - punchLeft / PUNCH_SECONDS;
+        const cierra = u < PUNCH_IN ? u / PUNCH_IN : (1 - (u - PUNCH_IN) / (1 - PUNCH_IN)) ** 2;
+        camera.fov = punchLeft > 0 ? punchBase / (1 + punchSize * cierra) : punchBase;
+        punchSet = punchLeft > 0 ? camera.fov : 0;
+        camera.updateProjectionMatrix();
+      }
     },
 
     // Vuelve a la cámara del usuario y le devuelve los controles.
     async restore(clock) {
       tracked = null;
       framing = null;
+      held = false;
       if (!saved) return;
       await glide(clock, saved.position, saved.target);
       camera.position.sub(offset);
@@ -247,6 +314,12 @@ export function createCinema(stage, { onShake = null } = {}) {
     reset() {
       tracked = null;
       framing = null;
+      held = false;
+      if (punchLeft > 0) {
+        punchLeft = 0;
+        camera.fov = punchBase;
+        camera.updateProjectionMatrix();
+      }
       if (!saved) return;
       camera.position.copy(saved.position);
       controls.target.copy(saved.target);

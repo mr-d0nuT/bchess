@@ -39,27 +39,43 @@ export function armsDown(drop = 66) {
   };
 }
 
-// EL REY. Tres tiempos: levanta el báculo por encima de la cabeza y se echa atrás, aguanta ahí
-// mientras la joya se carga, y lo descarga contra el suelo con todo el cuerpo detrás.
+// EL REY. Llama a la tormenta con el báculo en alto y lo clava delante de él contra el tablero (el báculo
+// resbala por el puño hasta el suelo: `setGripSlide`, lo pone quien lo usa).
+//
+// Medido en su aparejo, no supuesto: en el brazo derecho, +Y lo lleva hacia DELANTE; en el tronco, +X lo
+// inclina hacia delante y -X lo arquea hacia atrás; en la cabeza, -X mira arriba. Antes se suponía lo
+// contrario en el brazo y en el tronco, y el «mazazo» echaba el báculo atrás y al rey de espaldas.
 export const KING = {
-  // Brazo derecho arriba y un poco atrás; el cuerpo, arqueado hacia atrás cogiendo impulso.
+  // Levanta el báculo por encima de la cabeza (para el bastonazo de siempre).
   raise: {
     R_Arm: { z: -128, y: 16 },
     R_ForeArm: { x: -22 },
     L_Arm: { z: -52, y: -18 },
     L_ForeArm: { x: -26 },
-    Spine: { x: 8 },
-    Spine2: { x: 6 },
+    Spine: { x: -8 },
+    Spine2: { x: -6 },
     Head: { x: -10 },
   },
-  // Y abajo: el báculo contra el tablero, el cuerpo volcado hacia delante.
+  // Los dos brazos al cielo, el báculo en alto, el cuerpo arqueado hacia atrás y la cara mirando arriba:
+  // está llamando a la tormenta.
+  invoke: {
+    R_Arm: { z: -100, y: 6 },
+    R_ForeArm: { x: -10 },
+    L_Arm: { z: 72, y: -14 },
+    L_ForeArm: { x: -16 },
+    Spine: { x: -12 },
+    Spine2: { x: -8 },
+    Head: { x: -26 },
+  },
+  // Y abajo: el brazo del báculo, delante y bajo, clavándolo en el tablero; el otro, el puño cerrado
+  // abajo; el cuerpo volcado hacia delante y mirando dónde ha caído.
   smite: {
-    R_Arm: { z: 34, y: -30 },
-    R_ForeArm: { x: -6 },
-    L_Arm: { z: 62, y: 22 },
-    L_ForeArm: { x: -14 },
-    Spine: { x: -18 },
-    Spine2: { x: -12 },
+    R_Arm: { z: 58, y: 85 },
+    R_ForeArm: { x: -15 },
+    L_Arm: { z: -58, y: 0 },
+    L_ForeArm: { x: -24 },
+    Spine: { x: 18 },
+    Spine2: { x: 10 },
     Head: { x: 12 },
   },
 };
@@ -110,7 +126,7 @@ export const QUEEN = {
 
 // Los huesos que tocan estas posturas, para poder soltarlos todos al acabar.
 export const CAST_BONES = [...new Set([
-  ...Object.keys(KING.raise), ...Object.keys(KING.smite),
+  ...Object.keys(KING.raise), ...Object.keys(KING.invoke), ...Object.keys(KING.smite),
   ...Object.keys(QUEEN.summon), ...Object.keys(QUEEN.cast), ...Object.keys(QUEEN.fling),
   ...Object.keys(armsDown()),
 ])];

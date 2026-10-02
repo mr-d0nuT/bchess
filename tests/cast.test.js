@@ -23,10 +23,14 @@ test('la mezcla no se sale de los extremos aunque se le pida', () => {
   assert.equal(blend(a, b, 7).R_Arm.z, 10);
 });
 
-test('el rey levanta el báculo por encima de la cabeza y lo baja al suelo', () => {
+// Medido en el aparejo del rey (no supuesto): en el tronco, +X lo inclina hacia delante y -X lo arquea
+// hacia atrás; en el brazo derecho, +Y lo lleva hacia delante; en la cabeza, -X mira arriba.
+test('el rey alza el báculo al cielo y lo clava delante, contra el suelo', () => {
   assert.ok(KING.raise.R_Arm.z < -90, 'arriba: más allá de la vertical');
-  assert.ok(KING.smite.R_Arm.z > 0, 'y abajo, por debajo del hombro');
-  assert.ok(KING.raise.Spine.x > 0 && KING.smite.Spine.x < 0, 'el cuerpo se arquea y se vuelca');
+  assert.ok(KING.invoke.R_Arm.z < -80 && KING.invoke.L_Arm.z > 45, 'invoca: los dos brazos arriba');
+  assert.ok(KING.invoke.Spine.x < 0 && KING.invoke.Head.x < 0, 'arqueado hacia atrás, mirando al cielo');
+  assert.ok(KING.smite.R_Arm.z > 0 && KING.smite.R_Arm.y > 45, 'el mazazo: el brazo abajo y por delante');
+  assert.ok(KING.raise.Spine.x < 0 && KING.smite.Spine.x > 0, 'el cuerpo se arquea y luego se vuelca hacia delante');
 });
 
 // Un brazo de la reina tal como lo trae su modelo, medido en el juego en el espacio de la figura (+X a
