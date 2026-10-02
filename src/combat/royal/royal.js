@@ -75,6 +75,11 @@ export async function fallClear(defender, { clock, at, from, crowd, bodies, owne
   await topple({ clock, figure: victima.figure, forward: false, sound: defender.kind === 'knight' ? 'caida_armadura' : 'caida' });
 }
 
+// Ladea una dirección de cámara (en el suelo) hacia `hacia`: con `peso` 0,75, unos 37°.
+export function ladeado(dir, hacia, peso) {
+  return dir.clone().addScaledVector(hacia, peso).setY(0).normalize();
+}
+
 // Lleva a la figura de una postura a otra en `seconds`, con la curva que se le diga. `ease` por
 // defecto suaviza las dos puntas; para un golpe se le pasa una que arranque de golpe.
 export function poseTo(piece, from, to, { clock, seconds, ease = suave }) {

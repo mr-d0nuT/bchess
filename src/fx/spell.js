@@ -1200,6 +1200,15 @@ export function createSpellFx(scene) {
     });
   }
 
+  // UN OBJETO QUE SE MUEVE A MANO: `object` entra en la escena y, cada fotograma, después de que las piezas
+  // hayan puesto sus huesos, se llama a `step(dt)`. Así lo que va en una mano (la pistola del rey) no se
+  // queda un fotograma por detrás de ella. `remove()` lo quita.
+  function puppet(object, step) {
+    scene.add(object);
+    vive(object, 3600, (k, dt) => step(dt));
+    return { remove: () => acaba(object) };
+  }
+
   function update(dt) {
     for (let i = vivos.length - 1; i >= 0; i--) {
       const item = vivos[i];
@@ -1220,6 +1229,6 @@ export function createSpellFx(scene) {
 
   return {
     charge, sigil, bolt, shockwave, updraft, iceRay, encase, snow, flame, fireball, blaze, ashes, bomb,
-    lightning, storm, arcs, smoke, trail, update,
+    lightning, storm, arcs, smoke, trail, puppet, update,
   };
 }

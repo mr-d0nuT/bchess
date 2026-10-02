@@ -13,6 +13,7 @@ import { knightRunsThroughPawn } from './knight/knight-runs-through-pawn.js';
 import { knightSweepsGiant } from './knight/knight-sweeps-giant.js';
 import { pawnKicksKnight } from './knight/pawn-kicks-knight.js';
 import { kingSmites } from './royal/king-smites.js';
+import { kingShoots } from './royal/king-shoots.js';
 import { queenCasts } from './royal/queen-casts.js';
 import { queenBurns } from './royal/queen-burns.js';
 import { pawnThrowsBomb } from './pawn-bomb.js';
@@ -22,7 +23,7 @@ const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vu
 const NAMED = {
   pawnKicksKnight, knightRunsThroughPawn, knightLancesPawn, knightFightsKnight, knightSweepsGiant, giantCrushesKnight,
   bishopTurnsToStone, bishopSpellFizzles,
-  queenCasts, queenBurns, kingSmites, queenFalls,
+  queenCasts, queenBurns, kingSmites, kingShoots, queenFalls,
   pawnThrowsBomb,
 };
 const BATTLES = Object.values(NAMED);

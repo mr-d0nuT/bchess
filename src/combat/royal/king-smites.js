@@ -7,7 +7,7 @@ import { zapping } from '../burn.js';
 import { twirl } from '../twirl.js';
 import { strikeSpot } from '../plan.js';
 import { boneOf, rightOf, shout, victoryLap } from '../knight/common.js';
-import { ROYAL_COLOR, chestOf, faceAttacker, fallClear, golpe, horseBolts, pose, poseTo, rebote, release, stepDown, suave, victimOf, wandTip } from './royal.js';
+import { ROYAL_COLOR, chestOf, faceAttacker, fallClear, golpe, horseBolts, ladeado, pose, poseTo, rebote, release, stepDown, suave, victimOf, wandTip } from './royal.js';
 
 // EL REY LLAMA AL RAYO. Se planta delante y se luce: el báculo da cuatro vueltas de campana sobre su puño
 // dejando un aro de luz. Luego lo alza al cielo con los dos brazos, arqueado y mirando arriba, y sobre el
@@ -44,11 +44,6 @@ const STORM_ABOVE = 0.9; // la nube, por encima de la cabeza del rival
 const DARK = 0.45; // la luz que queda con la tormenta encima
 const WAVE_RADIUS = 3.4; // la onda del rayo cruza media fila: se ha sentido en todo el tablero
 const VANISH_DELAY = 0.8; // humeando en el suelo antes de esfumarse
-
-// Ladea una dirección de cámara (en el suelo) hacia `hacia`: con `peso` 0,75, unos 37°.
-function ladeado(dir, hacia, peso) {
-  return dir.clone().addScaledVector(hacia, peso).setY(0).normalize();
-}
 
 export const kingSmites = {
   matches: (attacker) => attacker.kind === 'king',
