@@ -5,6 +5,8 @@ import { creep } from '../../fx/creep.js';
 import { afterImpact, slowToImpact } from '../fight.js';
 import { strikeSpot } from '../plan.js';
 import { WIND_UP, bonePosition, facingTo, shout, victoryLap, windUp } from '../knight/common.js';
+import { batSwing } from './bat-swing.js';
+import { ladeado } from '../royal/royal.js';
 
 // El alfil se come a cualquiera (mismo espíritu de gag que las batallas del caballero). Baja de su peana,
 // se acerca lo justo y conjura con la mano libre, el báculo en alto: la magia se le junta en la voluta y de
@@ -32,7 +34,18 @@ const STONE_SECONDS = 1.2; // lo que tarda la piedra en subirle de los pies a la
 const FLINCH_SECONDS = 0.45; // lo que se encoge de miedo antes de quedarse de piedra
 const STONE = new THREE.Color('#8f8a82');
 const ADMIRE_SECONDS = 0.5; // lo que se recrea el alfil en su estatua antes de romperla
-const SMASH = 'slash'; // el bastonazo que la hace añicos
+const SMASH = 'slash'; // el bastonazo de antes, por si al modelo le faltan los huesos del batazo
+// El batazo (`bat-swing.js`): a qué distancia se pone, y sus tiempos.
+const BAT_DISTANCE = 1.05; // con el bate cogido del regatón, le da con la mitad del báculo
+const BAT_GAP = 0.45;
+const BAT_WINDUP_SECONDS = 0.5; // lo levanta sobre el hombro
+const BAT_HOLD_SECONDS = 0.35; // y lo aguanta ahí, apuntando
+const BAT_SWING_SECONDS = 0.12; // de arriba a media vuelta, a toda velocidad…
+const BAT_HIT_SECONDS = 0.1; // …y de media vuelta al golpe, ya a cámara lenta
+const BAT_SLOW = 0.3;
+const BAT_FOLLOW_SECONDS = 0.28; // el remate, por encima del otro hombro
+const BAT_RECOVER_SECONDS = 0.5;
+const BAT_PUSH = 2.4; // lo que se llevan los pedazos hacia donde va el bate
 const SMASH_GAP = 0.25; // respiro entre los dos al rematar la estatua: con menos, el alfil se le echaba encima
 const SMASH_HOLD = 0.3; // el báculo en alto, aguantando, antes de caer
 const SMASH_ROCKS = 36; // salta en muchos más pedazos que un simple derrumbe
@@ -291,40 +304,88 @@ export const bishopTurnsToStone = {
       sfx.play('piedra_cruje');
       await clock.wait(ADMIRE_SECONDS); // y el alfil se recrea un momento en su obra
 
-      // 3c. Y el remate: se arrima, levanta el báculo por encima de la cabeza, lo deja un instante en
-      //     alto… y machaca la estatua de un bastonazo que la hace añicos.
-      const golpe = bishop.strikes?.[SMASH]?.spear;
-      if (golpe) {
-        const lejos = Math.max(golpe.reach + defender.piece.radius * 0.5, attacker.piece.radius + defender.piece.radius + SMASH_GAP);
-        const sitio = strikeSpot(home, center, { reach: lejos, torso: 0 });
-        await attacker.mover.walkTo(sitio.attacker);
-        await attacker.mover.turnTo(sitio.attackerFacing, 0.2);
-        const swing = await windUp({ clock, fighter: bishop, key: SMASH });
-        await clock.wait(SMASH_HOLD);
-        if (swing) swing.paused = false;
-        await slowToImpact(clock, golpe.t * (1 - WIND_UP));
-      }
-      const punta = bishop.props.spear
-        ? bishop.props.spear.localToWorld(new THREE.Vector3(0, bishop.spearEnds.top, 0))
-        : at.clone().setY(defender.piece.height * 0.8);
-      hud.flash();
-      cinema.shake(SMASH_SHAKE);
-      fx.burst(punta, { size: 1.8, sparks: 44 });
-      fx.burst(at.clone().setY(defender.piece.height * 0.5), { size: 1.4, sparks: 26 });
-      rubble.explode(at, {
-        color: `#${STONE.getHexString()}`,
-        count: SMASH_ROCKS,
-        height: defender.piece.height,
-        force: SMASH_FORCE,
-        obstacles: () => crowd.obstacles([attacker, defender]),
+      // 3c. Y el remate: se arrima y la BATEA. Coge el báculo a dos manos como un bate, lo levanta sobre
+      //     el hombro, lo aguanta, y lo descarga en horizontal —a cámara lenta justo al dar—; la estatua
+      //     salta en pedazos hacia donde va el golpe, y remata por encima del otro hombro. (Antes era un
+      //     bastonazo de arriba abajo, con un meneo de cabeza que no se entendía.)
+      const lejos = Math.max(BAT_DISTANCE, attacker.piece.radius + defender.piece.radius * 0.5 + BAT_GAP);
+      const sitio = strikeSpot(home, center, { reach: lejos, torso: 0 });
+      await attacker.mover.walkTo(sitio.attacker);
+      await attacker.mover.turnTo(sitio.attackerFacing, 0.2);
+      bishop.play('idle', { fade: 0.15 });
+      // La cámara, de tres cuartos por delante del alfil: se le ve la cara y el bate viniendo (desde el
+      // encuadre automático salía a veces de espaldas).
+      const suyo = bishop.figure.getWorldPosition(new THREE.Vector3()).setY(0);
+      const haciaEl = at.clone().setY(0).sub(suyo).normalize();
+      const lado = cinema.side() ?? new THREE.Vector3(-haciaEl.z, 0, haciaEl.x);
+      const vertical = cinema.portrait; // en el móvil, más de frente: de lado solo caben desde lejos
+      const separados = suyo.distanceTo(at.clone().setY(0));
+      cinema.shot(clock, {
+        look: suyo.clone().lerp(at.clone().setY(0), 0.45).setY(defender.piece.height * 0.5),
+        dir: ladeado(lado, haciaEl, vertical ? 1.1 : 0.6),
+        box: { width: vertical ? separados * 0.6 + 1.1 : separados + 1.9, height: defender.piece.height + 0.9 },
+        rise: 0.35,
+        seconds: 0.5,
       });
-      dust.puff(new THREE.Vector3(at.x, DUST_Y, at.z), { count: 24, radius: 1.15, duration: 0.9 });
-      dust.puff(new THREE.Vector3(at.x, defender.piece.height * 0.5, at.z), { count: 10, radius: 0.5, duration: 0.7 });
-      shout(bubbles, '¡CATACROC!', at);
-      sfx.play('piedra_rompe');
-      victim.visible = false; // no se desvanece: se hace añicos de golpe
-      defender.piece.object.visible = false;
-      await afterImpact(clock);
+      await clock.wait(0.2);
+      const bate = batSwing(bishop);
+      try {
+        if (bate) {
+          await clock.tween(BAT_WINDUP_SECONDS, (t) => bate.pose('reposo', 'arriba', t * t * (3 - 2 * t)));
+          grita(attacker, 'grito');
+          await clock.wait(BAT_HOLD_SECONDS);
+          sfx.play('silbido', { rate: 0.75, volume: 0.9 });
+          grita(attacker, 'ataque');
+          await clock.tween(BAT_SWING_SECONDS, (t) => bate.pose('arriba', 'lado', t * t));
+          clock.timeScale = BAT_SLOW;
+          await clock.tween(BAT_HIT_SECONDS, (t) => bate.pose('lado', 'golpe', t));
+        } else {
+          const golpe = bishop.strikes?.[SMASH]?.spear;
+          if (golpe) {
+            const swing = await windUp({ clock, fighter: bishop, key: SMASH });
+            await clock.wait(SMASH_HOLD);
+            if (swing) swing.paused = false;
+            await slowToImpact(clock, golpe.t * (1 - WIND_UP));
+          }
+        }
+        const punta = bishop.props.spear
+          ? bishop.props.spear.localToWorld(new THREE.Vector3(0, bishop.spearEnds.top, 0))
+          : at.clone().setY(defender.piece.height * 0.8);
+        const empuje = bate ? bate.swingDir().multiplyScalar(BAT_PUSH) : null;
+        hud.flash();
+        cinema.shake(SMASH_SHAKE);
+        fx.burst(at.clone().setY(defender.piece.height * 0.55), { size: bate ? 1.1 : 1.8, sparks: 44 });
+        fx.burst(punta, { size: 1.1, sparks: 18 });
+        rubble.explode(at, {
+          color: `#${STONE.getHexString()}`,
+          count: SMASH_ROCKS,
+          height: defender.piece.height,
+          force: SMASH_FORCE,
+          push: empuje,
+          obstacles: () => crowd.obstacles([attacker, defender]),
+        });
+        // Polvo, el justo: con la cámara cerca, una polvareda grande tapaba medio plano.
+        dust.puff(new THREE.Vector3(at.x, DUST_Y, at.z), { count: 8, radius: 0.6, duration: 0.55 });
+        shout(bubbles, '¡CATACROC!', at);
+        sfx.play('piedra_rompe');
+        victim.visible = false; // no se desvanece: se hace añicos de golpe
+        defender.piece.object.visible = false;
+        if (bate) {
+          // El remate sigue mientras dura el congelado del golpe y la cámara lenta.
+          const remate = clock.tween(BAT_FOLLOW_SECONDS, (t) => bate.pose('golpe', 'remate', 1 - (1 - t) * (1 - t)));
+          await afterImpact(clock);
+          await remate;
+          await clock.wait(0.3);
+          await clock.tween(BAT_RECOVER_SECONDS, (t) => bate.pose('remate', 'reposo', t * t * (3 - 2 * t)));
+          bate.release();
+          cinema.free();
+        } else {
+          await afterImpact(clock);
+        }
+      } finally {
+        bate?.release(); // si algo falla a medias, que no se quede congelado y sin báculo
+        cinema.free();
+      }
       bishop.play('idle', { fade: 0.25 });
     }
 

@@ -42,7 +42,9 @@ export function createRubble(scene) {
   // fuera. `obstacles()` devuelve las piezas en las que rebotan.
   // `force` multiplica lo que salen despedidas: un bastonazo esparce los cascotes mucho más
   // lejos que un derrumbe.
-  function explode(center, { color, count = 18, height = 1.6, force = 1, obstacles = () => [] }) {
+  // `push` ({x, z}, opcional): lo que se lleva además cada pedazo hacia un lado (el batazo del alfil los
+  // manda por donde va el bate).
+  function explode(center, { color, count = 18, height = 1.6, force = 1, obstacles = () => [], push = null }) {
     for (let i = 0; i < count; i++) {
       const size = 0.05 + Math.random() * 0.07;
       const angle = Math.random() * Math.PI * 2;
@@ -55,7 +57,11 @@ export function createRubble(scene) {
         restAge: null,
         body: {
           position: { x: center.x + Math.sin(angle) * from, y: 0.15 + Math.random() * height, z: center.z + Math.cos(angle) * from },
-          velocity: { x: Math.sin(angle) * out * force, y: (1 + Math.random() * 2.2) * force, z: Math.cos(angle) * out * force },
+          velocity: {
+            x: Math.sin(angle) * out * force + (push ? push.x * (0.5 + Math.random()) : 0),
+            y: (1 + Math.random() * 2.2) * force,
+            z: Math.cos(angle) * out * force + (push ? push.z * (0.5 + Math.random()) : 0),
+          },
           radius: size,
           bounces: 0,
           resting: false,
