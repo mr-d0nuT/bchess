@@ -1382,6 +1382,9 @@ async function start() {
       // El peón ataca con la lanza o con los pies, y el escudo se queda en guardia: en la patada, el brazo
       // del escudo se iba hacia delante y abajo y lo dejaba plano a la altura de la rodilla, empujando.
       if (kind === 'pawn' && piece.props.shield) piece.holdBones('attack', (bone) => SHIELD_ARM.test(bone));
+      // Y su lanza no le atraviesa el cuerpo: al atacar le cruzaba el pecho, y al celebrar con ella erguida,
+      // agachándose, le salía por la espalda (lo vio el usuario).
+      if (kind === 'pawn') piece.guardSpear({ from: 'Hip', to: 'Head', radius: 0.17, over: 0.35 });
       // El alfil conjura con la mano libre y el báculo quieto: el clip de lanzar hechizos es para manos
       // vacías, y con el báculo en la derecha lo lanzaba hacia atrás y el fogonazo salía a su espalda.
       if (kind === 'bishop') piece.addStillBones('conjurar', 'attack', (bone) => STAFF_ARM.test(bone), { clip: 'cast_a_spell' });

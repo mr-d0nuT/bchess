@@ -189,6 +189,12 @@ export async function victoryLap({ entry, clock, cinema, obstacles = [], move })
 // Lo de erguirla no es un adorno: con la lanza pegada a la mano, la animación de victoria la deja
 // apuntando AL SUELO. El clip levanta el brazo girando la muñeca, y el palo se va con ella; un
 // vencedor enseñando el regatón al cielo y la punta a sus propios pies no celebra nada.
+//
+// Y la alza cogida por abajo, cerca del regatón (`RAISED_GRIP`): la animación sube el puño por encima de la
+// cabeza, y con la lanza cogida por el medio, el trozo que quedaba por debajo de la mano le pasaba por la
+// cara (lo vio el usuario). Así queda entera por encima del puño, que es como se alza una lanza.
+const RAISED_GRIP = -0.42;
+
 export async function celebrate(entry, clock) {
   grita(entry, 'victoria'); // ¡yahoo!, ¡woohoo!… o, las negras, una risa de villano
   const fighter = fighterOf(entry);
@@ -196,6 +202,8 @@ export async function celebrate(entry, clock) {
   if (lanza) {
     fighter.setSpearPose('upright');
     if (clock) await twirl(fighter, { clock, turns: 2, seconds: 0.6, ease: FRENA });
+    fighter.setGripSlide?.(RAISED_GRIP);
+    fighter.setSpearPose('body'); // y si la animación lo dobla, la lanza se inclina con él
   }
   const victory = entry.kind === 'knight' && entry.piece.mounted && fighter.has('victoryMounted') ? 'victoryMounted' : 'victory';
   if (fighter.has(victory)) {
@@ -204,5 +212,8 @@ export async function celebrate(entry, clock) {
   } else if (entry.mover.hop) {
     await entry.mover.hop(2);
   }
-  if (lanza) fighter.setSpearPose(null);
+  if (lanza) {
+    fighter.setSpearPose(null);
+    fighter.setGripSlide?.(0);
+  }
 }

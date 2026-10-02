@@ -93,8 +93,11 @@ export const kingShoots = {
       const mano = boneOf(king, 'R_Hand');
       const nudillos = boneOf(king, 'mixamorigRightHandMiddle1');
 
-      // La pistola, cada fotograma en el puño: entre apuntando al rival y el cañón al cielo (con la culata
-      // hacia él), y con su molinete y su retroceso encima.
+      // La pistola, cada fotograma en el puño: entre apuntando al rival y el cañón al cielo, y con su
+      // molinete y su retroceso encima. Con el cañón al cielo, lo de arriba de la pistola (el martillo) mira
+      // hacia él y la culata hacia fuera, que es como queda al levantar el cañón sin girar la muñeca. (Al
+      // revés, con la culata hacia él, se veía agarrada del revés —lo vio el usuario— y al pasar de apuntar a
+      // levantarla daba media vuelta sobre sí misma.)
       arma.blanco.copy(chestOf(defender));
       const guia = new THREE.Object3D();
       const puño = new THREE.Vector3();
@@ -111,7 +114,7 @@ export const kingShoots = {
         guia.up.set(0, 1, 0);
         guia.lookAt(arma.blanco);
         apunta.copy(guia.quaternion);
-        guia.up.copy(frente);
+        guia.up.copy(frente).negate();
         guia.lookAt(puño.x - frente.x * TOWARD_MOUTH, puño.y + 1, puño.z - frente.z * TOWARD_MOUTH);
         alCielo.copy(guia.quaternion);
         pistola.quaternion.slerpQuaternions(apunta, alCielo, arma.arriba);

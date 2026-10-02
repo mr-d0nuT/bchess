@@ -341,10 +341,28 @@ export function spawnPiece(kit) {
   const bonePoses = new Map();
   let posedBones = []; // los de `bonePoses`, de padres a hijos
 
+  // 'body': erguida, pero a lo largo del cuerpo y no del todo vertical: si se agacha, se inclina con él. Al
+  // celebrar, la lanza vertical le pasaba por el hombro cuando la animación lo doblaba hacia delante.
+  const bodyPose = new THREE.Quaternion();
+  const spearPoseName = () => spearOverride ?? currentVariant?.spear ?? spearDefault;
   function applySpearPose() {
-    const pose = SPEAR_POSES[spearOverride ?? currentVariant?.spear ?? spearDefault];
+    const name = spearPoseName();
+    const pose = name === 'body' ? bodyPose : SPEAR_POSES[name];
     if (pose) spearPose = pose;
     spearTarget = pose ? 1 : 0;
+  }
+  // La de 'body', con la postura de ahora: del eje del cuerpo (cadera → cabeza) en el sistema del modelo.
+  let bodyAxis = null;
+  const bodyUp = new THREE.Vector3(0, 1, 0);
+  function followBody() {
+    bodyAxis ??= bodyGuard ? { from: bodyGuard.from, to: bodyGuard.to } : { from: findBone(model, 'Hip'), to: findBone(model, 'Head') };
+    if (!bodyAxis.from || !bodyAxis.to) return;
+    bodyAxis.from.getWorldPosition(guardFrom);
+    bodyAxis.to.getWorldPosition(guardTo);
+    axis.subVectors(guardTo, guardFrom);
+    if (axis.lengthSq() < 1e-8) return;
+    axis.applyQuaternion(model.getWorldQuaternion(guardTurn).invert()).normalize();
+    bodyPose.setFromUnitVectors(bodyUp, axis);
   }
 
   // Reproduce una versión de la acción: la de clave `clip` si se pide, o una al azar sin
@@ -628,6 +646,87 @@ export function spawnPiece(kit) {
   const floor = new THREE.Vector3();
   const axis = new THREE.Vector3();
   const boneScale = new THREE.Vector3();
+
+  // QUE SU PROPIA LANZA NO LE ATRAVIESE EL CUERPO. En la guardia y al atacar, la lanza va fija respecto a
+  // la figura (o sigue a la mano), y cuando la animación le pasa la mano por delante del pecho, el palo
+  // le cruzaba el tronco; al celebrar con la lanza erguida, se agachaba y el palo le salía por la espalda
+  // (lo vio el usuario). Así que, si se pide (`guardSpear`), cada fotograma se mira lo cerca que pasa el
+  // palo del eje del cuerpo —de la cadera a lo alto de la cabeza— y, si pasa por dentro, se ladea lo
+  // justo girándolo sobre el puño: lo que hace cualquiera para apartarse la lanza del cuerpo.
+  let bodyGuard = null; // { from, to, radius, over }: los huesos del eje del cuerpo, su radio y lo que sube por encima del último
+  const guardFrom = new THREE.Vector3();
+  const guardTo = new THREE.Vector3();
+  const onShaft = new THREE.Vector3();
+  const onBody = new THREE.Vector3();
+  const gripAt = new THREE.Vector3();
+  const pushOut = new THREE.Vector3();
+  const guardTurn = new THREE.Quaternion();
+  const parentTurn2 = new THREE.Quaternion();
+  const spearAt = new THREE.Vector3();
+  const segA = new THREE.Vector3();
+  const segB = new THREE.Vector3();
+  const segR = new THREE.Vector3();
+
+  // Los puntos más cercanos entre los segmentos [p1, q1] y [p2, q2] (en `out1`, `out2`).
+  function closestOnSegments(p1, q1, p2, q2, out1, out2) {
+    segA.subVectors(q1, p1);
+    segB.subVectors(q2, p2);
+    segR.subVectors(p1, p2);
+    const a = segA.dot(segA);
+    const e = segB.dot(segB);
+    const f = segB.dot(segR);
+    const c = segA.dot(segR);
+    const b = segA.dot(segB);
+    const den = a * e - b * b;
+    let s = den > 1e-9 ? THREE.MathUtils.clamp((b * f - c * e) / den, 0, 1) : 0;
+    let t = e > 1e-9 ? (b * s + f) / e : 0;
+    if (t < 0) {
+      t = 0;
+      s = a > 1e-9 ? THREE.MathUtils.clamp(-c / a, 0, 1) : 0;
+    } else if (t > 1) {
+      t = 1;
+      s = a > 1e-9 ? THREE.MathUtils.clamp((b - c) / a, 0, 1) : 0;
+    }
+    out1.copy(p1).addScaledVector(segA, s);
+    out2.copy(p2).addScaledVector(segB, t);
+  }
+
+  // Dos pasadas: al girar el palo, puede ser otro trozo el que quede más cerca del cuerpo.
+  function keepSpearOffBody(spear) {
+    if (!bodyGuard || !spearEnds) return;
+    if (pushSpearOut(spear)) pushSpearOut(spear);
+  }
+
+  // Una pasada: devuelve si ha tenido que girarlo.
+  function pushSpearOut(spear) {
+    spear.updateWorldMatrix(true, false);
+    spear.localToWorld(bottom.set(0, spearEnds.bottom, 0));
+    spear.localToWorld(top.set(0, spearEnds.top, 0));
+    bodyGuard.from.getWorldPosition(guardFrom);
+    bodyGuard.to.getWorldPosition(guardTo);
+    guardTo.addScaledVector(axis.subVectors(guardTo, guardFrom), bodyGuard.over); // hasta lo alto de la cabeza
+    closestOnSegments(bottom, top, guardFrom, guardTo, onShaft, onBody);
+    const radius = bodyGuard.radius * figure.getWorldScale(boneScale).x;
+    const lejos = onShaft.distanceTo(onBody);
+    if (lejos >= radius) return false;
+    spearBone.getWorldPosition(gripAt); // el puño
+    if (onShaft.distanceTo(gripAt) < radius * 0.5) return false; // cruza por el mismo puño: girar no lo arregla
+    // Hacia fuera del eje; si el palo lo corta justo, hacia la derecha de la figura.
+    pushOut.subVectors(onShaft, onBody);
+    if (pushOut.lengthSq() < 1e-8) pushOut.set(-1, 0, 0).applyQuaternion(figure.getWorldQuaternion(guardTurn));
+    pushOut.normalize();
+    // El giro sobre el puño que lleva ese punto del palo al borde del cuerpo.
+    axis.subVectors(onShaft, gripAt).normalize();
+    pushOut.multiplyScalar(radius).add(onBody).sub(gripAt).normalize();
+    guardTurn.setFromUnitVectors(axis, pushOut);
+    // Se aplica en el mundo: el palo gira y su origen gira alrededor del puño.
+    spear.getWorldPosition(spearAt).sub(gripAt).applyQuaternion(guardTurn).add(gripAt);
+    spear.parent.getWorldQuaternion(parentTurn2);
+    spear.quaternion.premultiply(parentTurn2).premultiply(guardTurn).premultiply(parentTurn2.invert());
+    spear.position.copy(spear.parent.worldToLocal(spearAt));
+    spear.updateWorldMatrix(false, false);
+    return true;
+  }
 
   // La lanza sale disparada hacia arriba, girando, y se desvanece: el vencido queda desarmado.
   // `direction` es la dirección horizontal (unitaria) en la que sale despedido.
@@ -1050,6 +1149,7 @@ export function spawnPiece(kit) {
       spear.quaternion.copy(spearHold);
     } else {
       // Fuera de la mano, la orientación de la lanza se fija respecto a la figura.
+      if (spearPoseName() === 'body') followBody();
       poseNow.rotateTowards(spearPose, POSE_TURN_SPEED * dt);
       model.getWorldQuaternion(modelQuaternion).multiply(poseNow);
       spear.parent.getWorldQuaternion(boneQuaternion).invert();
@@ -1085,6 +1185,7 @@ export function spawnPiece(kit) {
       axis.set(0, 1, 0).applyQuaternion(spear.quaternion);
       spear.position.addScaledVector(axis, slide / spear.parent.getWorldScale(boneScale).x);
     }
+    keepSpearOffBody(spear);
   }
 
   return {
@@ -1190,6 +1291,19 @@ export function spawnPiece(kit) {
     // Desliza la lanza en la mano: positivo, hacia el regatón; negativo, hacia la punta (sube).
     setGripSlide(amount) {
       gripTarget = Math.max(-1, amount);
+    },
+    // Que la lanza no le atraviese el cuerpo (`keepSpearOffBody`): el eje va del hueso `from` al `to` (y
+    // `over` de su largo más arriba), con `radius` de grueso, medido en la figura sin escalar. Con null,
+    // nada.
+    guardSpear(options) {
+      if (!options) {
+        bodyGuard = null;
+        return false;
+      }
+      const from = findBone(model, options.from);
+      const to = findBone(model, options.to);
+      bodyGuard = from && to ? { from, to, radius: options.radius ?? 0.15, over: options.over ?? 0.3 } : null;
+      return Boolean(bodyGuard);
     },
     throwSpear,
     plantSpear,
