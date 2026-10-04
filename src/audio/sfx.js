@@ -83,6 +83,8 @@ const SOUNDS = {
   rugido: { volume: 0.6, variants: 5, voz: true }, // el gigante de la torre (Scary Monster Growl Roar, Monster Roar…)
   gigante_dolor: { volume: 0.6, variants: 3, voz: true }, // (Monster Growl Roar 1 y 6, Low Monster Roar)
   gigante_victoria: { volume: 0.6, variants: 3, voz: true }, // (Dragon shout, Big monster shout, Monster Warrior Roar)
+  esfuerzo: { volume: 0.5, variants: 4, voz: true }, // el peón que se estira, al doblarse (Groan Crescendo, Male Exertion Grunts, groan)
+  alivio: { volume: 0.45, variants: 3, voz: true }, // y al volver a erguirse (Sigh Groan, Man Sighing)
 };
 for (const [name, sound] of Object.entries(SOUNDS)) {
   sound.srcs = sound.variants

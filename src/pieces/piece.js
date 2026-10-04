@@ -410,7 +410,7 @@ export function spawnPiece(kit) {
     currentVariant = variant;
     applySpearPose();
     playCount++;
-    onPlay?.(action); // su voz (`audio/voces.js`), si la tiene
+    onPlay?.(action, variant.key); // su voz (`audio/voces.js`), si la tiene; con la clave, para los gestos
     return next;
   }
 

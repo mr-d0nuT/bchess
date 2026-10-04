@@ -155,6 +155,14 @@ SONIDOS = {
     'gigante_victoria-1': ('voces/gigante/98277-dragon-shout-roar.mp3', 0.16, 2.62, 0.01, 0.5),
     'gigante_victoria-2': ('voces/gigante/104325-big-monster-shout.mp3', 0.5, 3.4, 0.01, 0.7),
     'gigante_victoria-3': ('voces/gigante/195877-monster-warrior-roar.mp3', 0.12, 2.6, 0.01, 0.6),
+    # El peón que se estira en reposo: un quejido de esfuerzo al doblarse y un suspiro al erguirse.
+    'esfuerzo-1':     ('voces/esfuerzo/82041-groan-crescendo.mp3', 0.62, 1.5, 0.01, 0.15),
+    'esfuerzo-2':     ('voces/esfuerzo/352731-male-exertion-grunts-02.mp3', 1.06, 1.85, 0.01, 0.15),
+    'esfuerzo-3':     ('voces/esfuerzo/352731-male-exertion-grunts-02.mp3', 0.3, 0.95, 0.01, 0.12),
+    'esfuerzo-4':     ('voces/esfuerzo/80175-groan-by-adam.mp3', 0.2, 0.62, 0.01, 0.12),
+    'alivio-1':       ('voces/esfuerzo/92290-sigh-groan.mp3', 0.9, 2.85, 0.02, 0.35),
+    'alivio-2':       ('voces/esfuerzo/68824-man-sighing.mp3', 0.3, 1.32, 0.02, 0.3),
+    'alivio-3':       ('voces/esfuerzo/68824-man-sighing.mp3', 13.38, 14.45, 0.02, 0.3),
 }
 
 # Sonidos hechos de varias capas: (original, desde, hasta, ganancia, tono). `tono` > 1, más agudo y corto.

@@ -1401,8 +1401,9 @@ async function start() {
     // caballo, sus cascos; el gigante de la torre, piedra. Más flojos cuanto más lejos de la cámara (el
     // caballo que huye del tablero se va apagando).
     const pisa = (sound) => function () { sfx.play(sound, { volume: cercania(this) }); };
-    // Y su voz: gruñe al atacar, se queja al recibir y grita al caer (`audio/voces.js`).
-    const voz = voicesFor(entry);
+    // Y su voz: gruñe al atacar, se queja al recibir y grita al caer (`audio/voces.js`); y el peón, al
+    // estirarse en reposo, resopla (más flojo cuanto más lejos).
+    const voz = voicesFor(entry, { volumen: () => cercania(entry.piece.figure) });
     if (kind === 'knight') entry.piece.rider.onPlay = voz;
     else if (kind === 'rook') { if (entry.piece.giant) entry.piece.giant.onPlay = voz; }
     else entry.piece.onPlay = voz;
