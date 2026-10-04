@@ -29,6 +29,7 @@ import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './che
 import { createCpu } from './chess/cpu.js';
 import { createOnline } from './net/online.js';
 import { createOnlineUi } from './ui/online-ui.js';
+import { cleanName } from './names.js';
 import { createMenu, levelName, timeLabel } from './ui/menu.js';
 import { createMatchUi } from './ui/match-ui.js';
 import { createChessClockUi } from './ui/chess-clock.js';
@@ -302,6 +303,8 @@ async function start() {
   const game = {
     start: INITIAL_FEN, position: Position.initial(), moves: [], mode: 'cpu', level: 30, human: 'white', color: 'white',
     id: 0, thinking: false, animating: false, control: null, clock: null, press: null, enCurso: null, deConsola: false,
+    nombres: { white: '', black: '' }, // los de los jugadores (1 contra 1 y online), si los han puesto
+    miNombre: '', // online, el mío
   };
   const cpu = createCpu();
   // Las partidas online (`net/online.js`): se conecta al buscar la primera. Online, `game.session` es la
@@ -1075,7 +1078,7 @@ async function start() {
     session.on('cancel', () => {
       if (!vale() || game.moves.length) return;
       game.session = null;
-      jugarOnline({ time: game.control?.key ?? 'libre:libre' });
+      jugarOnline({ time: game.control?.key ?? 'libre:libre' }); // con el mismo nombre (`game.miNombre`)
     });
   }
 
@@ -1135,14 +1138,14 @@ async function start() {
     const eraOnline = game.mode === 'online';
     game.session?.leave();
     game.session = null;
-    const que = await ui.gameOver({ status, winner, mode: game.mode, human: game.human, flagged });
+    const que = await ui.gameOver({ status, winner, mode: game.mode, human: game.human, flagged, nombres: game.nombres });
     if (que === 'rematch' && eraOnline) await jugarOnline({ time: game.control?.key ?? 'libre:libre' });
-    else if (que === 'rematch') await newGame({ mode: game.mode, level: game.level, color: game.color, time: game.control?.key ?? 'libre:libre' });
+    else if (que === 'rematch') await newGame({ mode: game.mode, level: game.level, color: game.color, time: game.control?.key ?? 'libre:libre', nombres: game.nombres });
     else await toMenu();
   }
 
   function paintTurn() {
-    ui.turn({ side: game.position.side, mode: game.mode, human: game.human, thinking: game.thinking, hidden: state.phase !== 'playing', press: game.press });
+    ui.turn({ side: game.position.side, mode: game.mode, human: game.human, thinking: game.thinking, hidden: state.phase !== 'playing', press: game.press, nombres: game.nombres });
   }
 
   function paintSettings() {
@@ -1299,7 +1302,7 @@ async function start() {
 
   // Partida nueva o, con `guardada` (la de `partidaGuardada()`), la que se dejó a medias: sus piezas donde
   // estaban, sus relojes y el turno de quien tocaba.
-  async function newGame({ mode, level, color = 'white', time = 'libre:libre', guardada = null, session = null }) {
+  async function newGame({ mode, level, color = 'white', time = 'libre:libre', guardada = null, session = null, nombres = null }) {
     game.id += 1;
     cpu.cancel();
     sueltaEspera();
@@ -1330,6 +1333,10 @@ async function start() {
     game.human = guardada?.human ?? (mode === 'cpu' ? (color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color) : mode === 'online' ? color : 'white');
     game.thinking = false;
     game.press = null;
+    // Los nombres: en 1 contra 1, los del menú (o los de la partida guardada); online, el mío y el del
+    // rival; contra la CPU, ninguno.
+    const n = guardada?.nombres ?? nombres;
+    game.nombres = mode === 'cpu' || !n ? { white: '', black: '' } : { white: cleanName(n.white), black: cleanName(n.black) };
     game.control = findTimeControl(time);
     game.clock = game.control ? createChessClock(game.control) : null;
     const reloj = guardada && game.clock ? clockOnResume(guardada, game.control, Date.now()) : null;
@@ -1354,7 +1361,8 @@ async function start() {
 
   // ONLINE: busca rival (la pantalla del radar) y, al encontrarlo, empieza la partida con el color que le
   // haya tocado y el reloj acordado. Si se cancela, o no hay conexión, vuelve al menú.
-  async function jugarOnline({ time = 'libre:libre' } = {}) {
+  async function jugarOnline({ time = 'libre:libre', nombres = null } = {}) {
+    if (nombres) game.miNombre = cleanName(nombres.yo);
     state.phase = 'searching';
     paintTurn();
     let pulsado = null;
@@ -1365,6 +1373,7 @@ async function start() {
     onlineUi.show(() => pulsado());
     const busca = online.find({
       time,
+      name: game.miNombre,
       onStatus: (s) => {
         fase = s.phase;
         onlineUi.status(s);
@@ -1379,7 +1388,7 @@ async function start() {
       await toMenu();
       return;
     }
-    onlineUi.status({ phase: 'found', color: r.color });
+    onlineUi.status({ phase: 'found', color: r.color, rival: r.opponentName });
     await new Promise((resolve) => setTimeout(resolve, 1700));
     const session = online.session(r.info, () => (game.enCurso ? [...game.moves, game.enCurso] : game.moves));
     if (state.phase !== 'searching') {
@@ -1387,7 +1396,8 @@ async function start() {
       return;
     }
     onlineUi.hide();
-    await newGame({ mode: 'online', color: r.color, time: r.time, session });
+    const rival = r.color === 'white' ? 'black' : 'white';
+    await newGame({ mode: 'online', color: r.color, time: r.time, session, nombres: { [r.color]: game.miNombre, [rival]: r.opponentName } });
   }
 
   // LA PARTIDA GUARDADA (`chess/saved-game.js`): tras cada jugada (nada más decidirla), al deshacer, al
@@ -1406,7 +1416,7 @@ async function start() {
     const clock = game.clock ? { white: game.clock.remaining('white', ahora), black: game.clock.remaining('black', ahora) } : null;
     const datos = packGame({
       start: game.start, moves, mode: game.mode, level: game.level, human: game.human, color: game.color,
-      time: game.control?.key ?? 'libre:libre', clock, now: Date.now(),
+      time: game.control?.key ?? 'libre:libre', clock, now: Date.now(), names: game.nombres,
     });
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(datos));
@@ -1432,7 +1442,7 @@ async function start() {
   // Lo que el menú cuenta de ella en «Continuar partida».
   const resumenGuardada = () => {
     const g = partidaGuardada();
-    return g && { mode: g.mode, level: g.level, time: g.time, moves: g.moves.length, cuando: g.cuando };
+    return g && { mode: g.mode, level: g.level, time: g.time, moves: g.moves.length, cuando: g.cuando, nombres: g.nombres };
   };
   // Lo elegido en el menú: continuar la guardada (si sigue ahí) o una partida nueva.
   async function empezar(eleccion) {

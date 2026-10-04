@@ -293,6 +293,49 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .pieza-op[data-color="black"] .pieza-ico { color: #111; text-shadow: 0 0 1px #fff, 0 0 5px rgba(255, 255, 255, 0.7); }
 .pieza-ico.azar { width: 15px; height: 15px; border-radius: 50%; background: linear-gradient(90deg, #f4ead7 50%, #111 50%); box-shadow: 0 0 0 1.5px #cfe0ff; }
 
+/* Los nombres: en 1 contra 1, los dos; online, el mío. Se despliegan como lo de la CPU. A 16 px, que el
+   iPhone no acerque la página al escribir. */
+.menu-nombres {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: max-height 0.45s ease, opacity 0.35s ease, transform 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.menu-nombres.abierto { max-height: 80px; opacity: 1; transform: none; }
+.menu-nombres[data-modo="online"] { grid-template-columns: 1fr; }
+.nombre-campo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 214, 140, 0.22);
+  border-radius: 999px;
+  background: rgba(8, 10, 20, 0.7);
+  cursor: text;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.nombre-campo[hidden] { display: none; }
+.nombre-campo:focus-within { border-color: #ffc451; box-shadow: 0 0 14px rgba(255, 160, 40, 0.45); }
+.nombre-campo input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 0;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font: 600 16px/1.2 system-ui, sans-serif;
+  outline: none;
+}
+.nombre-campo input::placeholder { color: rgba(233, 220, 192, 0.5); }
+.nombre-campo[data-lado="black"] .pieza-ico { color: #111; text-shadow: 0 0 1px #fff, 0 0 5px rgba(255, 255, 255, 0.7); }
+.nombre-ico { width: 18px; height: 18px; flex: none; fill: none; stroke: #e9dcc0; stroke-width: 2; stroke-linecap: round; }
+
 /* La duración: pestañas por ritmo y sus tiempos. */
 .menu-tiempo { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .tiempo-elegido { font-weight: 700; color: #ffd66b; text-shadow: 0 0 10px rgba(255, 190, 60, 0.55); white-space: nowrap; }
@@ -491,7 +534,7 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 @keyframes tarjeta {
   from { opacity: 0; transform: translateX(var(--desde, 0)) rotateY(35deg) scale(0.85); }
 }
-#menu.entra .menu-cpu.abierto, #menu.entra .menu-tiempo { animation: aparece 0.6s ease 1.05s both; }
+#menu.entra .menu-cpu.abierto, #menu.entra .menu-nombres.abierto, #menu.entra .menu-tiempo { animation: aparece 0.6s ease 1.05s both; }
 #menu.entra .menu-idioma { animation: aparece 0.6s ease 1.2s both; }
 #menu.entra .jugar { animation: jugar-entra 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) 1.15s both, late 1.8s ease-in-out 2.1s infinite; }
 #menu.entra .continuar { animation: jugar-entra 0.8s cubic-bezier(0.2, 1.6, 0.4, 1) 0.75s both, late-continuar 1.8s ease-in-out 1.6s infinite; }
@@ -549,6 +592,7 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
   .modo-titulo { font-size: 13.5px; text-align: center; }
   .modo-sub { display: none; }
   .menu-cpu { gap: 8px; }
+  .nombre-campo input { padding: 7px 0; }
   .menu-tiempo { gap: 6px; }
   .tiempo-cat { padding: 7px 2px; }
   .tiempo-op { padding: 7px 4px; font-size: 14px; }
@@ -595,6 +639,7 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
   .modo-titulo { font-size: 13px; text-align: center; }
   .modo-sub { display: none; }
   .menu-cpu { gap: 6px; }
+  .nombre-campo input { padding: 6px 0; }
   .menu-etiqueta { font-size: 11.5px; }
   .pieza-op { padding: 5px 9px; }
   /* El nivel, en una fila: la etiqueta, su nombre y el número; y debajo, la barra. */

@@ -68,15 +68,16 @@ export function createMatchUi(root = document.getElementById('hud')) {
     // `press`, que el que acaba de mover tiene que pulsar el reloj.
     turn(estado) {
       ultimoTurno = estado;
-      const { side, mode, human, thinking = false, hidden = false, press = null } = estado;
+      const { side, mode, human, thinking = false, hidden = false, press = null, nombres = {} } = estado;
       turno.hidden = hidden;
       if (hidden) return;
       const lado = press ?? side;
       turno.dataset.lado = lado;
       turnoPieza.textContent = PIEZA[lado];
-      let texto = t(`turno.${side}`);
+      // Con nombre, el suyo: «Mueve Ana»; online, «Turno de Bruno».
+      let texto = nombres[side] ? t('turno.de', { nombre: nombres[side] }) : t(`turno.${side}`);
       if (mode === 'cpu') texto = side === human ? t('turno.tuyo') : t('turno.cpu');
-      if (mode === 'online') texto = side === human ? t('turno.tuyo') : t('turno.rival');
+      if (mode === 'online') texto = side === human ? t('turno.tuyo') : nombres[side] ? t('turno.rivalDe', { nombre: nombres[side] }) : t('turno.rival');
       if (press) texto = t('turno.pulsa');
       turno.classList.toggle('piensa', (mode === 'cpu' || mode === 'online') && side !== human && thinking && !press);
       turno.classList.toggle('pulsa', Boolean(press));
@@ -101,7 +102,7 @@ export function createMatchUi(root = document.getElementById('hud')) {
 
     // El final. `status`: el de `Position.status()` o 'time' (se le acabó el tiempo a `flagged`);
     // `winner`, el color que gana (o null si son tablas). Devuelve 'rematch' o 'menu'.
-    gameOver({ status, winner, mode, human, flagged = null }) {
+    gameOver({ status, winner, mode, human, flagged = null, nombres = {} }) {
       let titulo = t('final.tablas');
       let texto = t(`tablas.${status}`);
       let tipo = 'tablas';
@@ -114,8 +115,12 @@ export function createMatchUi(root = document.getElementById('hud')) {
       if (winner) {
         if (mode === 'cpu') texto = winner === human ? t('final.ganaste') : t('final.perdiste');
         else if (mode === 'online' && status === 'abandon') texto = t('final.abandono');
-        else if (mode === 'online') texto = winner === human ? t('final.ganas') : t('final.pierdes');
-        else texto = status === 'time' ? `${t(`final.sintiempo.${flagged}`)}. ${t(`final.gana.${winner}`)}` : t(`final.gana.${winner}`);
+        else if (mode === 'online') texto = winner === human ? t('final.ganas') : nombres[winner] ? t('final.ganaNombre', { nombre: nombres[winner] }) : t('final.pierdes');
+        else {
+          // 1 contra 1: «¡Gana Ana!», o «Ganan las blancas» si no hay nombre.
+          const gana = nombres[winner] ? t('final.ganaNombre', { nombre: nombres[winner] }) : t(`final.gana.${winner}`);
+          texto = status === 'time' ? `${t(`final.sintiempo.${flagged}`)}. ${gana}` : gana;
+        }
         tipo = (mode === 'cpu' || mode === 'online') && winner !== human ? 'pierde' : 'gana';
       }
       finalTitulo.textContent = titulo;

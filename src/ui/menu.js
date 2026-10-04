@@ -1,6 +1,7 @@
 import { LANGUAGES, currentLanguage, onLanguage, setLanguage, t } from '../i18n.js';
 import { TIME_CONTROLS, findTimeControl } from '../chess/timecontrol.js';
 import { flagSvg } from './flags.js';
+import { cleanName } from '../names.js';
 
 // El menú de después de la carga: pantalla negra, el logo, cómo se juega (uno contra uno, contra la CPU
 // —con qué piezas y a qué nivel— u online, contra otro que también busque partida), cuánto dura la partida (bala, blitz, rápida, diaria o sin
@@ -27,7 +28,7 @@ export function timeLabel(option) {
   return option.inc ? `${minutos} | ${Math.round(option.inc / 1000)}` : t('tiempo.min', { n: minutos });
 }
 
-const POR_DEFECTO = { mode: 'cpu', level: 30, color: 'white', time: 'libre:libre' };
+const POR_DEFECTO = { mode: 'cpu', level: 30, color: 'white', time: 'libre:libre', nombres: { white: '', black: '', yo: '' } };
 
 // «hace 5 minutos», en el idioma de ahora.
 function haceCuanto(ms) {
@@ -48,7 +49,9 @@ function haceCuanto(ms) {
 // Lo que se cuenta de la partida a medias: «1 contra CPU · nivel 42 (…) · Blitz · 3 | 2 · jugada 14 ·
 // hace 5 minutos».
 function describirGuardada(g) {
-  const partes = [g.mode === 'cpu' ? t('ajustes.cpu', { n: g.level, nombre: levelName(g.level) }) : t('ajustes.pvp')];
+  const conNombres = g.mode === 'pvp' && (g.nombres?.white || g.nombres?.black);
+  const pvp = conNombres ? `${g.nombres.white || t('color.white')} – ${g.nombres.black || t('color.black')}` : t('ajustes.pvp');
+  const partes = [g.mode === 'cpu' ? t('ajustes.cpu', { n: g.level, nombre: levelName(g.level) }) : pvp];
   const control = findTimeControl(g.time);
   if (control) partes.push(`${t(`tiempo.${control.key.split(':')[0]}`)} · ${timeLabel(control)}`);
   partes.push(t('menu.jugada', { n: Math.floor(g.moves / 2) + 1 }));
@@ -65,6 +68,8 @@ function leer() {
         level: Math.max(1, Math.min(100, Math.round(g.level ?? 30))),
         color: ['white', 'black', 'random'].includes(g.color) ? g.color : 'white',
         time: typeof g.time === 'string' ? g.time : POR_DEFECTO.time,
+        // Los nombres: los de 1 contra 1 (blancas y negras) y el mío para online.
+        nombres: { white: cleanName(g.nombres?.white), black: cleanName(g.nombres?.black), yo: cleanName(g.nombres?.yo) },
       };
     }
   } catch {
@@ -180,6 +185,8 @@ export function createMenu({ onShow = null, onHide = null } = {}) {
   const modos = [...root.querySelectorAll('.modo')];
   const cpuSub = root.querySelector('#menu-cpu-sub');
   const bloqueCpu = root.querySelector('.menu-cpu');
+  const bloqueNombres = root.querySelector('.menu-nombres');
+  const campos = Object.fromEntries(['white', 'black', 'yo'].map((lado) => [lado, root.querySelector(`#menu-nombre-${lado}`)]));
   const colores = [...root.querySelectorAll('.pieza-op')];
   const rango = root.querySelector('#menu-nivel-rango');
   const valor = root.querySelector('#menu-nivel-valor');
@@ -290,6 +297,18 @@ export function createMenu({ onShow = null, onHide = null } = {}) {
     bloqueCpu.classList.toggle('abierto', cpu);
     bloqueCpu.setAttribute('aria-hidden', String(!cpu));
     rango.disabled = !cpu;
+    // Los nombres: en 1 contra 1, los dos; online, el mío.
+    const conNombres = eleccion.mode === 'pvp' || eleccion.mode === 'online';
+    bloqueNombres.classList.toggle('abierto', conNombres);
+    bloqueNombres.setAttribute('aria-hidden', String(!conNombres));
+    bloqueNombres.dataset.modo = eleccion.mode;
+    campos.white.parentElement.hidden = eleccion.mode !== 'pvp';
+    campos.black.parentElement.hidden = eleccion.mode !== 'pvp';
+    campos.yo.parentElement.hidden = eleccion.mode !== 'online';
+    for (const [lado, campo] of Object.entries(campos)) {
+      if (document.activeElement !== campo) campo.value = eleccion.nombres?.[lado] ?? '';
+      campo.tabIndex = conNombres && !campo.parentElement.hidden ? 0 : -1;
+    }
     for (const boton of colores) boton.tabIndex = cpu ? 0 : -1;
     rango.value = String(eleccion.level);
     const n = (eleccion.level - 1) / 99;
@@ -321,6 +340,22 @@ export function createMenu({ onShow = null, onHide = null } = {}) {
       otro.focus();
     });
   }
+  for (const [lado, campo] of Object.entries(campos)) {
+    const pon = (valor) => {
+      eleccion = { ...eleccion, nombres: { ...(eleccion.nombres ?? POR_DEFECTO.nombres), [lado]: valor } };
+    };
+    campo.addEventListener('input', () => pon(campo.value));
+    campo.addEventListener('change', () => {
+      campo.value = cleanName(campo.value);
+      pon(campo.value);
+      guardar(eleccion);
+    });
+    // Con Intro se cierra el teclado; y las teclas no salen del campo (los atajos del menú no las ven).
+    campo.addEventListener('keydown', (event) => {
+      event.stopPropagation();
+      if (event.key === 'Enter') campo.blur();
+    });
+  }
   for (const boton of colores) {
     boton.addEventListener('click', () => {
       eleccion = { ...eleccion, color: boton.dataset.color };
@@ -336,6 +371,8 @@ export function createMenu({ onShow = null, onHide = null } = {}) {
   });
   jugar.addEventListener('click', () => {
     if (!responder) return;
+    const n = eleccion.nombres ?? POR_DEFECTO.nombres;
+    eleccion = { ...eleccion, nombres: { white: cleanName(n.white), black: cleanName(n.black), yo: cleanName(n.yo) } };
     guardar(eleccion);
     const caja = jugar.getBoundingClientRect();
     chispas.burst(caja.left + caja.width / 2, caja.top + caja.height / 2);

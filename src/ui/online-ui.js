@@ -11,7 +11,7 @@ export function createOnlineUi() {
   let alCancelar = null;
   boton.addEventListener('click', () => alCancelar?.());
 
-  function pinta({ phase, seekers = 0, color = null }) {
+  function pinta({ phase, seekers = 0, color = null, rival = '' }) {
     root.dataset.fase = phase;
     root.classList.toggle('encontrado', phase === 'found');
     if (phase === 'connecting') {
@@ -22,7 +22,8 @@ export function createOnlineUi() {
       texto.textContent = seekers > 0 ? t('online.hay', { n: seekers }) : t('online.solo');
     } else if (phase === 'found') {
       titulo.textContent = t('online.encontrado');
-      texto.textContent = color === 'black' ? t('online.negras') : t('online.blancas');
+      const conQue = color === 'black' ? t('online.negras') : t('online.blancas');
+      texto.textContent = rival ? `${conQue} · ${t('online.rival', { nombre: rival })}` : conQue;
     } else if (phase === 'error') {
       titulo.textContent = t('online.error');
       texto.textContent = '';

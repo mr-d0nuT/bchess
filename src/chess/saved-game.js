@@ -7,6 +7,7 @@
 // cada reloj. Al leerla se comprueba jugada a jugada: si algo no cuadra (otra versión, datos rotos, una
 // partida ya acabada), no hay nada que continuar.
 
+import { cleanName } from '../names.js';
 import { Position } from './position.js';
 
 export const SAVE_KEY = 'bchess.partida';
@@ -14,8 +15,10 @@ const VERSION = 1;
 const UCI = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
 
 // Lo que se guarda.
-export function packGame({ start, moves, mode, level, human, color, time, clock = null, now }) {
-  return { v: VERSION, start, moves: [...moves], mode, level, human, color, time, reloj: clock, cuando: now };
+export function packGame({ start, moves, mode, level, human, color, time, clock = null, now, names = null }) {
+  const g = { v: VERSION, start, moves: [...moves], mode, level, human, color, time, reloj: clock, cuando: now };
+  if (names && (names.white || names.black)) g.nombres = { white: names.white ?? '', black: names.black ?? '' };
+  return g;
 }
 
 // La partida guardada (texto de `localStorage`), comprobada y con su posición ya jugada; o null.
@@ -58,6 +61,7 @@ export function readSavedGame(raw) {
     time: typeof g.time === 'string' ? g.time : 'libre:libre',
     reloj,
     cuando: Number.isFinite(g.cuando) ? g.cuando : null,
+    nombres: { white: cleanName(g.nombres?.white), black: cleanName(g.nombres?.black) },
   };
 }
 

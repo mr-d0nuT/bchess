@@ -1,4 +1,5 @@
 import { connectMqtt } from './mqtt.js';
+import { cleanName } from '../names.js';
 
 // LAS PARTIDAS ONLINE. Lo pidió el usuario: que cualquiera que entre pueda elegir «Online» y empiece una
 // partida con otro que también lo haya pedido, gratis y sin servidor propio. Así que todo va por brokers
@@ -139,8 +140,10 @@ export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, c
 
 // ---- El emparejamiento ----
 // `bus`: { subscribe, publish, onMessage }. `me`: mi identificador. `time`: el reloj que he elegido.
-// Devuelve { found: Promise<{ game, white, time, opponent }>, seekers(): cuántos más buscan, stop() }.
-export function createMatchmaker({ bus, me, time, now = Date.now, random = Math.random, timers = TIMERS }) {
+// `name`: mi nombre (puede ir vacío), que el rival sabe al emparejarse.
+// Devuelve { found: Promise<{ game, white, time, opponent, opponentName }>, seekers(): cuántos más
+// buscan, stop() }.
+export function createMatchmaker({ bus, me, time, name = '', now = Date.now, random = Math.random, timers = TIMERS }) {
   const since = now();
   const seekers = new Map(); // id → { since, time, seen }
   const tried = new Map(); // id → cuándo se le ofreció sin respuesta
@@ -171,7 +174,7 @@ export function createMatchmaker({ bus, me, time, now = Date.now, random = Math.
     const reloj = s.since < since ? s.time : time;
     pending = { to: id, game, white, time: reloj };
     state = 'offering';
-    to(id, { k: 'offer', game, white, time: reloj });
+    to(id, { k: 'offer', game, white, time: reloj, name });
     espera(() => {
       if (state === 'offering' && pending?.game === game) {
         tried.set(id, now());
@@ -219,9 +222,9 @@ export function createMatchmaker({ bus, me, time, now = Date.now, random = Math.
       if (state === 'seeking' || state === 'offering') {
         if (state === 'offering') to(pending.to, { k: 'cancel', game: pending.game });
         pending = null;
-        accepted = { from: msg.from, game: msg.game, white: msg.white, time: msg.time };
+        accepted = { from: msg.from, game: msg.game, white: msg.white, time: msg.time, name: cleanName(msg.name) };
         state = 'accepted';
-        to(msg.from, { k: 'accept', game: msg.game });
+        to(msg.from, { k: 'accept', game: msg.game, name });
         const game = msg.game;
         espera(() => {
           if (state === 'accepted' && accepted?.game === game) {
@@ -236,13 +239,13 @@ export function createMatchmaker({ bus, me, time, now = Date.now, random = Math.
     } else if (msg.k === 'accept') {
       if (state === 'offering' && pending?.game === msg.game && pending.to === msg.from) {
         to(msg.from, { k: 'go', game: msg.game });
-        match({ game: pending.game, white: pending.white, time: pending.time, opponent: msg.from });
+        match({ game: pending.game, white: pending.white, time: pending.time, opponent: msg.from, opponentName: cleanName(msg.name) });
       } else {
         to(msg.from, { k: 'cancel', game: msg.game });
       }
     } else if (msg.k === 'go') {
       if (state === 'accepted' && accepted?.game === msg.game && accepted.from === msg.from) {
-        match({ game: accepted.game, white: accepted.white, time: accepted.time, opponent: msg.from });
+        match({ game: accepted.game, white: accepted.white, time: accepted.time, opponent: msg.from, opponentName: accepted.name });
       } else {
         to(msg.from, { k: 'cancel', game: msg.game });
       }
@@ -263,7 +266,7 @@ export function createMatchmaker({ bus, me, time, now = Date.now, random = Math.
   bus.subscribe(LOBBY);
   bus.subscribe(inbox(me));
   const anuncia = () => {
-    if (state === 'seeking' || state === 'offering') bus.publish(LOBBY, { k: 'seek', from: me, since, time });
+    if (state === 'seeking' || state === 'offering') bus.publish(LOBBY, { k: 'seek', from: me, since, time, name });
     tick();
   };
   const anuncio = timers.every(anuncia, SEEK_EVERY);
@@ -389,7 +392,8 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
 }
 
 // ---- Todo junto, para el juego ----
-// `find({ time, onStatus })`: busca rival y resuelve con { session, color, time }, o null si se cancela.
+// `find({ time, name, onStatus })`: busca rival y resuelve con { info, color, time, opponentName }, o null si
+// se cancela.
 // `onStatus({ phase: 'connecting' | 'searching' | 'found' | 'error', seekers })`.
 export function createOnline({ urls = BROKERS } = {}) {
   let bus = null;
@@ -403,7 +407,7 @@ export function createOnline({ urls = BROKERS } = {}) {
 
   return {
     me,
-    async find({ time, onStatus = () => {} }) {
+    async find({ time, name = '', onStatus = () => {} }) {
       busca?.stop();
       onStatus({ phase: 'connecting', seekers: 0 });
       const b = getBus();
@@ -413,7 +417,7 @@ export function createOnline({ urls = BROKERS } = {}) {
         onStatus({ phase: 'error', seekers: 0 });
         return null;
       }
-      const mm = createMatchmaker({ bus: b, me, time });
+      const mm = createMatchmaker({ bus: b, me, time, name: cleanName(name) });
       busca = mm;
       const cuenta = setInterval(() => onStatus({ phase: 'searching', seekers: mm.seekers() }), 1000);
       onStatus({ phase: 'searching', seekers: 0 });
@@ -421,8 +425,7 @@ export function createOnline({ urls = BROKERS } = {}) {
       clearInterval(cuenta);
       if (busca === mm) busca = null;
       if (!info) return null;
-      onStatus({ phase: 'found', seekers: 0 });
-      return { info, color: info.white === me ? 'white' : 'black', time: info.time };
+      return { info, color: info.white === me ? 'white' : 'black', time: info.time, opponentName: info.opponentName ?? '' };
     },
     // La sesión de la partida emparejada; `moves()` da las jugadas que lleva el juego.
     session(info, moves) {

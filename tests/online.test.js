@@ -69,9 +69,9 @@ test('dos que buscan se emparejan en la misma partida, uno con blancas, con el r
   const net = red();
   let reloj = 1000;
   const now = () => reloj;
-  const a = createMatchmaker({ bus: net.bus('a'), me: 'a1', time: 'blitz:3+2', now, timers: rapido });
+  const a = createMatchmaker({ bus: net.bus('a'), me: 'a1', time: 'blitz:3+2', name: 'Ana', now, timers: rapido });
   reloj = 2000;
-  const b = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'libre:libre', now, timers: rapido });
+  const b = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'libre:libre', name: '  Bruno\u0007 ', now, timers: rapido });
   const [fa, fb] = await conPlazo(Promise.all([a.found, b.found]));
   assert.equal(fa.game, fb.game);
   assert.equal(fa.white, fb.white);
@@ -80,6 +80,9 @@ test('dos que buscan se emparejan en la misma partida, uno con blancas, con el r
   assert.equal(fb.opponent, 'a1');
   assert.equal(fa.time, 'blitz:3+2');
   assert.equal(fb.time, 'blitz:3+2');
+  // Y cada uno sabe cómo se llama el otro (limpio: sin espacios de más ni caracteres de control).
+  assert.equal(fa.opponentName, 'Bruno');
+  assert.equal(fb.opponentName, 'Ana');
 });
 
 test('con tres buscando, se empareja una pareja y el tercero sigue buscando hasta que llega un cuarto', async () => {
