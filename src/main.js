@@ -1389,7 +1389,7 @@ async function start() {
       if (kind === 'pawn' && piece.props.shield) piece.holdBones('attack', (bone) => SHIELD_ARM.test(bone));
       // Y su lanza no le atraviesa el cuerpo: al atacar le cruzaba el pecho, y al celebrar con ella erguida,
       // agachándose, le salía por la espalda (lo vio el usuario).
-      if (kind === 'pawn') piece.guardSpear({ from: 'Hip', to: 'Head', radius: 0.17, over: 0.35 });
+      if (kind === 'pawn') piece.guardSpear({ from: 'Hip', to: 'Head', radius: 0.2, over: 0.35 });
       // Ni el escudo, que en las patadas y al recibir se le metía en el tronco: el hombro aparta el brazo.
       if (kind === 'pawn') piece.guardShield({ from: 'Hip', to: 'NeckTwist01', arm: 'L_Upperarm', radius: 0.13 });
       // El alfil conjura con la mano libre y el báculo quieto: el clip de lanzar hechizos es para manos
@@ -1429,8 +1429,17 @@ async function start() {
     // La mano del rey se cierra sobre el báculo lo último: el puño se busca con los brazos ya
     // bajados y la pieza en su casilla, no sobre el modelo recién cargado.
     if (kind === 'king') entry.piece.closeHandOnSpear();
-    // Y la del peón, en un puño alrededor de la lanza (la llevaba pegada a la mano abierta).
-    if (kind === 'pawn') entry.piece.gripSpearFist();
+    // Y la del peón, en un puño alrededor de la lanza (la llevaba pegada a la mano abierta), y en guardia: en
+    // reposo y andando, el antebrazo hacia delante y la lanza derecha, que con el brazo colgando el puño no
+    // la podía agarrar sin torcer la muñeca de forma imposible.
+    if (kind === 'pawn') {
+      entry.piece.spearStance({
+        upper: 'R_Upperarm', fore: 'R_Forearm', hand: 'R_Hand',
+        elbow: [-0.14, -0.97, 0.21], // el codo, abajo, algo adelantado y hacia fuera
+        wrist: [0.05, -0.25, 0.98], // el antebrazo, hacia delante y algo hacia abajo: así la muñeca queda casi recta (medido)
+      });
+      entry.piece.gripSpearFist();
+    }
     return entry;
   }
 

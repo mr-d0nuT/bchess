@@ -345,7 +345,9 @@ export function spawnPiece(kit) {
   // 'body': erguida, pero a lo largo del cuerpo y no del todo vertical: si se agacha, se inclina con él. Al
   // celebrar, la lanza vertical le pasaba por el hombro cuando la animación lo doblaba hacia delante.
   const bodyPose = new THREE.Quaternion();
-  const spearPoseName = () => spearOverride ?? currentVariant?.spear ?? spearDefault;
+  // `spearRest`: la de la pieza cuando nada pide otra (el peón, en guardia: erguida). Por debajo de todas.
+  let spearRest = null;
+  const spearPoseName = () => spearOverride ?? currentVariant?.spear ?? spearDefault ?? spearRest;
   function applySpearPose() {
     const name = spearPoseName();
     const pose = name === 'body' ? bodyPose : SPEAR_POSES[name];
@@ -777,9 +779,47 @@ export function spawnPiece(kit) {
   }
 
   // Dos pasadas: al girar el palo, puede ser otro trozo el que quede más cerca del cuerpo.
-  function keepSpearOffBody(spear) {
+  function keepSpearOffBody(spear, dt = 0) {
     if (!bodyGuard || !spearEnds) return;
+    slideRearOut(spear, dt);
     if (pushSpearOut(spear)) pushSpearOut(spear);
+  }
+
+  // LA PARTE DE ATRÁS. Con el puño delante de la barriga y la lanza apuntando al frente (preparando la
+  // estocada), lo que queda del palo por detrás del puño se le metía en el cuerpo, y girarla alrededor del
+  // puño no lo arregla: el puño está pegado. Así que la lanza resbala hacia delante por el puño hasta que la
+  // parte de atrás sale del cuerpo, que es lo que hace un lancero: cogerla más atrás.
+  const REAR_MIN = 0.08; // lo que se deja siempre por detrás del puño, para que lo agarre
+  const REAR_RATE = 2.5; // casillas por segundo que resbala (sin saltos)
+  const rearGrip = new THREE.Vector3();
+  const rearAxis = new THREE.Vector3();
+  let rearSlide = 0; // lo que lleva resbalado, que va hacia lo que haga falta
+  function slideRearOut(spear, dt) {
+    spear.updateWorldMatrix(true, false);
+    spear.localToWorld(bottom.set(0, spearEnds.bottom, 0));
+    spear.localToWorld(top.set(0, spearEnds.top, 0));
+    spearBone.localToWorld(rearGrip.copy(spearGripAt));
+    rearAxis.subVectors(top, bottom).normalize();
+    // Se mide con la lanza como la pone el resto del juego en este fotograma (sin el resbalón de aquí): si
+    // no, al resbalar dejaría de tocar, volvería y no pararía de ir y venir.
+    const atras = rearGrip.clone().sub(bottom).dot(rearAxis); // del regatón al puño, a lo largo de la lanza
+    let quiere = 0;
+    if (atras > REAR_MIN) {
+      bodyGuard.from.getWorldPosition(guardFrom);
+      bodyGuard.to.getWorldPosition(guardTo);
+      guardTo.addScaledVector(axis.subVectors(guardTo, guardFrom), bodyGuard.over);
+      const tope = rearGrip.clone().addScaledVector(rearAxis, -REAR_MIN);
+      closestOnSegments(bottom, tope, guardFrom, guardTo, onShaft, onBody);
+      const radius = bodyGuard.radius * figure.getWorldScale(boneScale).x;
+      if (onShaft.distanceTo(onBody) < radius) quiere = atras - REAR_MIN; // la parte de atrás, fuera del cuerpo
+    }
+    const paso = REAR_RATE * Math.max(dt, 0);
+    rearSlide += dt > 0 ? THREE.MathUtils.clamp(quiere - rearSlide, -paso, paso) : quiere - rearSlide;
+    const resbala = Math.min(rearSlide, Math.max(0, atras - REAR_MIN));
+    if (resbala <= 1e-4) return;
+    spear.parent.worldToLocal(spearAt.copy(spear.getWorldPosition(spearAt)).addScaledVector(rearAxis, resbala));
+    spear.position.copy(spearAt);
+    spear.updateWorldMatrix(false, false);
   }
 
   // EL MOLINETE, AL COSTADO. Con guarda (`guardSpear`), la lanza no voltea en su plano de siempre, que en la
@@ -1220,6 +1260,7 @@ export function spawnPiece(kit) {
     if (frozen) return;
     restoreBones();
     restoreFist();
+    restoreStance();
     mixer.update(dt);
     if (dt > 0) {
       // Lo andado en este fotograma, que es de donde sale tanto la velocidad como el vuelo de la
@@ -1233,6 +1274,7 @@ export function spawnPiece(kit) {
     applySway(dt);
     if (heldRoot) heldRoot.bone.position.copy(heldRoot.position);
     applyBones();
+    applyStance(dt);
     for (const cut of [...cuts]) {
       if (cut.action.time < cut.at && cut.action === current) continue;
       cuts.splice(cuts.indexOf(cut), 1);
@@ -1293,8 +1335,79 @@ export function spawnPiece(kit) {
       axis.set(0, 1, 0).applyQuaternion(spear.quaternion);
       spear.position.addScaledVector(axis, slide / spear.parent.getWorldScale(boneScale).x);
     }
-    keepSpearOffBody(spear);
+    keepSpearOffBody(spear, dt);
     alignFist(spear);
+  }
+
+  // EN GUARDIA (`spearStance`). Con la mano colgando, los dedos miran al suelo y el puño solo puede agarrar un
+  // palo atravesado, como el asa de una maleta: para sujetar la lanza derecha hay que llevar el antebrazo
+  // hacia delante, con el codo doblado, como un piquero en guardia. Así, en reposo y andando: el brazo de la
+  // lanza se coloca hueso a hueso (el del brazo apunta al codo y el del antebrazo a la muñeca, puestos en el
+  // sistema de la figura), encima de la animación y fundiéndose con ella al entrar y al salir. En lo demás
+  // (atacar, recibir, los gestos), manda la animación. Lo pidió el usuario: que la muñeca no se tuerza de
+  // forma imposible para agarrar la lanza.
+  let stance = null; // { upper, fore, hand, elbow, wrist, w, baseUpper, baseFore, applied }
+  const STANCE_RATE = 4; // por segundo: entra y sale en un cuarto de segundo
+  const STANCE_SNAP = 20; // y para el molinete, en una vigésima
+  const stanceS = new THREE.Vector3();
+  const stanceE = new THREE.Vector3();
+  const stanceW = new THREE.Vector3();
+  const stanceTo = new THREE.Vector3();
+  const stanceFrom = new THREE.Vector3();
+  const stanceFig = new THREE.Quaternion();
+  const stanceRot = new THREE.Quaternion();
+  const stanceBone = new THREE.Quaternion();
+  const stanceParent = new THREE.Quaternion();
+  const stanceIK = new THREE.Quaternion();
+  function restoreStance() {
+    if (!stance?.applied) return;
+    stance.upper.quaternion.copy(stance.baseUpper);
+    stance.fore.quaternion.copy(stance.baseFore);
+    stance.applied = false;
+  }
+  // Gira `bone` en el mundo hasta que lo que va de `from` a su hijo apunte a `to`, y se queda con `w` de ese
+  // giro (de 0, como estaba, a 1, del todo).
+  function aimStance(bone, child, to, w) {
+    bone.getWorldPosition(stanceFrom);
+    child.getWorldPosition(stanceE);
+    stanceE.sub(stanceFrom);
+    stanceTo.copy(to).sub(stanceFrom);
+    if (stanceE.lengthSq() < 1e-10 || stanceTo.lengthSq() < 1e-10) return;
+    stanceRot.setFromUnitVectors(stanceE.normalize(), stanceTo.normalize());
+    bone.getWorldQuaternion(stanceBone);
+    bone.parent.getWorldQuaternion(stanceParent);
+    stanceIK.copy(stanceParent.invert().multiply(stanceRot.multiply(stanceBone)));
+    bone.quaternion.slerp(stanceIK, w);
+    bone.updateWorldMatrix(false, true);
+  }
+  function applyStance(dt) {
+    if (!stance) return;
+    // En reposo, andando, saltando de la peana y mirando alrededor (que solo mueve la cabeza); y haciendo el
+    // molinete, sea con lo que sea, que con el puño pegado al pecho (la burla del duelo) la lanza le barría el
+    // cuerpo al voltear: con el antebrazo delante, voltea por delante de él. No en los gestos que mueven el
+    // brazo ni al atacar.
+    const enGuardia = currentName === 'idle' || currentName === 'walk' || currentName === 'jump'
+      || (currentName === 'fidget' && currentVariant?.key === 'look_around') || Boolean(spearSpin);
+    const quiere = enGuardia && !planted && !flying && props.spear?.visible ? 1 : 0;
+    const paso = (spearSpin ? STANCE_SNAP : STANCE_RATE) * Math.max(dt, 0); // para el molinete, de golpe: la lanza ya voltea
+    stance.w += THREE.MathUtils.clamp(quiere - stance.w, -paso, paso);
+    if (dt === 0 && quiere) stance.w = 1; // al nacer, ya en guardia
+    if (stance.w <= 0.001) return;
+    stance.baseUpper.copy(stance.upper.quaternion);
+    stance.baseFore.copy(stance.fore.quaternion);
+    stance.applied = true;
+    // Los largos, de la postura de ahora; los sitios, en el sistema de la figura.
+    stance.upper.getWorldPosition(stanceS);
+    stance.fore.getWorldPosition(stanceE);
+    stance.hand.getWorldPosition(stanceW);
+    const brazo = stanceE.distanceTo(stanceS);
+    const antebrazo = stanceW.distanceTo(stanceE);
+    figure.getWorldQuaternion(stanceFig);
+    const codo = stanceS.clone().addScaledVector(stance.elbow.clone().applyQuaternion(stanceFig), brazo);
+    aimStance(stance.upper, stance.fore, codo, stance.w);
+    stance.fore.getWorldPosition(stanceE);
+    const muneca = stanceE.clone().addScaledVector(stance.wrist.clone().applyQuaternion(stanceFig), antebrazo);
+    aimStance(stance.fore, stance.hand, muneca, stance.w);
   }
 
   // EL PUÑO SIGUE AL PALO (`gripSpearFist`). El guante ya está cerrado en un puño; cada fotograma se le gira
@@ -1312,7 +1425,23 @@ export function spawnPiece(kit) {
     spearBone.quaternion.copy(fistBase);
     fistApplied = false;
   }
-  const FIST_TURN_MAX = THREE.MathUtils.degToRad(120); // la muñeca no gira más de esto
+  // Lo que se le deja girar a la muñeca, para que no quede imposible (lo pidió el usuario): rotar la mano con
+  // el antebrazo (como al abrir un pomo) llega lejos; doblarla, poco. Si con eso no basta, el palo cruza el
+  // puño algo en diagonal: mejor eso que una muñeca rota.
+  const FIST_TWIST_MAX = THREE.MathUtils.degToRad(80);
+  const FIST_SWING_MAX = THREE.MathUtils.degToRad(35);
+  const forearmAt = new THREE.Vector3();
+  const handAt = new THREE.Vector3();
+  const forearmAxis = new THREE.Vector3();
+  const fistA = new THREE.Vector3();
+  const fistB = new THREE.Vector3();
+  const fistCross = new THREE.Vector3();
+  const fistTwist = new THREE.Quaternion();
+  const fistIdentity = new THREE.Quaternion();
+  const fistStats = { twist: 0, swing: 0, residual: 0 }; // lo del último fotograma, en grados (para las pruebas)
+  const fistDir = new THREE.Vector3();
+  const fistAt = new THREE.Vector3();
+  const fistCenter = new THREE.Vector3();
   const fistAxis = new THREE.Vector3();
   const fistShaft = new THREE.Vector3();
   const fistTurn = new THREE.Quaternion();
@@ -1323,13 +1452,50 @@ export function spawnPiece(kit) {
     if (!fistTunnel || spearSpin || planted || flying || spear.parent !== spearBone) return;
     spear.getWorldQuaternion(fistSpear);
     fistShaft.set(0, 1, 0).applyQuaternion(fistSpear);
+    // Lo que ha resbalado la lanza por el puño, a lo largo de ella: girar la muñeca no lo puede cambiar.
+    fistDir.copy(fistShaft);
+    spear.getWorldPosition(fistAt);
+    spearBone.localToWorld(fistCenter.copy(spearGripAt));
+    const resbalon = fistAt.sub(fistCenter).dot(fistDir);
     spearBone.getWorldQuaternion(fistHand);
     fistAxis.copy(fistTunnel).applyQuaternion(fistHand);
+    // 1. La mano rota con el antebrazo: el giro, alrededor de su eje, que más acerca el hueco del puño al palo
+    //    (los dos se miran proyectados en el plano perpendicular al antebrazo). El hueco no tiene sentido:
+    //    se gira lo menos posible, hacia un lado o hacia el otro.
+    spearBone.parent.getWorldPosition(forearmAt);
+    spearBone.getWorldPosition(handAt);
+    forearmAxis.subVectors(handAt, forearmAt);
+    let twist = 0;
+    if (forearmAxis.lengthSq() > 1e-10) {
+      forearmAxis.normalize();
+      fistA.copy(fistAxis).addScaledVector(forearmAxis, -fistAxis.dot(forearmAxis));
+      fistB.copy(fistShaft).addScaledVector(forearmAxis, -fistShaft.dot(forearmAxis));
+      if (fistA.lengthSq() > 1e-6 && fistB.lengthSq() > 1e-6) {
+        fistA.normalize();
+        fistB.normalize();
+        twist = Math.atan2(forearmAxis.dot(fistCross.crossVectors(fistA, fistB)), fistA.dot(fistB));
+        if (twist > Math.PI / 2) twist -= Math.PI;
+        else if (twist < -Math.PI / 2) twist += Math.PI;
+        twist = THREE.MathUtils.clamp(twist, -FIST_TWIST_MAX, FIST_TWIST_MAX);
+      }
+      fistTwist.setFromAxisAngle(forearmAxis, twist);
+    } else {
+      fistTwist.identity();
+    }
+    fistAxis.applyQuaternion(fistTwist);
+    // 2. Y se dobla, poco, lo que falte.
     if (fistAxis.dot(fistShaft) < 0) fistShaft.negate();
     fistTurn.setFromUnitVectors(fistAxis, fistShaft);
-    const angulo = 2 * Math.acos(Math.min(1, Math.abs(fistTurn.w)));
-    if (angulo < 1e-4) return;
-    if (angulo > FIST_TURN_MAX) fistTurn.slerp(fistParent.identity(), 1 - FIST_TURN_MAX / angulo);
+    let swing = 2 * Math.acos(Math.min(1, Math.abs(fistTurn.w)));
+    if (swing > FIST_SWING_MAX) {
+      fistTurn.slerp(fistIdentity, 1 - FIST_SWING_MAX / swing);
+      swing = FIST_SWING_MAX;
+    }
+    fistStats.twist = THREE.MathUtils.radToDeg(twist);
+    fistStats.swing = THREE.MathUtils.radToDeg(swing);
+    fistStats.residual = THREE.MathUtils.radToDeg(fistA.copy(fistAxis).applyQuaternion(fistTurn).angleTo(fistShaft));
+    fistTurn.multiply(fistTwist);
+    if (Math.abs(twist) < 1e-4 && swing < 1e-4) return;
     // La mano, girada en el mundo; la lanza, con el giro de vuelta, para que no se mueva.
     if (!fistApplied) {
       fistBase.copy(spearBone.quaternion);
@@ -1340,6 +1506,11 @@ export function spawnPiece(kit) {
     spearBone.updateWorldMatrix(false, false);
     spearBone.getWorldQuaternion(fistHand);
     spear.quaternion.copy(fistHand.invert().multiply(fistSpear));
+    // Y por el centro del puño, que se ha movido con la mano, con el mismo resbalón. Dejarla donde estaba en
+    // la mano sacaba el palo del puño en cuanto había resbalado (al celebrar, hasta un palmo).
+    spearBone.localToWorld(fistCenter.copy(spearGripAt));
+    fistAt.copy(fistCenter).addScaledVector(fistDir, resbalon);
+    spear.position.copy(spearBone.worldToLocal(fistAt));
     spear.updateWorldMatrix(false, false);
   }
 
@@ -1498,6 +1669,34 @@ export function spawnPiece(kit) {
     // una pieza: sin huesos en los dedos, la lanza le iba pegada a la mano abierta (lo vio el usuario). El
     // doblez se hace una vez en la malla, que comparten todos los peones de ese color; la lanza pasa a ir
     // por el hueco del puño, y la muñeca la sigue cada fotograma (`alignFist`).
+    // En guardia, con la lanza derecha (ver `applyStance`): el brazo de la lanza (`upper`, `fore`, `hand`) con
+    // el codo hacia `elbow` y la muñeca hacia `wrist` (direcciones en el sistema de la figura: +X a su
+    // izquierda, +Y arriba, +Z delante). Con null, nada.
+    spearStance(options) {
+      if (!options) {
+        restoreStance();
+        stance = null;
+        spearRest = null;
+        applySpearPose();
+        return false;
+      }
+      const upper = findBone(model, options.upper);
+      const fore = findBone(model, options.fore);
+      const hand = findBone(model, options.hand);
+      if (!upper || !fore || !hand) return false;
+      stance = {
+        upper, fore, hand,
+        elbow: new THREE.Vector3(...options.elbow).normalize(),
+        wrist: new THREE.Vector3(...options.wrist).normalize(),
+        w: 0, baseUpper: new THREE.Quaternion(), baseFore: new THREE.Quaternion(), applied: false,
+      };
+      spearRest = 'upright';
+      applySpearPose();
+      return true;
+    },
+    get fistStats() {
+      return { ...fistStats };
+    },
     gripSpearFist() {
       if (!props.spear || !spearBone || !spearGripAt) return false;
       for (let i = 0; i < 4; i++) update(0.3);
