@@ -7,6 +7,7 @@ import { voicesFor } from './audio/voces.js';
 import { createLoading } from './ui/loading.js';
 import { createStage } from './scene/stage.js';
 import { addLighting } from './scene/lighting.js';
+import { createAttract } from './scene/attract.js';
 import { createBoard } from './scene/board.js';
 import { createHighlights } from './scene/highlights.js';
 import { createHud } from './ui/hud.js';
@@ -288,7 +289,10 @@ async function start() {
   const focus = createFocus(stage.renderer, stage.scene, stage.camera, quality);
   const bubbles = createBubbles({ camera: stage.camera, canvas: stage.renderer.domElement, clock });
   const pieces = []; // { kind: 'pawn' | 'rook' | 'knight', color, piece, mover }
-  const view = createView({ stage, clock, cinema, fade, pieces: () => pieces });
+  // La cámara del menú: detrás de él, el tablero de verdad recorrido en tomas de cine. Mientras dura, los
+  // botones de la cámara (dar la vuelta, acercarse) esperan.
+  const attract = createAttract({ stage, clock, pieces: () => pieces, focus, veil: document.getElementById('menu-velo') });
+  const view = createView({ stage, clock, cinema, fade, pieces: () => pieces, busy: () => attract.active });
   const crowd = createCrowd({ board, entries: () => pieces });
   const state = { selected: null, busy: false, fighting: false, lastStyle: null, phase: 'menu' };
   // La partida: las reglas (`Position`), las jugadas hechas (la CPU y las repeticiones las necesitan),
@@ -298,7 +302,7 @@ async function start() {
     id: 0, thinking: false, animating: false, control: null, clock: null, press: null, enCurso: null, deConsola: false,
   };
   const cpu = createCpu();
-  const menu = createMenu();
+  const menu = createMenu({ onShow: () => attract.start(), onHide: () => attract.stop() });
   const ui = createMatchUi();
   const clockUi = createChessClockUi(document.getElementById('hud'));
   const controlName = () => (game.control ? `${t(`tiempo.${game.control.key.split(':')[0]}`)} · ${timeLabel(game.control)}` : '');
@@ -380,8 +384,9 @@ async function start() {
     highlights.pulse(now / 1000, dt);
     fade.update(dt, stage.camera);
     cinema.settle();
-    if (!cinema.active) stage.controls.update();
+    if (!cinema.active && !attract.active) stage.controls.update();
     cinema.update(dt);
+    attract.update(dt);
     bubbles.update();
     paintViewButtons();
     tickClock();
@@ -1286,8 +1291,8 @@ async function start() {
     music.backToIntro();
     const eleccion = await menu.show({ guardada: resumenGuardada() });
     music.endIntro();
+    await menu.hide(); // y la cámara del menú baja en vuelo hasta la vista de la partida
     await empezar(eleccion);
-    await menu.hide();
   }
 
   // Para depurar desde la consola: la partida desde una posición cualquiera, en FEN. Las piezas que
@@ -1543,8 +1548,8 @@ async function start() {
   await loading.finish();
   const elegido = await eleccion;
   music.endIntro();
+  await menu.hide(); // y la cámara del menú baja en vuelo hasta la vista de la partida
   await empezar(elegido);
-  await menu.hide();
 }
 
 start();

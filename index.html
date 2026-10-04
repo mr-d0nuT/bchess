@@ -113,6 +113,8 @@
   <div id="fundido" aria-hidden="true"></div>
   <!-- El menú de después de la carga (`ui/menu.js`). -->
   <div id="menu" hidden>
+    <div id="menu-velo" aria-hidden="true"></div>
+    <div class="menu-vineta" aria-hidden="true"></div>
     <canvas id="menu-chispas" aria-hidden="true"></canvas>
     <div class="menu-luz" aria-hidden="true"></div>
     <div class="menu-idioma">
@@ -120,8 +122,14 @@
       <div id="menu-idiomas" class="idiomas" role="listbox" hidden></div>
     </div>
     <div class="menu-caja">
-      <img class="menu-logo" src="assets/ui/logo.webp" alt="Battle Chess" width="765" height="848" decoding="async">
-      <h1 class="menu-titulo">Battle Chess</h1>
+      <div class="menu-marca">
+        <div class="menu-logo-marco">
+          <img class="menu-logo" src="assets/ui/logo.webp" alt="Battle Chess" width="765" height="848" decoding="async">
+        </div>
+        <h1 class="menu-titulo">Battle Chess</h1>
+        <p class="menu-lema" data-i18n="menu.lema">Homenaje a Battle Chess (1988)</p>
+      </div>
+      <div class="menu-panel">
       <button id="menu-continuar" class="continuar" type="button" hidden>
         <svg class="continuar-icono" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg>
         <span class="continuar-textos">
@@ -168,6 +176,7 @@
         <div class="tiempo-opciones" id="menu-tiempo-opciones" role="radiogroup"></div>
       </div>
       <button id="menu-jugar" class="jugar" type="button"><span data-i18n="menu.jugar">JUGAR</span></button>
+      </div>
     </div>
   </div>
   <!-- La pantalla de carga: en el HTML, para que se vea antes de que llegue el JavaScript. -->

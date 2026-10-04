@@ -120,7 +120,7 @@ function createSparks(canvas) {
     const dt = Math.min(0.05, (ahora - antes) / 1000 || 0);
     antes = ahora;
     if (canvas.clientWidth !== ancho || canvas.clientHeight !== alto) medir();
-    const objetivo = Math.round((ancho * alto) / 9000);
+    const objetivo = Math.round((ancho * alto) / 15000); // menos que con el fondo negro: detrás ya hay escena
     while (chispas.length < objetivo) {
       const c = nueva();
       c.y = Math.random() * alto; // al empezar, repartidas por toda la pantalla
@@ -172,7 +172,9 @@ function createSparks(canvas) {
   };
 }
 
-export function createMenu() {
+// `onShow()` y `onHide()`: se avisa al enseñarlo y al esconderlo (la cámara de cine del fondo, que empieza y
+// acaba con él); lo que devuelva `onHide`, se espera.
+export function createMenu({ onShow = null, onHide = null } = {}) {
   const root = document.getElementById('menu');
   const chispas = createSparks(root.querySelector('#menu-chispas'));
   const modos = [...root.querySelectorAll('.modo')];
@@ -363,11 +365,13 @@ export function createMenu() {
       pintar();
       abrirIdiomas(false);
       root.hidden = false;
+      document.body.classList.add('en-menu'); // el HUD de la partida, fuera: el menú ya no tiene fondo que lo tape
       root.classList.remove('sale', 'entra');
       jugar.classList.remove('pulsado');
       void root.offsetWidth;
       root.classList.add('entra');
       chispas.start();
+      onShow?.();
       setTimeout(() => (guardada ? continuar : jugar).focus({ preventScroll: true }), 900);
       return new Promise((resolve) => {
         responder = resolve;
@@ -376,7 +380,8 @@ export function createMenu() {
     // Se aleja hacia la cámara y desaparece.
     async hide() {
       root.classList.add('sale');
-      await new Promise((resolve) => setTimeout(resolve, 900));
+      await Promise.all([new Promise((resolve) => setTimeout(resolve, 900)), onHide?.()]);
+      document.body.classList.remove('en-menu');
       root.hidden = true;
       root.classList.remove('sale', 'entra');
       chispas.stop();

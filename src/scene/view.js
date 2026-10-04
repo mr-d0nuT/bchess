@@ -28,7 +28,7 @@ const IN_THE_WAY_OPACITY = 0.22; // lo que queda de la pieza que se interpone
 const smooth = (t) => t * t * (3 - 2 * t);
 const UP = new THREE.Vector3(0, 1, 0);
 
-export function createView({ stage, clock, cinema, fade, pieces = () => [], onChange = () => {} }) {
+export function createView({ stage, clock, cinema, fade, pieces = () => [], onChange = () => {}, busy = () => false }) {
   const { camera, controls } = stage;
   const minDistance = controls.minDistance;
   let zoom = null; // { entry, back: { position, target } }: a quién se acerca y adónde se vuelve
@@ -90,7 +90,7 @@ export function createView({ stage, clock, cinema, fade, pieces = () => [], onCh
     });
   }
 
-  const free = () => !moving && !cinema.active;
+  const free = () => !moving && !cinema.active && !busy(); // `busy`: la cámara del menú
 
   // Cómo ve el atenuado a una pieza: dónde está y cuánto ocupa.
   const describe = (entry) => ({ object: entry.piece.object, anchor: entry.piece.figure, height: entry.piece.height, radius: entry.piece.radius });
@@ -158,6 +158,7 @@ export function createView({ stage, clock, cinema, fade, pieces = () => [], onCh
   // Deja el tablero mirado desde un lado: `black` true, desde el de las negras. Si la cámara está
   // ocupada (acabando de volver de un combate), espera a que quede libre.
   async function flipTo(black) {
+    if (Boolean(stage.flipped) === Boolean(black)) return; // ya mira desde ahí: nada que esperar
     for (let i = 0; i < 90 && !free(); i++) await clock.wait(0.05);
     if (Boolean(stage.flipped) !== Boolean(black)) await flip();
   }
