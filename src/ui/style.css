@@ -225,6 +225,10 @@ html, body {
 #pantalla .cerrar, #pantalla[aria-pressed="true"] .abrir { display: none; } /* dentro, el icono es de salir */
 #pantalla[aria-pressed="true"] .cerrar { display: inline; }
 .boton[hidden] { display: none; }
+/* Rendirse: al primer toque se despliega en rojo y pregunta; el segundo lo confirma. */
+#rendirse .boton-texto { display: none; font: 700 14px/1 system-ui, sans-serif; white-space: nowrap; }
+#rendirse.confirma { display: flex; gap: 6px; width: auto; padding: 0 13px 0 9px; border-radius: 999px; border-color: #ff6b5b; color: #ffb3a8; box-shadow: 0 0 12px rgba(255, 80, 60, 0.6); }
+#rendirse.confirma .boton-texto { display: inline; }
 
 /* La configuración: un panel en medio, sobre un velo. */
 #ajustes-panel {

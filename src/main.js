@@ -361,12 +361,36 @@ async function start() {
     event.stopPropagation();
     undoMove();
   });
+  // Online, en el sitio de deshacer: rendirse. El primer toque pregunta y el segundo (en 3,5 s) confirma.
+  const resignButton = document.getElementById('rendirse');
+  let preguntaRendirse = 0;
+  resignButton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (resignButton.classList.contains('confirma')) {
+      clearTimeout(preguntaRendirse);
+      resignButton.classList.remove('confirma');
+      rendirse();
+      return;
+    }
+    resignButton.querySelector('.boton-texto').textContent = t('boton.rendirse.seguro');
+    resignButton.classList.add('confirma');
+    preguntaRendirse = setTimeout(() => resignButton.classList.remove('confirma'), 3500);
+  });
   function paintViewButtons() {
     const quieta = !state.fighting && !view.moving;
     if (flipButton && flipButton.disabled !== !quieta) flipButton.disabled = !quieta;
     if (undoButton) {
       const puede = canUndo();
       if (undoButton.disabled !== !puede) undoButton.disabled = !puede;
+    }
+    // Online no se deshace: en su lugar, la bandera blanca.
+    const enLinea = game.mode === 'online' && state.phase === 'playing';
+    if (undoButton && undoButton.hidden !== enLinea) undoButton.hidden = enLinea;
+    if (resignButton) {
+      if (resignButton.hidden !== !enLinea) resignButton.hidden = !enLinea;
+      const puede = enLinea && !state.fighting && !game.animating;
+      if (resignButton.disabled !== !puede) resignButton.disabled = !puede;
+      if (!enLinea) resignButton.classList.remove('confirma');
     }
     if (!zoomButton) return;
     const puede = quieta && (view.zoomed || Boolean(state.selected));
@@ -1000,6 +1024,16 @@ async function start() {
     await playMove(m);
   }
 
+  // Online: me rindo. Se le dice al rival (gana él) y se acaba la partida.
+  async function rendirse() {
+    if (game.mode !== 'online' || state.phase !== 'playing' || !game.session) return;
+    game.session.leave('resign');
+    game.session = null;
+    sueltaEspera();
+    game.id += 1;
+    await gameOver('resign');
+  }
+
   // La jugada número `n` del rival: la que ya llegó o la próxima que llegue (null si se acaba la partida).
   function jugadaDelRival(n) {
     const ya = game.remote?.get(n);
@@ -1064,16 +1098,17 @@ async function start() {
     session.on('back', () => {
       if (vale() && state.phase === 'playing') ui.banner(t('online.vuelve'), { tipo: 'tablas', ms: 2000 });
     });
-    // Se ha ido (abandona o cierra): gana el jugador.
-    const seVa = () => {
+    // Se rinde, se va o desaparece: gana el jugador.
+    const seVa = (como) => () => {
       if (!vale() || state.phase !== 'playing') return;
       sueltaEspera();
       game.id += 1;
       game.session = null;
-      gameOver('abandon');
+      gameOver(como);
     };
-    session.on('resign', seVa);
-    session.on('bye', seVa);
+    session.on('resign', seVa('rivalResigned'));
+    session.on('bye', seVa('abandon'));
+    session.on('gone', seVa('abandon'));
     // Se había emparejado con otro a la vez y no llegó a empezar: a buscar otra vez.
     session.on('cancel', () => {
       if (!vale() || game.moves.length) return;
@@ -1126,11 +1161,12 @@ async function start() {
       const otro = flagged === 'white' ? 'black' : 'white';
       winner = game.position.hasMatingMaterial(otro) ? otro : null;
     }
-    if (status === 'abandon') winner = game.human; // online: el rival se ha ido
+    if (status === 'abandon' || status === 'rivalResigned') winner = game.human; // online: el rival se ha ido o se ha rendido
+    if (status === 'resign') winner = game.human === 'white' ? 'black' : 'white'; // online: me he rendido
     const cartel = status === 'checkmate' ? t('cartel.mate') : status === 'time' ? t('cartel.tiempo') : t('cartel.tablas');
     // Y suena el final: fanfarria para quien gana; contra la CPU, si gana ella, trombón triste; tablas, trompetas.
     sfx.play(!winner ? 'tablas' : (game.mode === 'cpu' || game.mode === 'online') && winner !== game.human ? 'derrota' : 'victoria');
-    if (status !== 'abandon') {
+    if (!['abandon', 'rivalResigned', 'resign'].includes(status)) {
       ui.banner(cartel, { tipo: winner ? 'jaque' : 'tablas', ms: 1700 });
       await new Promise((resolve) => setTimeout(resolve, 1700));
     }

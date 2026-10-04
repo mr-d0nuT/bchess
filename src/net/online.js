@@ -36,6 +36,7 @@ const ANSWER_WAIT = 4500; // lo que se espera a que contesten a una oferta (o a 
 const RETRY_AFTER = 6000; // a quien no contestó, no se le vuelve a ofrecer hasta pasado esto
 export const PING_EVERY = 4000;
 export const LOST_AFTER = 20000; // sin noticias del rival en este tiempo: conexión perdida
+export const GONE_AFTER = 90000; // y en este: se ha ido (cerró la app sin despedirse)
 
 // Los temporizadores de verdad (envueltos: en el navegador, `setInterval` no se puede llamar como
 // método de otro objeto). Las pruebas pasan otros, más rápidos.
@@ -297,7 +298,7 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
 
 // ---- La partida ----
 // `moves()`: las jugadas que llevo (para el latido y para poner al día al rival). Eventos (`on`): 'move'
-// ({ n, uci }), 'press' ({ side, n, white, black }), 'sync' ({ moves }), 'resign', 'bye', 'lost', 'back',
+// ({ n, uci }), 'press' ({ side, n, white, black }), 'sync' ({ moves }), 'resign', 'bye', 'lost', 'back', 'gone',
 // 'cancel' (el rival no llegó a empezar: se había emparejado con otro).
 export function createSession({ bus, me, game, opponent, white, moves, now = Date.now, timers = TIMERS }) {
   const topic = gameTopic(game);
@@ -353,6 +354,10 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     if (!perdido && now() - visto > LOST_AFTER) {
       perdido = true;
       emit('lost');
+    }
+    if (now() - visto > GONE_AFTER) {
+      cerrar();
+      emit('gone');
     }
   }, PING_EVERY);
   send('ping', { n: moves().length });

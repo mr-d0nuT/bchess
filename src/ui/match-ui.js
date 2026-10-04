@@ -111,10 +111,12 @@ export function createMatchUi(root = document.getElementById('hud')) {
         texto = winner ? t(`final.sintiempo.${flagged}`) : t('tablas.time');
       }
       if (status === 'checkmate') titulo = t('final.mate');
-      if (status === 'abandon') titulo = t('final.ganas'); // online: el rival se ha ido
+      if (status === 'abandon' || status === 'rivalResigned') titulo = t('final.ganas'); // online: el rival se ha ido o se ha rendido
+      if (status === 'resign') titulo = t('final.rendido'); // online: me he rendido yo
       if (winner) {
         if (mode === 'cpu') texto = winner === human ? t('final.ganaste') : t('final.perdiste');
         else if (mode === 'online' && status === 'abandon') texto = t('final.abandono');
+        else if (mode === 'online' && status === 'rivalResigned') texto = t('final.serinde');
         else if (mode === 'online') texto = winner === human ? t('final.ganas') : nombres[winner] ? t('final.ganaNombre', { nombre: nombres[winner] }) : t('final.pierdes');
         else {
           // 1 contra 1: «¡Gana Ana!», o «Ganan las blancas» si no hay nombre.
