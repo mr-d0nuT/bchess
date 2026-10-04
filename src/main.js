@@ -27,6 +27,8 @@ import { endsOf, gridOf, pickPair, pickTurn, place } from './moves/dodge.js';
 import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
 import { createCpu } from './chess/cpu.js';
+import { createOnline } from './net/online.js';
+import { createOnlineUi } from './ui/online-ui.js';
 import { createMenu, levelName, timeLabel } from './ui/menu.js';
 import { createMatchUi } from './ui/match-ui.js';
 import { createChessClockUi } from './ui/chess-clock.js';
@@ -302,6 +304,10 @@ async function start() {
     id: 0, thinking: false, animating: false, control: null, clock: null, press: null, enCurso: null, deConsola: false,
   };
   const cpu = createCpu();
+  // Las partidas online (`net/online.js`): se conecta al buscar la primera. Online, `game.session` es la
+  // partida con el rival; sus jugadas llegan a `game.remote` (número de jugada → jugada).
+  const online = createOnline();
+  const onlineUi = createOnlineUi();
   const menu = createMenu({ onShow: () => attract.start(), onHide: () => attract.stop() });
   const ui = createMatchUi();
   const clockUi = createChessClockUi(document.getElementById('hud'));
@@ -737,6 +743,8 @@ async function start() {
     // hecha (y si un combate llegara a colgarse, al recargar se sigue sin él).
     game.enCurso = plan.uci;
     guardarPartida();
+    // Online, la del jugador sale ya hacia el rival: así la ven a la vez los dos.
+    if (game.mode === 'online' && game.session && game.position.side === game.human) game.session.move(game.moves.length, plan.uci);
     select(null);
     highlights.check(null);
     try {
@@ -950,7 +958,8 @@ async function start() {
     // pulsa sola; el jugador, con su mano (y mientras no lo pulse, su tiempo sigue corriendo).
     if (game.clock) {
       const id = game.id;
-      if (game.mode === 'cpu' && movio !== game.human) {
+      // Online, el reloj se pulsa solo, como en cualquier partida por internet.
+      if ((game.mode === 'cpu' && movio !== game.human) || game.mode === 'online') {
         clockUi.press(movio);
       } else {
         game.press = movio;
@@ -960,10 +969,114 @@ async function start() {
         if (pulsado === false || id !== game.id || state.phase !== 'playing') return;
       }
       game.clock.press(movio, performance.now());
+      if (game.mode === 'online') relojOnline(movio);
     }
     paintTurn();
     if (game.mode === 'pvp') await view.flipTo(side === 'black');
-    else if (side !== game.human) cpuTurn();
+    else if (side !== game.human) {
+      if (game.mode === 'online') onlineTurn();
+      else cpuTurn();
+    }
+  }
+
+  // ONLINE: le toca al rival. Su jugada puede haber llegado ya (mientras se animaba la nuestra) o llegar
+  // luego; cuando está, se juega como cualquier otra.
+  async function onlineTurn() {
+    const id = game.id;
+    game.thinking = true;
+    paintTurn();
+    const uci = await jugadaDelRival(game.moves.length);
+    if (id !== game.id || state.phase !== 'playing') return;
+    game.thinking = false;
+    const m = uci ? game.position.findUci(uci) : null;
+    if (m === undefined || m === null) {
+      console.error('[BChess] La jugada del rival no vale aquí:', uci);
+      return;
+    }
+    paintTurn();
+    await playMove(m);
+  }
+
+  // La jugada número `n` del rival: la que ya llegó o la próxima que llegue (null si se acaba la partida).
+  function jugadaDelRival(n) {
+    const ya = game.remote?.get(n);
+    if (ya) return Promise.resolve(ya);
+    return new Promise((resolve) => {
+      game.remoteWait = { n, resolve };
+    });
+  }
+  function sueltaEspera() {
+    game.remoteWait?.resolve(null);
+    game.remoteWait = null;
+  }
+
+  // El reloj online. Al pulsar el jugador, se le dice al rival cuánto le queda; al pulsar aquí por el
+  // rival, se pone lo que dice su propio reloj (si ya ha llegado: si no, en cuanto llegue). Después de
+  // pulsar, y no antes, para no sumarle dos veces el incremento.
+  function relojOnline(movio) {
+    const ahora = performance.now();
+    if (movio === game.human) {
+      game.session?.press(movio, { white: game.clock.remaining('white', ahora), black: game.clock.remaining('black', ahora) }, game.moves.length);
+    } else if (game.pendingPress && game.moves.length >= game.pendingPress.n) {
+      ponTiempoDelRival(game.pendingPress);
+      game.pendingPress = null;
+    }
+  }
+  function ponTiempoDelRival({ side, white, black }) {
+    if (!game.clock || side === game.human || !Number.isFinite(white) || !Number.isFinite(black)) return;
+    const mio = game.clock.remaining(game.human, performance.now());
+    game.clock.restore(side === 'white' ? { white, black: mio } : { white: mio, black });
+  }
+
+  // La partida online con el rival: sus jugadas, su reloj y si se va.
+  function conectaSesion(session) {
+    const id = game.id;
+    const vale = () => id === game.id && game.session === session;
+    game.remote = new Map();
+    const llega = (n, uci) => {
+      if (!vale() || n < game.moves.length || game.remote.has(n)) return;
+      game.remote.set(n, uci);
+      if (game.remoteWait?.n === n) {
+        const espera = game.remoteWait;
+        game.remoteWait = null;
+        espera.resolve(uci);
+      }
+    };
+    session.on('move', ({ n, uci }) => llega(n, uci));
+    // Las que se perdieron por el camino: solo si la lista del rival empieza por lo que ya tenemos.
+    session.on('sync', ({ moves }) => {
+      if (!vale()) return;
+      const mias = game.enCurso ? [...game.moves, game.enCurso] : game.moves;
+      if (!mias.every((uci, i) => moves[i] === uci)) return;
+      for (let n = mias.length; n < moves.length; n++) llega(n, moves[n]);
+    });
+    session.on('press', (msg) => {
+      if (!vale() || !game.clock) return;
+      if (game.moves.length >= msg.n && game.clock.running !== msg.side) ponTiempoDelRival(msg);
+      else game.pendingPress = msg;
+    });
+    session.on('lost', () => {
+      if (vale() && state.phase === 'playing') ui.banner(t('online.perdido'), { tipo: 'tablas', ms: 4000 });
+    });
+    session.on('back', () => {
+      if (vale() && state.phase === 'playing') ui.banner(t('online.vuelve'), { tipo: 'tablas', ms: 2000 });
+    });
+    // Se ha ido (abandona o cierra): gana el jugador.
+    const seVa = () => {
+      if (!vale() || state.phase !== 'playing') return;
+      sueltaEspera();
+      game.id += 1;
+      game.session = null;
+      gameOver('abandon');
+    };
+    session.on('resign', seVa);
+    session.on('bye', seVa);
+    // Se había emparejado con otro a la vez y no llegó a empezar: a buscar otra vez.
+    session.on('cancel', () => {
+      if (!vale() || game.moves.length) return;
+      game.session = null;
+      jugarOnline({ time: game.control?.key ?? 'libre:libre' });
+    });
   }
 
   async function cpuTurn() {
@@ -997,7 +1110,8 @@ async function start() {
   // Se acabó. `status`: el de las reglas, o 'time' si al que mueve (`flagged`) se le acabó el tiempo:
   // pierde, salvo que al otro no le quede con qué dar mate, que entonces son tablas.
   async function gameOver(status, flagged = null) {
-    borrarPartida();
+    if (game.mode !== 'online') borrarPartida(); // la online no se guarda: la que hubiera, se queda
+    sueltaEspera();
     state.phase = 'over';
     game.press = null;
     clockUi.cancel();
@@ -1009,13 +1123,21 @@ async function start() {
       const otro = flagged === 'white' ? 'black' : 'white';
       winner = game.position.hasMatingMaterial(otro) ? otro : null;
     }
+    if (status === 'abandon') winner = game.human; // online: el rival se ha ido
     const cartel = status === 'checkmate' ? t('cartel.mate') : status === 'time' ? t('cartel.tiempo') : t('cartel.tablas');
     // Y suena el final: fanfarria para quien gana; contra la CPU, si gana ella, trombón triste; tablas, trompetas.
-    sfx.play(!winner ? 'tablas' : game.mode === 'cpu' && winner !== game.human ? 'derrota' : 'victoria');
-    ui.banner(cartel, { tipo: winner ? 'jaque' : 'tablas', ms: 1700 });
-    await new Promise((resolve) => setTimeout(resolve, 1700));
+    sfx.play(!winner ? 'tablas' : (game.mode === 'cpu' || game.mode === 'online') && winner !== game.human ? 'derrota' : 'victoria');
+    if (status !== 'abandon') {
+      ui.banner(cartel, { tipo: winner ? 'jaque' : 'tablas', ms: 1700 });
+      await new Promise((resolve) => setTimeout(resolve, 1700));
+    }
+    // Online, la partida con ese rival se acaba aquí (y la revancha es buscar otro).
+    const eraOnline = game.mode === 'online';
+    game.session?.leave();
+    game.session = null;
     const que = await ui.gameOver({ status, winner, mode: game.mode, human: game.human, flagged });
-    if (que === 'rematch') await newGame({ mode: game.mode, level: game.level, color: game.color, time: game.control?.key ?? 'libre:libre' });
+    if (que === 'rematch' && eraOnline) await jugarOnline({ time: game.control?.key ?? 'libre:libre' });
+    else if (que === 'rematch') await newGame({ mode: game.mode, level: game.level, color: game.color, time: game.control?.key ?? 'libre:libre' });
     else await toMenu();
   }
 
@@ -1026,7 +1148,7 @@ async function start() {
   function paintSettings() {
     const texto = document.getElementById('ajustes-partida');
     if (!texto) return;
-    let linea = game.mode === 'cpu' ? t('ajustes.cpu', { n: game.level, nombre: levelName(game.level) }) : t('ajustes.pvp');
+    let linea = game.mode === 'cpu' ? t('ajustes.cpu', { n: game.level, nombre: levelName(game.level) }) : game.mode === 'online' ? t('ajustes.online') : t('ajustes.pvp');
     if (game.control) linea += ` · ${controlName()}`;
     texto.textContent = linea;
   }
@@ -1055,7 +1177,7 @@ async function start() {
   // rehacen desde el principio sin esas jugadas, y el tablero se pone como dicen: la pieza que se
   // movió vuelve a su casilla, la comida reaparece y la coronada vuelve a ser peón.
   function pliesToUndo() {
-    if (!game.moves.length) return 0;
+    if (!game.moves.length || game.mode === 'online') return 0; // online no se deshace: el rival ya la ha visto
     if (game.mode === 'pvp') return 1;
     // Contra la CPU: se deshace hacia atrás hasta que mueva el jugador, y al menos una jugada suya.
     let n = 0;
@@ -1177,14 +1299,19 @@ async function start() {
 
   // Partida nueva o, con `guardada` (la de `partidaGuardada()`), la que se dejó a medias: sus piezas donde
   // estaban, sus relojes y el turno de quien tocaba.
-  async function newGame({ mode, level, color = 'white', time = 'libre:libre', guardada = null }) {
+  async function newGame({ mode, level, color = 'white', time = 'libre:libre', guardada = null, session = null }) {
     game.id += 1;
     cpu.cancel();
+    sueltaEspera();
+    if (game.session && game.session !== session) game.session.leave(); // la online de antes se acaba
+    game.session = session;
+    game.remote = null;
+    game.pendingPress = null;
     clockUi.cancel();
     ui.closeAll();
     select(null);
     highlights.check(null);
-    if (!guardada) borrarPartida(); // se ha elegido empezar otra: la de antes ya no se continúa
+    if (!guardada && mode !== 'online') borrarPartida(); // se ha elegido empezar otra: la de antes ya no se continúa
     if (guardada) resetPieces(guardada.position);
     else if (game.moves.length || pieces.length !== 32) resetPieces(); // al empezar, el tablero ya está puesto
     // Con todas quietas en su casilla, cada clase de pieza deja medida su forma y los caballos se apartan
@@ -1199,7 +1326,8 @@ async function start() {
     game.level = level;
     game.color = color;
     // Contra la CPU, el jugador lleva las piezas que ha elegido (o las que le toquen a suertes).
-    game.human = guardada?.human ?? (mode === 'cpu' ? (color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color) : 'white');
+    // Online, el que le ha tocado en el emparejamiento.
+    game.human = guardada?.human ?? (mode === 'cpu' ? (color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color) : mode === 'online' ? color : 'white');
     game.thinking = false;
     game.press = null;
     game.control = findTimeControl(time);
@@ -1218,6 +1346,48 @@ async function start() {
     paintTurn();
     paintSettings();
     if (game.mode === 'cpu' && lado !== game.human) cpuTurn(); // le toca a la CPU (con blancas, empieza ella)
+    if (session) {
+      conectaSesion(session);
+      if (lado !== game.human) onlineTurn(); // el rival lleva las blancas: se espera su jugada
+    }
+  }
+
+  // ONLINE: busca rival (la pantalla del radar) y, al encontrarlo, empieza la partida con el color que le
+  // haya tocado y el reloj acordado. Si se cancela, o no hay conexión, vuelve al menú.
+  async function jugarOnline({ time = 'libre:libre' } = {}) {
+    state.phase = 'searching';
+    paintTurn();
+    let pulsado = null;
+    const boton = new Promise((resolve) => {
+      pulsado = resolve;
+    });
+    let fase = 'connecting';
+    onlineUi.show(() => pulsado());
+    const busca = online.find({
+      time,
+      onStatus: (s) => {
+        fase = s.phase;
+        onlineUi.status(s);
+      },
+    });
+    const r = await Promise.race([busca, boton.then(() => null)]);
+    if (state.phase !== 'searching') return; // se ha ido al menú por los ajustes: ya está allí
+    if (!r) {
+      online.cancel();
+      if (fase === 'error') await boton; // sin conexión: lo dice y espera al botón
+      onlineUi.hide();
+      await toMenu();
+      return;
+    }
+    onlineUi.status({ phase: 'found', color: r.color });
+    await new Promise((resolve) => setTimeout(resolve, 1700));
+    const session = online.session(r.info, () => (game.enCurso ? [...game.moves, game.enCurso] : game.moves));
+    if (state.phase !== 'searching') {
+      session.leave('resign'); // se fue justo ahora: que el rival no se quede esperando
+      return;
+    }
+    onlineUi.hide();
+    await newGame({ mode: 'online', color: r.color, time: r.time, session });
   }
 
   // LA PARTIDA GUARDADA (`chess/saved-game.js`): tras cada jugada (nada más decidirla), al deshacer, al
@@ -1225,7 +1395,7 @@ async function start() {
   // otra, se borra. La red de seguridad y las posiciones puestas desde la consola no la tocan.
   let guardadaEn = -Infinity;
   function guardarPartida() {
-    if (testing.active || game.deConsola || state.phase !== 'playing') return;
+    if (testing.active || game.deConsola || state.phase !== 'playing' || game.mode === 'online') return;
     const moves = game.enCurso ? [...game.moves, game.enCurso] : game.moves;
     if (!moves.length) {
       borrarPartida();
@@ -1267,8 +1437,10 @@ async function start() {
   // Lo elegido en el menú: continuar la guardada (si sigue ahí) o una partida nueva.
   async function empezar(eleccion) {
     const guardada = eleccion.continuar ? partidaGuardada() : null;
+    const elegida = eleccion.continuar ? menu.choice : eleccion;
     if (guardada) await newGame({ ...guardada, guardada });
-    else await newGame(eleccion.continuar ? menu.choice : eleccion);
+    else if (elegida.mode === 'online') await jugarOnline(elegida);
+    else await newGame(elegida);
   }
   const alEsconderse = () => {
     if (document.visibilityState === 'hidden') guardarPartida();
@@ -1279,6 +1451,14 @@ async function start() {
   // Al menú: vuelve la melodía de la carga y, al pulsar JUGAR, se funde y empieza la partida elegida.
   async function toMenu() {
     guardarPartida(); // la de ahora se puede continuar desde el menú
+    // Online, irse a media partida es abandonar: el rival gana.
+    if (game.session) {
+      game.session.leave(state.phase === 'playing' ? 'resign' : 'bye');
+      game.session = null;
+    }
+    sueltaEspera();
+    online.cancel(); // si estaba buscando rival, deja de buscar
+    onlineUi.hide();
     state.phase = 'menu';
     game.id += 1;
     cpu.cancel();

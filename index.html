@@ -148,6 +148,11 @@
           <span class="modo-titulo" data-i18n="menu.cpu">1 contra CPU</span>
           <span class="modo-sub" id="menu-cpu-sub">Tú llevas las blancas</span>
         </button>
+        <button class="modo" type="button" role="radio" aria-checked="false" data-modo="online">
+          <svg class="modo-icono" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="18"/><path d="M6 24h36M24 6c-6 6-8.5 12-8.5 18s2.5 12 8.5 18M24 6c6 6 8.5 12 8.5 18s-2.5 12-8.5 18M9.5 14h29M9.5 34h29"/></svg>
+          <span class="modo-titulo" data-i18n="menu.online">Online</span>
+          <span class="modo-sub" data-i18n="menu.online.sub">Contra quien sea, por internet</span>
+        </button>
       </div>
       <div class="menu-cpu" aria-hidden="true">
         <div class="menu-fila">
@@ -177,6 +182,15 @@
       </div>
       <button id="menu-jugar" class="jugar" type="button"><span data-i18n="menu.jugar">JUGAR</span></button>
       </div>
+    </div>
+  </div>
+  <!-- Buscando rival online (`ui/online-ui.js`): un radar, cuántos más buscan y «Cancelar». -->
+  <div id="online" class="online" hidden>
+    <div class="online-caja" role="dialog" aria-modal="true" aria-labelledby="online-titulo">
+      <div class="online-radar" aria-hidden="true"><span></span><span></span><span></span><svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="18"/><path d="M6 24h36M24 6c-6 6-8.5 12-8.5 18s2.5 12 8.5 18M24 6c6 6 8.5 12 8.5 18s-2.5 12-8.5 18M9.5 14h29M9.5 34h29"/></svg></div>
+      <p id="online-titulo" class="online-titulo" aria-live="polite"></p>
+      <p id="online-texto" class="online-texto" aria-live="polite"></p>
+      <button id="online-cancelar" class="final-boton" type="button"></button>
     </div>
   </div>
   <!-- La pantalla de carga: en el HTML, para que se vea antes de que llegue el JavaScript. -->

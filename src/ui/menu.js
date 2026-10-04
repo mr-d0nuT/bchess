@@ -2,8 +2,8 @@ import { LANGUAGES, currentLanguage, onLanguage, setLanguage, t } from '../i18n.
 import { TIME_CONTROLS, findTimeControl } from '../chess/timecontrol.js';
 import { flagSvg } from './flags.js';
 
-// El menú de después de la carga: pantalla negra, el logo, cómo se juega (uno contra uno o contra la
-// CPU, con qué piezas y a qué nivel), cuánto dura la partida (bala, blitz, rápida, diaria o sin
+// El menú de después de la carga: pantalla negra, el logo, cómo se juega (uno contra uno, contra la CPU
+// —con qué piezas y a qué nivel— u online, contra otro que también busque partida), cuánto dura la partida (bala, blitz, rápida, diaria o sin
 // reloj), el idioma (la bandera de arriba) y JUGAR. Si hay una partida a medias, arriba del todo,
 // «Continuar partida». Suena la misma melodía que en la carga; al pulsar
 // JUGAR se funde (eso lo hace quien llama, que es quien sabe de música).
@@ -59,7 +59,7 @@ function describirGuardada(g) {
 function leer() {
   try {
     const g = JSON.parse(localStorage.getItem(STORE) ?? 'null');
-    if (g && (g.mode === 'pvp' || g.mode === 'cpu')) {
+    if (g && ['pvp', 'cpu', 'online'].includes(g.mode)) {
       return {
         mode: g.mode,
         level: Math.max(1, Math.min(100, Math.round(g.level ?? 30))),

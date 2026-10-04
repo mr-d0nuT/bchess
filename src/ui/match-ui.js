@@ -76,8 +76,9 @@ export function createMatchUi(root = document.getElementById('hud')) {
       turnoPieza.textContent = PIEZA[lado];
       let texto = t(`turno.${side}`);
       if (mode === 'cpu') texto = side === human ? t('turno.tuyo') : t('turno.cpu');
+      if (mode === 'online') texto = side === human ? t('turno.tuyo') : t('turno.rival');
       if (press) texto = t('turno.pulsa');
-      turno.classList.toggle('piensa', mode === 'cpu' && side !== human && thinking && !press);
+      turno.classList.toggle('piensa', (mode === 'cpu' || mode === 'online') && side !== human && thinking && !press);
       turno.classList.toggle('pulsa', Boolean(press));
       if (turnoTexto.textContent !== texto) {
         turnoTexto.textContent = texto;
@@ -109,14 +110,17 @@ export function createMatchUi(root = document.getElementById('hud')) {
         texto = winner ? t(`final.sintiempo.${flagged}`) : t('tablas.time');
       }
       if (status === 'checkmate') titulo = t('final.mate');
+      if (status === 'abandon') titulo = t('final.ganas'); // online: el rival se ha ido
       if (winner) {
         if (mode === 'cpu') texto = winner === human ? t('final.ganaste') : t('final.perdiste');
+        else if (mode === 'online' && status === 'abandon') texto = t('final.abandono');
+        else if (mode === 'online') texto = winner === human ? t('final.ganas') : t('final.pierdes');
         else texto = status === 'time' ? `${t(`final.sintiempo.${flagged}`)}. ${t(`final.gana.${winner}`)}` : t(`final.gana.${winner}`);
-        tipo = mode === 'cpu' && winner !== human ? 'pierde' : 'gana';
+        tipo = (mode === 'cpu' || mode === 'online') && winner !== human ? 'pierde' : 'gana';
       }
       finalTitulo.textContent = titulo;
       finalTexto.textContent = texto;
-      revancha.textContent = t('final.revancha');
+      revancha.textContent = mode === 'online' ? t('final.otro') : t('final.revancha'); // online, otro rival
       menu.textContent = t('final.menu');
       final.dataset.tipo = tipo;
       final.hidden = false;
