@@ -54,7 +54,7 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
     const duration = action.getClip().duration;
     let spear = null;
     let blade = null;
-    const bladePath = []; // por dónde pasa la punta de la espada ({ t, y, z }): el tajo busca el casco con ella
+    const bladePath = []; // por dónde pasa la punta de la espada ({ t, x, y, z }): el tajo busca el casco con ella
     let body = null;
     let sideStep = 0;
     const paths = {}; // en un golpe de arriba abajo (`overhead` en el manifiesto), por dónde pasa cada mano
@@ -72,7 +72,7 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
       if (piece.props.sword && piece.swordEnds) {
         const tip = piece.props.sword.localToWorld(point.set(0, piece.swordEnds.top, 0));
         if (!blade || tip.z > blade.reach) blade = { t, reach: tip.z, side: tip.x, height: tip.y };
-        bladePath.push({ t, y: tip.y, z: tip.z });
+        bladePath.push({ t, x: tip.x, y: tip.y, z: tip.z });
       }
       for (const limb of limbs) {
         const at = limb.getWorldPosition(point);
