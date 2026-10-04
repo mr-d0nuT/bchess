@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { fitToHeight, loadPieceKit, spawnPiece, withShadows } from './piece.js';
 import { createFlag, flagTexture } from './flag.js';
+import { pinFlagToPole } from './pole-flag.js';
 import { measureBody, measureFront, measureStrikes } from '../combat/strikes.js';
 
 // La torre: una pieza con dos formas en el mismo objeto. En reposo, la torre estática sobre su peana,
@@ -34,6 +35,7 @@ export async function loadRookKit(spec, quality) {
   const down = new THREE.Raycaster(new THREE.Vector3(0, spec.tower.height + 1, 0), new THREE.Vector3(0, -1, 0));
   const roof = down.intersectObject(tower, true)[0]?.point.y ?? spec.tower.height * 0.9;
   if (giant) {
+    pinGiantFlag(giant.model);
     giant.strikes = measureStrikes(giant, spawnPiece, { faces: true });
     giant.body = measureBody(giant, spawnPiece);
     giant.front = measureFront(giant, spawnPiece);
@@ -65,6 +67,45 @@ export async function loadRookKit(spec, quality) {
     giant,
     flagTexture: spec.flag ? flagTexture(emblem) : null,
   };
+}
+
+// La bandera que el gigante lleva a la espalda, pegada a su mástil (`pole-flag.js`): el modelo la trae
+// flotando a un palmo del palo y atada a otros huesos, y se le veía separada. Se cambia la geometría de su
+// malla una sola vez, al cargar: la comparten todos los gigantes de ese color.
+//
+// Las posiciones vienen comprimidas (enteros normalizados, intercalados con las normales): se trabaja sobre
+// una copia en decimales y se escriben de vuelta con `setXYZ`, que las vuelve a comprimir. Los huesos y los
+// pesos son arrays sueltos de cuatro por vértice: se copian tal cual de un vértice a otro.
+function pinGiantFlag(model) {
+  model.traverse((o) => {
+    if (!o.isSkinnedMesh) return;
+    const g = o.geometry;
+    const { position, skinIndex, skinWeight } = g.attributes;
+    if (!position || !skinIndex?.array || !skinWeight?.array || skinIndex.isInterleavedBufferAttribute) return;
+    const positions = new Float32Array(position.count * 3);
+    for (let i = 0; i < position.count; i++) {
+      positions[i * 3] = position.getX(i);
+      positions[i * 3 + 1] = position.getY(i);
+      positions[i * 3 + 2] = position.getZ(i);
+    }
+    const antes = positions.slice();
+    const hecho = pinFlagToPole({
+      positions,
+      index: g.index?.array ?? null,
+      skinIndex: skinIndex.array,
+      skinWeight: skinWeight.array,
+    });
+    if (!hecho) return;
+    for (let i = 0; i < position.count; i++) {
+      if (positions[i * 3] === antes[i * 3] && positions[i * 3 + 1] === antes[i * 3 + 1] && positions[i * 3 + 2] === antes[i * 3 + 2]) continue;
+      position.setXYZ(i, positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+    }
+    position.needsUpdate = true;
+    skinIndex.needsUpdate = true;
+    skinWeight.needsUpdate = true;
+    g.computeBoundingBox();
+    g.computeBoundingSphere();
+  });
 }
 
 export function spawnRook(kit) {
