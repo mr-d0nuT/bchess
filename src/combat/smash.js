@@ -3,7 +3,7 @@ import { sfx } from '../audio/sfx.js';
 import { grita } from '../audio/voces.js';
 import { TORSO, bestStrike, fightSpots, shieldOf, strikeSpot, usableStrikes } from './plan.js';
 import {
-  afterImpact, choose, gripSlideToTarget, knockBack, overlapOf, planPunch, poseAhead, slowToImpact, stanceOf, standing, targetsOf, towardRival,
+  afterImpact, choose, gripSlideToTarget, knockBack, overlapOf, planPunch, poseAhead, punchDistance, slowToImpact, stanceOf, standing, targetsOf, towardRival,
 } from './fight.js';
 import { skinnedMeshes } from './strikes.js';
 import { victoryLap } from './knight/common.js';
@@ -36,11 +36,17 @@ const OVERHEAD_CHANCE = 0.5; // cada cuánto, contra alguien bajito, machaca el 
 // agacha a abrazarlo. Contra esos va siempre el golpe de arriba abajo, que cae sobre la coronilla
 // desde más atrás y se lee como lo que es. Un peón queda por debajo del listón y conserva los dos.
 const TALL_SHARE = 0.9;
-const BACK_OFF = 1.4; // paso atrás contra un rival de su tamaño, en costados suyos
+const BACK_OFF = 1.4; // paso atrás contra un rival alto que no es un gigante (no hace falta que el puño se hunda)
 // Y hasta dónde se le deja retroceder por detrás del centro de SU casilla. El sitio de pegar se mide
 // desde el rival, así que si el rival está pegado el gigante acaba detrás de su propia casilla, y
 // ahí hay otra pieza. Menos de media casilla: se queda dentro de la suya pase lo que pase.
 const RETREAT_MAX = 0.4;
+// GIGANTE CONTRA GIGANTE. El puñetazo ha de llegar (lo vio el usuario: se quedaba corto, por el paso atrás)
+// y los cuerpos no se pueden pegar (en casillas contiguas, se quedaban pegados todo el combate: no cabían).
+// Si no hay sitio, los dos se apartan andando hacia atrás, sin darse la vuelta, a partes iguales; cada uno,
+// como mucho, esto por detrás del centro de su casilla.
+const GIANT_BACK_MAX = 0.4;
+const BACK_STEP_SPEED = 0.8; // casillas por segundo, andando hacia atrás
 const RAY_FAR = 3; // desde dónde se lanza el rayo que busca la coronilla del rival
 const CROWN_PHASES = 4; // momentos del reposo del rival en los que se mira su coronilla
 // Cruz de rayos alrededor del hueso de la cabeza: la corona del gigante es almenada y por el centro
@@ -183,6 +189,42 @@ function chooseCollapse(post, { overlap, random }) {
   return choose(post, action, { overlap, random, seconds, cost: (key) => towardRival(post.fans, action, key, seconds) });
 }
 
+// El puñetazo de frente, contra otro gigante, que los deja más separados y aun así llega: de los que llegan
+// sin que se peguen los cuerpos (a `closest` o más) y caben en el sitio que hay (su camino y lo que pueden
+// apartarse los dos), el de más alcance. Null si ninguno.
+function spacedPunch({ giant, home, center, rival, torso, closest }) {
+  const camino = Math.hypot(center.x - home.x, center.z - home.z);
+  const cabe = camino + 2 * GIANT_BACK_MAX;
+  let best = null;
+  for (const { key, overhead } of giant.attacks) {
+    const body = giant.strikes[key]?.body;
+    if (!body || overhead) continue;
+    const distance = punchDistance({ body, from: home, center, target: rival, torso, rest: true });
+    if (distance < closest || distance > cabe) continue;
+    if (!best || distance > best.distance) best = { key, distance };
+  }
+  return best;
+}
+
+// Retrocede `distance` sin darse la vuelta: el paso de andar, al revés, mientras se desliza hacia atrás.
+async function stepBack(giant, distance, clock) {
+  if (!(distance > 0.01)) return;
+  const figure = giant.figure;
+  const from = figure.position.clone();
+  const dx = -Math.sin(figure.rotation.y) * distance;
+  const dz = -Math.cos(figure.rotation.y) * distance;
+  const walk = giant.play('walk', { fade: 0.15 });
+  if (walk) walk.timeScale = -1;
+  try {
+    await clock.tween(distance / BACK_STEP_SPEED, (t) => {
+      figure.position.set(from.x + dx * t, from.y, from.z + dz * t);
+    });
+  } finally {
+    if (walk) walk.timeScale = 1;
+    giant.play('idle', { fade: 0.2 });
+  }
+}
+
 // La torre se come a un peón o a otra torre.
 async function giantSmash({ attacker, defender, home, center, target, clock, fx, cinema, hud, crowd, stances, obstacles, random }) {
   const rook = attacker.piece;
@@ -201,10 +243,12 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   // intenta siempre; contra uno bajito, la mitad de las veces, que así hay variedad.
   const overheads = giant.attacks.filter((attack) => attack.overhead && giant.strikes[attack.key]?.overhead);
   const grande = (d.height ?? 0) >= giant.height * TALL_SHARE;
-  const quiere = overheads.length && (grande || random() < OVERHEAD_CHANCE);
+  // Contra otro gigante, nada de mazazos de arriba abajo: con dos cuerpos tan anchos, el que llega a la
+  // coronilla es el que menos alcanza, y se le volcaba encima.
+  const quiere = overheads.length && !rival && (grande || random() < OVERHEAD_CHANCE);
   const pick = quiere ? overheads[Math.floor(random() * overheads.length)].key : null;
   const down = pick ? planOverhead({ strike: giant.strikes[pick], from: home, center, target: d, closest, rest, fighter: giant, key: pick }) : null;
-  const plan = down ? { key: pick, distance: down.distance } : planPunch({
+  const plan = down ? { key: pick, distance: down.distance } : (rival && spacedPunch({ giant, home, center, rival, torso: defender.piece.body.torso, closest })) || planPunch({
     attacks: giant.attacks, strikes: giant.strikes, from: home, center, target: d, rest,
     torso: rival ? defender.piece.body.torso : TORSO,
     closest,
@@ -217,24 +261,34 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   //
   // Con tope: el paso atrás no puede sacarlo de su casilla, que detrás hay otra pieza esperando.
   const camino = Math.hypot(center.x - home.x, center.z - home.z);
-  const paso = !down && grande ? rook.body.torso * BACK_OFF : 0;
+  const paso = !down && grande && !rival ? rook.body.torso * BACK_OFF : 0;
   const distance = Math.min(plan.distance + paso, Math.max(plan.distance, camino + RETREAT_MAX));
   const measure = giant.strikes[key];
+  // Contra otro gigante, si no caben a la distancia del golpe, los dos se apartan hacia atrás.
+  const falta = rival && !down ? Math.max(0, distance - camino) : 0;
+  const rivalBack = Math.min(GIANT_BACK_MAX, falta / 2);
+  const ownBack = Math.min(GIANT_BACK_MAX, falta - rivalBack);
   const spots = strikeSpot(home, down ? down.head : center, { reach: distance, torso: 0 });
+  // Donde acaba cada uno: el atacante, en su sitio de pegar o apartado por detrás de su casilla; el rival,
+  // en la suya o apartado por detrás.
+  const haciaX = camino > 1e-6 ? (center.x - home.x) / camino : 0;
+  const haciaZ = camino > 1e-6 ? (center.z - home.z) / camino : 1;
+  const ownSpot = falta > 0 ? { x: home.x - haciaX * ownBack, z: home.z - haciaZ * ownBack } : spots.attacker;
+  const rivalSpot = { x: center.x + haciaX * rivalBack, z: center.z + haciaZ * rivalBack };
   const facing = spots.attackerFacing + (down?.turn ?? 0); // el puño baja por un lado: gira para que caiga encima
   const impact = down ? { t: down.t, bone: measure.overhead.bone } : { t: measure.body.t, bone: measure.body.bone };
 
   // 0. Qué hará cada gigante en su puesto: el atacante, su golpe y, si cabe, una provocación; el
   //    vencido, un derrumbe.
-  const posts = [postOf(attacker, spots.attacker, facing, [{ action: 'attack', key }])];
-  if (rival) posts.push(postOf(defender, center, spots.defenderFacing));
+  const posts = [postOf(attacker, ownSpot, facing, [{ action: 'attack', key }])];
+  if (rival) posts.push(postOf(defender, rivalSpot, spots.defenderFacing));
   const overlap = () => overlapOf(crowd, [attacker, defender], posts);
   const collapse = rival ? chooseCollapse(posts[1], { overlap, random }) : null;
   const taunt = choose(posts[0], 'taunt', { overlap, random, optional: true });
   for (const post of posts) stances.set(post.entry, stanceOf(post));
 
   // 1. La cámara encuadra y la torre (o las dos) se transforman.
-  const opening = [cinema.frame(clock, spots.attacker, center, obstacles), attacker.mover.awaken()];
+  const opening = [cinema.frame(clock, ownSpot, rivalSpot, obstacles), attacker.mover.awaken()];
   if (rival) {
     opening.push(defender.mover.awaken());
   } else {
@@ -243,12 +297,24 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   }
   await Promise.all(opening);
 
-  // 2. El gigante avanza hasta que su golpe alcanza al rival, se encaran y, si cabe, lo provoca.
-  await attacker.mover.walkTo(spots.attacker);
-  await Promise.all([
-    attacker.mover.turnTo(facing, 0.3),
-    defender.mover.turnTo(spots.defenderFacing, 0.3),
-  ]);
+  // 2. El gigante avanza hasta que su golpe alcanza al rival y se encaran; si no caben (dos gigantes en
+  //    casillas contiguas), se encaran y los dos se apartan hacia atrás. Y, si cabe, lo provoca.
+  if (falta > 0) {
+    await Promise.all([
+      attacker.mover.turnTo(facing, 0.3),
+      defender.mover.turnTo(spots.defenderFacing, 0.3),
+    ]);
+    await Promise.all([
+      stepBack(giant, ownBack, clock),
+      stepBack(rival, rivalBack, clock),
+    ]);
+  } else {
+    await attacker.mover.walkTo(spots.attacker);
+    await Promise.all([
+      attacker.mover.turnTo(facing, 0.3),
+      defender.mover.turnTo(spots.defenderFacing, 0.3),
+    ]);
+  }
   const taunts = [];
   if (taunt) taunts.push(giant.playOnce('taunt', { clip: taunt }));
   if (!rival && random() < 0.5 && d.hasClip('fidget', 'frightened')) taunts.push(d.playOnce('fidget', { clip: 'frightened' }));
