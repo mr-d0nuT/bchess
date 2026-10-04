@@ -71,7 +71,7 @@ function toAxis(punto, prop) {
 // Y NO se toma el vértice más lejano: estos báculos llevan la vara sembrada de adornos, y un solo
 // pico a la altura del puño manda la mano a cerrarse sobre un grosor que no existe, con lo que no
 // llega a cerrarse.
-function shaftRadius(prop) {
+export function shaftRadius(prop) {
   const p = new THREE.Vector3();
   const lejos = [];
   prop.updateMatrixWorld(true);

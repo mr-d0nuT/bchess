@@ -7,7 +7,8 @@ import { pickHandBone } from './bones.js';
 import { createSpear } from './spear.js';
 import { createSword } from './sword.js';
 import { strideSpeed } from '../moves/walk.js';
-import { closeFistOn } from './fist.js';
+import { closeFistOn, shaftRadius } from './fist.js';
+import { bendFist } from './fist-mesh.js';
 import { slideAboveFloor } from './grip.js';
 import { findBone } from './bone-names.js';
 import { CAPE_BONES, capePose, capeRest, capeStep } from './cape.js';
@@ -781,32 +782,25 @@ export function spawnPiece(kit) {
     if (pushSpearOut(spear)) pushSpearOut(spear);
   }
 
-  // Mientras voltea (el molinete), girar el palo pelearía con el giro: lo que se aparta del cuerpo es el
-  // PLANO en que voltea, a lo largo de su eje. En la burla del duelo las manos pasan por delante del pecho,
-  // y el palo, volteando, le cruzaba el tronco.
-  const spinAxisWorld = new THREE.Vector3();
-  function keepSpinOffBody(spear) {
-    if (!bodyGuard || !spearEnds) return;
-    spear.updateWorldMatrix(true, false);
-    spear.localToWorld(bottom.set(0, spearEnds.bottom, 0));
-    spear.localToWorld(top.set(0, spearEnds.top, 0));
-    bodyGuard.from.getWorldPosition(guardFrom);
-    bodyGuard.to.getWorldPosition(guardTo);
-    guardTo.addScaledVector(axis.subVectors(guardTo, guardFrom), bodyGuard.over);
-    closestOnSegments(bottom, top, guardFrom, guardTo, onShaft, onBody);
-    const radius = bodyGuard.radius * figure.getWorldScale(boneScale).x;
-    const lejos = onShaft.distanceTo(onBody);
-    if (lejos >= radius) return;
-    pushOut.subVectors(onShaft, onBody);
-    if (pushOut.lengthSq() < 1e-8) pushOut.set(-1, 0, 0).applyQuaternion(figure.getWorldQuaternion(guardTurn));
-    pushOut.normalize();
-    spinAxisWorld.copy(SPIN_AXIS).applyQuaternion(spear.getWorldQuaternion(guardTurn)).normalize();
-    const along = pushOut.dot(spinAxisWorld);
-    if (Math.abs(along) < 0.3) return; // el palo se sale por el propio plano: moverlo de lado no sirve
-    const mueve = Math.min(0.25, (radius - lejos) / Math.abs(along));
-    spear.getWorldPosition(spearAt).addScaledVector(spinAxisWorld, Math.sign(along) * mueve);
-    spear.position.copy(spear.parent.worldToLocal(spearAt));
-    spear.updateWorldMatrix(false, false);
+  // EL MOLINETE, AL COSTADO. Con guarda (`guardSpear`), la lanza no voltea en su plano de siempre, que en la
+  // burla del duelo le cruzaba el pecho: voltea en un plano vertical al costado del cuerpo —el eje del giro
+  // apunta del puño al cuerpo—, como quien voltea un bastón junto a la cadera. Antes se apartaba la lanza
+  // entera de lado, y se salía de la mano.
+  const spinWorld = new THREE.Vector3();
+  const spinBody = new THREE.Vector3();
+  const spinLocal = new THREE.Vector3();
+  const spinTurn = new THREE.Quaternion();
+  function spinAxis(spear) {
+    if (!bodyGuard) return SPIN_AXIS;
+    spear.parent.getWorldQuaternion(spinTurn).multiply(spear.quaternion); // la lanza en el mundo, sin el giro
+    spear.parent.localToWorld(spinWorld.copy(spear.position));
+    bodyGuard.from.getWorldPosition(spinBody);
+    spinLocal.subVectors(spinBody, spinWorld).setY(0);
+    if (spinLocal.lengthSq() < 1e-6) return SPIN_AXIS;
+    spinLocal.applyQuaternion(spinTurn.invert()); // al sistema de la lanza
+    spinLocal.y = 0; // perpendicular al palo, o no voltea entero
+    if (spinLocal.lengthSq() < 1e-6) return SPIN_AXIS;
+    return spinLocal.normalize();
   }
 
   // Una pasada: devuelve si ha tenido que girarlo.
@@ -821,7 +815,7 @@ export function spawnPiece(kit) {
     const radius = bodyGuard.radius * figure.getWorldScale(boneScale).x;
     const lejos = onShaft.distanceTo(onBody);
     if (lejos >= radius) return false;
-    spearBone.getWorldPosition(gripAt); // el puño
+    spearBone.localToWorld(gripAt.copy(spearGripAt)); // el agarre (en el peón, el centro del puño): el palo no sale de la mano
     if (onShaft.distanceTo(gripAt) < radius * 0.5) return false; // cruza por el mismo puño: girar no lo arregla
     // Hacia fuera del eje; si el palo lo corta justo, hacia la derecha de la figura.
     pushOut.subVectors(onShaft, onBody);
@@ -1225,6 +1219,7 @@ export function spawnPiece(kit) {
   function update(dt) {
     if (frozen) return;
     restoreBones();
+    restoreFist();
     mixer.update(dt);
     if (dt > 0) {
       // Lo andado en este fotograma, que es de donde sale tanto la velocidad como el vuelo de la
@@ -1272,7 +1267,7 @@ export function spawnPiece(kit) {
     // El molinete va al final y por la derecha, que es componer en el sistema del PROPIO palo: así
     // da igual que el palo esté siguiendo a la mano (el peón) o puesto en una postura (el rey), y
     // como el origen de un palo está en su agarre, las vueltas salen alrededor del puño.
-    if (spearSpin) spear.quaternion.multiply(spinQuaternion.setFromAxisAngle(SPIN_AXIS, spearSpin));
+    if (spearSpin) spear.quaternion.multiply(spinQuaternion.setFromAxisAngle(spinAxis(spear), spearSpin));
     // El combate puede pedir que la lanza resbale hacia el regatón (para no atravesar al
     // rival) y, si un extremo se hunde en la peana o en el tablero, resbala hacia arriba.
     const gripStep = GRIP_SPEED * dt;
@@ -1286,10 +1281,7 @@ export function spawnPiece(kit) {
     // Volteando, el báculo se sale del suelo media vuelta de cada vuelta: dejarlo resbalar para que
     // no lo atraviese lo haría correr por dentro del puño en cada giro, que es justo lo que NO se
     // quiere ver. Mientras voltea, atraviesa lo que haga falta.
-    if (spearSpin) {
-      keepSpinOffBody(spear);
-      return;
-    }
+    if (spearSpin) return;
     spear.localToWorld(top.set(0, spearEnds.top, 0));
     spear.localToWorld(bottom.set(0, spearEnds.bottom, 0));
     const slide = slideAboveFloor({
@@ -1302,6 +1294,53 @@ export function spawnPiece(kit) {
       spear.position.addScaledVector(axis, slide / spear.parent.getWorldScale(boneScale).x);
     }
     keepSpearOffBody(spear);
+    alignFist(spear);
+  }
+
+  // EL PUÑO SIGUE AL PALO (`gripSpearFist`). El guante ya está cerrado en un puño; cada fotograma se le gira
+  // la muñeca lo justo para que el hueco del puño quede a lo largo de la lanza, esté como esté (en la mano,
+  // erguida o en plena estocada), y la lanza se queda donde estaba. Al voltearla (el molinete) no: la
+  // muñeca seguiría a las vueltas.
+  let fistTunnel = null; // el eje del hueco del puño, en el sistema del hueso de la mano
+  // Cómo dejó la animación la muñeca antes de girarla, para devolverla al empezar el fotograma siguiente
+  // (`restoreFist`): el mezclador de animaciones solo reescribe un hueso si su valor cambia, y con la mano
+  // quieta el giro se iba sumando fotograma a fotograma (es lo mismo que hace `restoreBones`).
+  const fistBase = new THREE.Quaternion();
+  let fistApplied = false;
+  function restoreFist() {
+    if (!fistApplied) return;
+    spearBone.quaternion.copy(fistBase);
+    fistApplied = false;
+  }
+  const FIST_TURN_MAX = THREE.MathUtils.degToRad(120); // la muñeca no gira más de esto
+  const fistAxis = new THREE.Vector3();
+  const fistShaft = new THREE.Vector3();
+  const fistTurn = new THREE.Quaternion();
+  const fistHand = new THREE.Quaternion();
+  const fistParent = new THREE.Quaternion();
+  const fistSpear = new THREE.Quaternion();
+  function alignFist(spear) {
+    if (!fistTunnel || spearSpin || planted || flying || spear.parent !== spearBone) return;
+    spear.getWorldQuaternion(fistSpear);
+    fistShaft.set(0, 1, 0).applyQuaternion(fistSpear);
+    spearBone.getWorldQuaternion(fistHand);
+    fistAxis.copy(fistTunnel).applyQuaternion(fistHand);
+    if (fistAxis.dot(fistShaft) < 0) fistShaft.negate();
+    fistTurn.setFromUnitVectors(fistAxis, fistShaft);
+    const angulo = 2 * Math.acos(Math.min(1, Math.abs(fistTurn.w)));
+    if (angulo < 1e-4) return;
+    if (angulo > FIST_TURN_MAX) fistTurn.slerp(fistParent.identity(), 1 - FIST_TURN_MAX / angulo);
+    // La mano, girada en el mundo; la lanza, con el giro de vuelta, para que no se mueva.
+    if (!fistApplied) {
+      fistBase.copy(spearBone.quaternion);
+      fistApplied = true;
+    }
+    spearBone.parent.getWorldQuaternion(fistParent);
+    spearBone.quaternion.copy(fistParent.invert().multiply(fistTurn.multiply(fistHand)));
+    spearBone.updateWorldMatrix(false, false);
+    spearBone.getWorldQuaternion(fistHand);
+    spear.quaternion.copy(fistHand.invert().multiply(fistSpear));
+    spear.updateWorldMatrix(false, false);
   }
 
   return {
@@ -1455,6 +1494,35 @@ export function spawnPiece(kit) {
     throwSpear,
     plantSpear,
     holdSpear,
+    // Cierra el guante en un puño alrededor de la lanza (`fist-mesh.js`), para el peón, que tiene la mano de
+    // una pieza: sin huesos en los dedos, la lanza le iba pegada a la mano abierta (lo vio el usuario). El
+    // doblez se hace una vez en la malla, que comparten todos los peones de ese color; la lanza pasa a ir
+    // por el hueco del puño, y la muñeca la sigue cada fotograma (`alignFist`).
+    gripSpearFist() {
+      if (!props.spear || !spearBone || !spearGripAt) return false;
+      for (let i = 0; i < 4; i++) update(0.3);
+      object.updateMatrixWorld(true);
+      let piel = null;
+      model.traverse((o) => { if (!piel && o.isSkinnedMesh && o.skeleton?.bones.includes(spearBone)) piel = o; });
+      if (!piel) return false;
+      const g = piel.geometry;
+      if (g.userData.puno === undefined) {
+        const escala = spearBone.getWorldScale(new THREE.Vector3()).x || 1;
+        const cuerpo = spearBone.worldToLocal(figure.getWorldPosition(new THREE.Vector3()).setY(spearBone.getWorldPosition(new THREE.Vector3()).y));
+        g.userData.puno = bendFist({
+          mesh: piel,
+          bone: spearBone,
+          shaftRadius: shaftRadius(props.spear) / escala,
+          palmToward: cuerpo.normalize(),
+        });
+      }
+      const puno = g.userData.puno;
+      if (!puno) return false;
+      spearGripAt.copy(puno.center);
+      fistTunnel = puno.tunnel.clone();
+      props.spear.position.copy(spearGripAt);
+      return true;
+    },
     // Cierra la mano sobre el báculo, dedo a dedo. Se pide desde fuera y no al cargar la pieza,
     // porque hasta que no tiene puesta su postura de reposo —con los brazos bajados, que es cosa
     // del juego y no del modelo— la mano no está donde va a estar, y el puño se cerraría sobre el

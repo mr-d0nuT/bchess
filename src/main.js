@@ -1429,6 +1429,8 @@ async function start() {
     // La mano del rey se cierra sobre el báculo lo último: el puño se busca con los brazos ya
     // bajados y la pieza en su casilla, no sobre el modelo recién cargado.
     if (kind === 'king') entry.piece.closeHandOnSpear();
+    // Y la del peón, en un puño alrededor de la lanza (la llevaba pegada a la mano abierta).
+    if (kind === 'pawn') entry.piece.gripSpearFist();
     return entry;
   }
 
