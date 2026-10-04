@@ -446,6 +446,36 @@ export function spawnPiece(kit) {
     return true;
   }
 
+  // Todas las versiones de un movimiento con algunos huesos AMORTIGUADOS: de lo que se apartan de su primer
+  // fotograma, solo les queda `keep` (de 0 a 1). Para que el caballero dé el espadazo erguido: el clip lo
+  // doblaba por la cintura y le agachaba la cabeza (lo vio el usuario), y con el tronco del todo quieto
+  // quedaba de palo.
+  function dampBones(action, test, keep) {
+    const q0 = new THREE.Quaternion();
+    const q = new THREE.Quaternion();
+    variants[action] = (variants[action] ?? []).map((variant) => {
+      const clip = variant.action.getClip().clone();
+      for (const track of clip.tracks) {
+        const bone = track.name.slice(0, track.name.lastIndexOf('.'));
+        if (!test(bone)) continue;
+        const size = track.getValueSize();
+        const values = Float32Array.from(track.values);
+        if (track.name.endsWith('.quaternion') && size === 4) {
+          q0.fromArray(values, 0);
+          for (let i = 0; i < values.length; i += 4) {
+            q.fromArray(values, i);
+            q.copy(q0.clone().slerp(q, keep)).toArray(values, i);
+          }
+        } else {
+          for (let i = size; i < values.length; i++) values[i] = values[i % size] + (values[i] - values[i % size]) * keep;
+        }
+        track.values = values;
+      }
+      clip.name = `${clip.name}:erguido`;
+      return { ...variant, action: mixer.clipAction(clip) };
+    });
+  }
+
   // Todas las versiones de un movimiento, con algunos huesos quietos en el primer fotograma de cada una:
   // el caballero ataca con la espada y el brazo del escudo se queda en guardia, como empieza el golpe.
   function holdBones(action, still) {
@@ -1289,6 +1319,7 @@ export function spawnPiece(kit) {
     has: (action) => Boolean(variants[action]?.length),
     addStillBones,
     holdBones,
+    dampBones,
     // Los pasos que se oyen: qué hacer cuando se posa un pie, y qué huesos son los pies.
     set onStep(fn) {
       onStep = fn ?? null;

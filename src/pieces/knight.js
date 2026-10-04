@@ -16,6 +16,26 @@ const MODELS = 'assets/models/';
 const SEAT_LIFT = 0.06; // de la silla a la cadera del jinete sentado
 const RIDER_LEGS = /^(?:[LR]_(?:Thigh|Calf|Foot|ToeBase)|Hip$|Pelvis$)/; // las piernas del jinete y de dónde cuelgan
 const MOUNTED_STILL = /^L_(Clavicle|Upperarm|Forearm|Hand)|^[LR]_(Thigh|Calf|Foot|ToeBase)/; // quietos celebrando a caballo
+// EL ESPADAZO, ERGUIDO. El tajo de su clip lo doblaba por la cintura y le hundía la cabeza: golpeaba medio
+// agachado (lo vio el usuario). De lo que el tronco, el cuello y la cabeza se apartan del primer fotograma
+// del golpe, solo se queda esto; con el tronco del todo quieto, el tajo quedaba de palo.
+const RIDER_TORSO = /^(Waist|Spine0[12]|NeckTwist0[12]|Head)$/; // de la cintura (de la que cuelga el tronco; las piernas cuelgan de la pelvis) a la cabeza
+const TORSO_KEEP = 0.2;
+// Y el remate del tajo acababa con las rodillas dobladas y la cadera baja: también las piernas y la cadera,
+// pero con algo más de juego, que un tajo sin flexión no tiene brío.
+const RIDER_STANCE = /^(Hip|Pelvis|[LR]_(Thigh|Calf|Foot|ToeBase))$/;
+const STANCE_KEEP = 0.4;
+
+// Lo que se le hace al jinete al crearlo, también al que sirve para medir sus golpes (`measureStrikes`), que
+// así mide los golpes de verdad: el escudo, en guardia mientras ataca con la espada (en sus golpes, el brazo
+// del escudo iba a su aire y pegaba o remataba a escudazos), y el tronco, erguido.
+function riderTweaks(rider) {
+  rider.holdBones('attack', (bone) => SHIELD_ARM.test(bone));
+  rider.dampBones('attack', (bone) => RIDER_TORSO.test(bone), TORSO_KEEP);
+  rider.dampBones('attack', (bone) => RIDER_STANCE.test(bone), STANCE_KEEP);
+  return rider;
+}
+const spawnRider = (kit) => riderTweaks(spawnPiece(kit));
 const HITBOX_RADIUS = 0.45;
 const PENNANT_SCALE = 0.7;
 const PENNANT_BELOW_TIP = 0.3; // del extremo de la lanza al banderín
@@ -411,8 +431,8 @@ export async function loadKnightKit(spec, quality) {
     loader.loadAsync(MODELS + spec.pedestalModel.files[quality.name]),
     spec.pennant ? new THREE.ImageLoader().loadAsync(spec.pennant.texture).catch(() => null) : null,
   ]);
-  rider.strikes = measureStrikes(rider, spawnPiece, { faces: true });
-  rider.body = measureBody(rider, spawnPiece, { actions: RIDER_FAN_ACTIONS });
+  rider.strikes = measureStrikes(rider, spawnRider, { faces: true });
+  rider.body = measureBody(rider, spawnRider, { actions: RIDER_FAN_ACTIONS });
   const hip = measureHip(rider);
 
   // La peana de los peones, ensanchada para que quepa el caballo.
@@ -451,7 +471,7 @@ export function spawnKnight(kit) {
   pedestal.add(kit.pedestal.clone());
   object.add(pedestal);
 
-  const rider = spawnPiece(kit.rider);
+  const rider = spawnRider(kit.rider);
   object.add(rider.object);
   // A caballo celebra alzando la lanza: el brazo del escudo y las piernas no siguen el clip (con los dos
   // brazos arriba, el escudo atravesaba la lanza, y los pies se salían de los estribos).
@@ -459,9 +479,6 @@ export function spawnKnight(kit) {
   // Y sentado, en reposo, con las piernas quietas: el reposo de pie las balancea, y los pies, que se
   // meten en los estribos al sentarse, se salían de ellos a los pocos segundos.
   rider.addStillBones('idleMounted', 'idle', (bone) => RIDER_LEGS.test(bone));
-  // Y ataca con la espada, con el escudo en guardia: en sus golpes (un tajo y dos puñetazos con la
-  // espada en la mano) el brazo del escudo iba a su aire, y pegaba o remataba a escudazos.
-  rider.holdBones('attack', (bone) => SHIELD_ARM.test(bone));
   const horse = kit.horse ? spawnPiece(kit.horse) : null;
   if (horse) object.add(horse.object);
   // Los cascos, a ras de peana: la postura de quieto no deja el caballo a la altura del modelo, así que
