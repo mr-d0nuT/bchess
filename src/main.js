@@ -1385,6 +1385,8 @@ async function start() {
       // Y su lanza no le atraviesa el cuerpo: al atacar le cruzaba el pecho, y al celebrar con ella erguida,
       // agachándose, le salía por la espalda (lo vio el usuario).
       if (kind === 'pawn') piece.guardSpear({ from: 'Hip', to: 'Head', radius: 0.17, over: 0.35 });
+      // Ni el escudo, que en las patadas y al recibir se le metía en el tronco: el hombro aparta el brazo.
+      if (kind === 'pawn') piece.guardShield({ from: 'Hip', to: 'NeckTwist01', arm: 'L_Upperarm', radius: 0.13 });
       // El alfil conjura con la mano libre y el báculo quieto: el clip de lanzar hechizos es para manos
       // vacías, y con el báculo en la derecha lo lanzaba hacia atrás y el fogonazo salía a su espalda.
       if (kind === 'bishop') piece.addStillBones('conjurar', 'attack', (bone) => STAFF_ARM.test(bone), { clip: 'cast_a_spell' });

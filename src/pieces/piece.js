@@ -576,6 +576,60 @@ export function spawnPiece(kit) {
     up: new THREE.Vector3(), trunk: new THREE.Vector3(), low: new THREE.Vector3(), grip: new THREE.Vector3(), at: new THREE.Vector3(),
     world: new THREE.Quaternion(), parent: new THREE.Quaternion(), fix: new THREE.Quaternion(), upright: 0,
   };
+  // QUE EL ESCUDO NO LE ATRAVIESE EL CUERPO. En las patadas y al recibir golpes, el brazo del escudo se queda
+  // en guardia mientras el cuerpo se dobla o gira, y el escudo acababa metido en el tronco (medido: hasta el
+  // eje del cuerpo). Moverlo solo a él lo dejaría flotando lejos del brazo; así que, si se pide
+  // (`guardShield`), cada fotograma se mira el punto del escudo que más se mete en el tronco (de la cadera al
+  // cuello) y el hombro gira el brazo entero hacia fuera lo justo para sacarlo.
+  let shieldGuard = null; // { from, to, radius, arm, points: [puntos del escudo, en su sistema] }
+  const shieldPoint = new THREE.Vector3();
+  const shieldDeep = new THREE.Vector3();
+  const shieldAxis = new THREE.Vector3();
+  const shoulderAt = new THREE.Vector3();
+  const shieldTurn = new THREE.Quaternion();
+  const armParent = new THREE.Quaternion();
+  const SHIELD_GUARD_MAX = 0.9; // radianes que puede girar el brazo en cada pasada, como mucho
+  function keepShieldOffBody() {
+    const shield = props.shield;
+    if (!shieldGuard || !shield || !isOurs(shield)) return;
+    for (let pasada = 0; pasada < 3; pasada++) {
+      shieldGuard.from.getWorldPosition(guardFrom);
+      shieldGuard.to.getWorldPosition(guardTo);
+      shield.updateWorldMatrix(true, false);
+      let depth = 0;
+      for (const local of shieldGuard.points) {
+        shieldPoint.copy(local).applyMatrix4(shield.matrixWorld);
+        // El punto del eje más cercano.
+        axis.subVectors(guardTo, guardFrom);
+        const t = THREE.MathUtils.clamp(segA.subVectors(shieldPoint, guardFrom).dot(axis) / Math.max(1e-9, axis.lengthSq()), 0, 1);
+        segB.copy(guardFrom).addScaledVector(axis, t);
+        const dentro = shieldGuard.radius - shieldPoint.distanceTo(segB);
+        if (dentro > depth) {
+          depth = dentro;
+          shieldDeep.copy(shieldPoint);
+          shieldAxis.copy(segB);
+        }
+      }
+      if (depth <= 0) return;
+      // Hacia fuera del eje (si cae justo en él, hacia la izquierda de la figura, que es su lado).
+      pushOut.subVectors(shieldDeep, shieldAxis);
+      if (pushOut.lengthSq() < 1e-8) pushOut.set(1, 0, 0).applyQuaternion(figure.getWorldQuaternion(shieldTurn));
+      pushOut.normalize();
+      // El giro del hombro que lleva ese punto al borde del cuerpo.
+      shieldGuard.arm.getWorldPosition(shoulderAt);
+      segA.subVectors(shieldDeep, shoulderAt);
+      segR.copy(shieldDeep).addScaledVector(pushOut, depth).sub(shoulderAt);
+      if (segA.lengthSq() < 1e-6 || segR.lengthSq() < 1e-6) return;
+      shieldTurn.setFromUnitVectors(segA.normalize(), segR.normalize());
+      const angulo = 2 * Math.acos(Math.min(1, Math.abs(shieldTurn.w)));
+      if (angulo > SHIELD_GUARD_MAX) shieldTurn.slerp(guardTurn.identity(), 1 - SHIELD_GUARD_MAX / angulo);
+      const arm = shieldGuard.arm;
+      arm.parent.getWorldQuaternion(armParent);
+      arm.quaternion.premultiply(armParent).premultiply(shieldTurn).premultiply(armParent.invert());
+      arm.updateWorldMatrix(false, true);
+    }
+  }
+
   function steadyShield(dt = 0) {
     const shield = props.shield;
     if (!shield || !shieldHold || !trunkLow || !trunkHigh || !isOurs(shield)) return;
@@ -695,6 +749,34 @@ export function spawnPiece(kit) {
   function keepSpearOffBody(spear) {
     if (!bodyGuard || !spearEnds) return;
     if (pushSpearOut(spear)) pushSpearOut(spear);
+  }
+
+  // Mientras voltea (el molinete), girar el palo pelearía con el giro: lo que se aparta del cuerpo es el
+  // PLANO en que voltea, a lo largo de su eje. En la burla del duelo las manos pasan por delante del pecho,
+  // y el palo, volteando, le cruzaba el tronco.
+  const spinAxisWorld = new THREE.Vector3();
+  function keepSpinOffBody(spear) {
+    if (!bodyGuard || !spearEnds) return;
+    spear.updateWorldMatrix(true, false);
+    spear.localToWorld(bottom.set(0, spearEnds.bottom, 0));
+    spear.localToWorld(top.set(0, spearEnds.top, 0));
+    bodyGuard.from.getWorldPosition(guardFrom);
+    bodyGuard.to.getWorldPosition(guardTo);
+    guardTo.addScaledVector(axis.subVectors(guardTo, guardFrom), bodyGuard.over);
+    closestOnSegments(bottom, top, guardFrom, guardTo, onShaft, onBody);
+    const radius = bodyGuard.radius * figure.getWorldScale(boneScale).x;
+    const lejos = onShaft.distanceTo(onBody);
+    if (lejos >= radius) return;
+    pushOut.subVectors(onShaft, onBody);
+    if (pushOut.lengthSq() < 1e-8) pushOut.set(-1, 0, 0).applyQuaternion(figure.getWorldQuaternion(guardTurn));
+    pushOut.normalize();
+    spinAxisWorld.copy(SPIN_AXIS).applyQuaternion(spear.getWorldQuaternion(guardTurn)).normalize();
+    const along = pushOut.dot(spinAxisWorld);
+    if (Math.abs(along) < 0.3) return; // el palo se sale por el propio plano: moverlo de lado no sirve
+    const mueve = Math.min(0.25, (radius - lejos) / Math.abs(along));
+    spear.getWorldPosition(spearAt).addScaledVector(spinAxisWorld, Math.sign(along) * mueve);
+    spear.position.copy(spear.parent.worldToLocal(spearAt));
+    spear.updateWorldMatrix(false, false);
   }
 
   // Una pasada: devuelve si ha tenido que girarlo.
@@ -1133,6 +1215,7 @@ export function spawnPiece(kit) {
     }
     aimSword();
     steadyShield(dt);
+    keepShieldOffBody();
     detectSteps(dt);
     const spear = props.spear;
     if (!spear || !isOurs(spear)) return;
@@ -1173,7 +1256,10 @@ export function spawnPiece(kit) {
     // Volteando, el báculo se sale del suelo media vuelta de cada vuelta: dejarlo resbalar para que
     // no lo atraviese lo haría correr por dentro del puño en cada giro, que es justo lo que NO se
     // quiere ver. Mientras voltea, atraviesa lo que haga falta.
-    if (spearSpin) return;
+    if (spearSpin) {
+      keepSpinOffBody(spear);
+      return;
+    }
     spear.localToWorld(top.set(0, spearEnds.top, 0));
     spear.localToWorld(bottom.set(0, spearEnds.bottom, 0));
     const slide = slideAboveFloor({
@@ -1295,6 +1381,36 @@ export function spawnPiece(kit) {
     // Que la lanza no le atraviese el cuerpo (`keepSpearOffBody`): el eje va del hueso `from` al `to` (y
     // `over` de su largo más arriba), con `radius` de grueso, medido en la figura sin escalar. Con null,
     // nada.
+    // Que el escudo no le atraviese el cuerpo (`keepShieldOffBody`): el tronco va del hueso `from` al `to`,
+    // con `radius` de grueso, y lo que se gira es el brazo `arm`. Con null, nada.
+    guardShield(options) {
+      const shield = props.shield;
+      if (!options || !shield) {
+        shieldGuard = null;
+        return false;
+      }
+      const from = findBone(model, options.from);
+      const to = findBone(model, options.to);
+      const arm = findBone(model, options.arm);
+      if (!from || !to || !arm) {
+        shieldGuard = null;
+        return false;
+      }
+      // Unos cuantos puntos de su malla, en el sistema del escudo: con un puñado basta para saber si se mete.
+      shield.updateWorldMatrix(true, true);
+      const inversa = shield.matrixWorld.clone().invert();
+      const points = [];
+      shield.traverse((o) => {
+        const pos = o.isMesh ? o.geometry?.attributes?.position : null;
+        if (!pos) return;
+        const paso = Math.max(1, Math.floor(pos.count / 200));
+        for (let i = 0; i < pos.count; i += paso) {
+          points.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld).applyMatrix4(inversa));
+        }
+      });
+      shieldGuard = { from, to, arm, radius: options.radius ?? 0.13, points };
+      return true;
+    },
     guardSpear(options) {
       if (!options) {
         bodyGuard = null;
