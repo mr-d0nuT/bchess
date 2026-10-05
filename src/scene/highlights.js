@@ -187,6 +187,19 @@ function dotTexture(paradas) {
 
 const neonMaterial = (map) => new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, toneMapped: false });
 
+// LA JUGADA SEÑALADA (el historial, punto 11): una flecha de luz suave de una casilla a otra que se
+// enciende, se queda un rato y se apaga. Discreta y de otro color que lo demás: no es una pieza elegida
+// ni un sitio al que ir, es una jugada ya hecha.
+const TRAIL_SECONDS = 3.2; // lo que se queda encendida
+const TRAIL_IN = 0.25;
+const TRAIL_OUT = 0.7;
+const TRAIL_OPACITY = 0.85;
+const TRAIL_COLOR = '#ffcf6b';
+const TRAIL_SHAFT = 0.14; // ancho del palo de la flecha, en casillas
+const TRAIL_HEAD = { width: 0.42, length: 0.36 };
+const TRAIL_CLEAR = 0.4; // lo que se aparta de los centros: debajo están las peanas
+const TRAIL_LIFT = 0.008;
+
 export function createHighlights(scene, board) {
   const ringMaterial = new THREE.MeshBasicMaterial({
     map: neonTexture(ARCOIRIS),
@@ -360,11 +373,73 @@ export function createHighlights(scene, board) {
     hoverMaterial.opacity = (HOVER_LOW + (HOVER_HIGH - HOVER_LOW) * latido) * hoverAge;
   }
 
+  // La flecha de una jugada (`trail`): el palo se estira con lo larga que sea; la punta, siempre igual.
+  const trailMaterial = new THREE.MeshBasicMaterial({ color: TRAIL_COLOR, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+  const trailShaft = new THREE.Mesh(new THREE.PlaneGeometry(TRAIL_SHAFT, 1).translate(0, 0.5, 0), trailMaterial);
+  const headShape = new THREE.Shape();
+  headShape.moveTo(-TRAIL_HEAD.width / 2, 0);
+  headShape.lineTo(TRAIL_HEAD.width / 2, 0);
+  headShape.lineTo(0, TRAIL_HEAD.length);
+  headShape.closePath();
+  const trailHead = new THREE.Mesh(new THREE.ShapeGeometry(headShape), trailMaterial);
+  const trail = new THREE.Group();
+  for (const part of [trailShaft, trailHead]) {
+    part.rotation.x = -Math.PI / 2; // tumbadas en el tablero, apuntando hacia +z del grupo
+    part.renderOrder = 1;
+    trail.add(part);
+  }
+  trail.visible = false;
+  scene.add(trail);
+  let trailAge = -1;
+
+  // Señala la jugada de `from` a `to` (casillas), unos segundos.
+  function showTrail(from, to) {
+    const a = board.squareToWorld(from);
+    const b = board.squareToWorld(to);
+    const largo = Math.hypot(b.x - a.x, b.z - a.z);
+    const palo = Math.max(0.05, largo - TRAIL_CLEAR * 2 - TRAIL_HEAD.length);
+    trail.position.set(a.x, TRAIL_LIFT, a.z);
+    trail.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
+    // Tumbado, el «arriba» del plano (+y) queda hacia -z: se le da la vuelta para que apunte a +z.
+    trailShaft.rotation.z = Math.PI;
+    trailHead.rotation.z = Math.PI;
+    trailShaft.scale.set(1, palo, 1);
+    trailShaft.position.z = TRAIL_CLEAR;
+    trailHead.position.z = TRAIL_CLEAR + palo;
+    trail.visible = true;
+    trailAge = 0;
+  }
+
+  function stepTrail(dt) {
+    if (trailAge < 0) return;
+    trailAge += dt;
+    let k = 1;
+    if (trailAge < TRAIL_IN) k = trailAge / TRAIL_IN;
+    else if (trailAge > TRAIL_SECONDS - TRAIL_OUT) k = Math.max(0, (TRAIL_SECONDS - trailAge) / TRAIL_OUT);
+    trailMaterial.opacity = TRAIL_OPACITY * k;
+    if (trailAge >= TRAIL_SECONDS) {
+      trailAge = -1;
+      trail.visible = false;
+    }
+  }
+
   function clear() {
     select(null);
     showMoves([]);
     showCaptures([]);
   }
 
-  return { select, showMoves, showCaptures, hover, pulse, clear, check };
+  return {
+    select,
+    showMoves,
+    showCaptures,
+    hover,
+    pulse(seconds, dt = 0) {
+      stepTrail(dt);
+      pulse(seconds, dt);
+    },
+    clear,
+    check,
+    trail: showTrail,
+  };
 }

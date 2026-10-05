@@ -100,7 +100,11 @@ ganador de su bando, se tapan los ojos…
 
 ## Fase 3 — Comodidad de partida
 
-### 11. Historial y piezas capturadas · S–M
+### 11. Historial y piezas capturadas · S–M · ✔ hecho
+**Hecho (5/10/2026):** botón de lista arriba, que abre un panel plegable (se acuerda de cómo estaba) con
+las jugadas en notación con figuritas en vez de letras (♘f3, ♕xd7+: igual en los siete idiomas) y lo que
+ha comido cada bando con la ventaja de material. Tocar una jugada la señala en el tablero con una flecha
+dorada que se apaga sola.
 **Qué:** un panel plegable con la lista de jugadas y las piezas comidas por cada bando, con la
 ventaja de material (+3, −1…).
 

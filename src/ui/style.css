@@ -418,3 +418,67 @@ html, body {
   animation: latido 1.6s ease-in-out infinite;
 }
 @keyframes latido { 50% { opacity: 0.45; } }
+
+/* EL HISTORIAL (punto 11): las jugadas y lo que ha comido cada bando, en un panel bajo los botones. */
+.historial {
+  position: fixed;
+  top: calc(max(10px, env(safe-area-inset-top)) + 48px);
+  left: max(12px, env(safe-area-inset-left));
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: min(250px, calc(100vw - 24px));
+  max-height: min(46vh, 420px);
+  padding: 9px 10px 8px;
+  border: 1px solid var(--borde-boton);
+  border-radius: 14px;
+  background: rgba(8, 12, 26, 0.8);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  color: var(--tinta);
+  font: 14px/1.35 system-ui, sans-serif;
+}
+.historial[hidden] { display: none; }
+/* En el móvil, el turno va bajo los botones: el panel, debajo de él. */
+@media (max-width: 480px) { .historial { top: calc(max(10px, env(safe-area-inset-top)) + 96px); max-height: 40vh; } }
+.historial-cabeza { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.historial-titulo { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; }
+.historial-cerrar {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font: 18px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.historial-comidas { display: grid; gap: 2px; padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }
+.historial-bando { display: flex; align-items: center; gap: 6px; min-height: 22px; }
+.historial-nombre { min-width: 54px; font-size: 12px; opacity: 0.7; }
+.historial-piezas { flex: 1; font-size: 18px; line-height: 1; letter-spacing: -1px; overflow-wrap: anywhere; }
+.historial-ventaja { font-size: 13px; font-weight: 800; color: #ffd66b; }
+.historial-lista { margin: 0; padding: 0; list-style: none; overflow-y: auto; overscroll-behavior: contain; }
+.historial-fila { display: grid; grid-template-columns: 30px 1fr 1fr; align-items: center; }
+.historial-n { padding-inline-end: 6px; font-size: 12px; text-align: end; opacity: 0.55; }
+.historial-jugada {
+  justify-self: start;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.historial-jugada:hover, .historial-jugada.vista { background: rgba(255, 207, 107, 0.2); }
+.historial-jugada.ultima { color: #ffd66b; font-weight: 700; }
+.historial-jugada.nada { opacity: 0.4; cursor: default; }
+.historial-vacio { margin: 4px 0 2px; font-size: 13px; opacity: 0.6; }
+.historial-fig { font-size: 1.3em; line-height: 1; vertical-align: -0.08em; }
+.historial-piezas .historial-fig { font-size: 1em; }
+#historial[aria-pressed="true"] { border-color: rgba(255, 207, 107, 0.7); color: #ffd66b; }
+/* Con todos los botones a la vista (una online en espera mientras se juega otra), en un móvil estrecho
+   no cabían: más juntos. */
+@media (max-width: 400px) { #botones { gap: 5px; } }

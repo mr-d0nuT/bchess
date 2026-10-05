@@ -35,6 +35,7 @@ import { cleanName } from './names.js';
 import { createMenu, levelName, timeLabel } from './ui/menu.js';
 import { createMatchUi } from './ui/match-ui.js';
 import { createChessClockUi } from './ui/chess-clock.js';
+import { createHistoryUi } from './ui/history-ui.js';
 import { createChessClock, findTimeControl } from './chess/timecontrol.js';
 import { SAVE_KEY, clockOnResume, packGame, readSavedGame } from './chess/saved-game.js';
 import { initLanguage, onLanguage, t } from './i18n.js';
@@ -406,6 +407,11 @@ async function start() {
   }
   const ui = createMatchUi();
   const clockUi = createChessClockUi(document.getElementById('hud'));
+  // Las jugadas y lo comido (punto 11): tocar una la señala en el tablero con una flecha.
+  const historial = createHistoryUi({
+    button: document.getElementById('historial'),
+    onPoint: ({ from, to }) => highlights.trail(from, to),
+  });
   const controlName = () => (game.control ? `${t(`tiempo.${game.control.key.split(':')[0]}`)} · ${timeLabel(game.control)}` : '');
   onLanguage(() => {
     ui.refresh();
@@ -476,6 +482,7 @@ async function start() {
     preguntaRendirse = setTimeout(() => resignButton.classList.remove('confirma'), 3500);
   });
   function paintViewButtons() {
+    historial.show(state.phase === 'playing' || state.phase === 'over');
     const quieta = !state.fighting && !view.moving;
     if (flipButton && flipButton.disabled !== !quieta) flipButton.disabled = !quieta;
     if (undoButton) {
@@ -1523,6 +1530,7 @@ async function start() {
   }
 
   function paintTurn() {
+    historial.set(game.start, game.moves);
     ui.turn({ side: game.position.side, mode: game.mode, human: game.human, thinking: game.thinking, hidden: state.phase !== 'playing', press: game.press, nombres: game.nombres });
   }
 
