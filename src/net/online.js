@@ -9,7 +9,9 @@ import { cleanName } from '../names.js';
 // - EL BUS: se conecta a varios brokers a la vez y publica en todos; lo que llega repetido se descarta. Si
 //   uno se cae o no contesta, bastan los otros; y dos jugadores se encuentran mientras compartan uno. El
 //   primero va por el puerto 443, el de las webs, que pasa por cualquier red (los otros van por puertos
-//   propios, y hay wifis que los cierran). Si se corta (el móvil en segundo plano), vuelve a conectar solo.
+//   propios, y hay wifis que los cierran). Si se corta (el móvil en segundo plano), vuelve a conectar solo;
+//   una conexión callada se da por muerta, al volver al primer plano se comprueba ya (`revive`), y lo que se
+//   publicó sin conexión sale al reconectar.
 // - EL EMPAREJAMIENTO: quien busca rival lo anuncia en la sala común cada dos segundos («seek»). Al ver a
 //   otro, el de identificador MENOR le hace una oferta en su buzón (así no se la hacen los dos a la vez);
 //   el otro la acepta y el primero confirma («go»). Tres pasos y no dos: si mientras tanto alguno se ha
@@ -20,9 +22,14 @@ import { cleanName } from '../names.js';
 //   uno en concreto: el reto le llega a su buzón, lo acepta o lo rechaza, y quien retó confirma (los mismos
 //   tres pasos que el emparejamiento, con mensajes propios para no cruzarse con él). Un reto caduca al
 //   minuto.
-// - LA PARTIDA: cada uno publica sus jugadas en el tema de la partida, numeradas. Cada cuatro segundos,
-//   un latido con cuántas jugadas lleva: si uno se ha perdido alguna (un corte), el otro le manda la lista
-//   entera. Sin latidos del rival en un rato, se avisa de que se ha perdido la conexión.
+// - LA PARTIDA, en su tema (`…/g/<partida>`), con mensajes que se comprueban antes de usarlos:
+//   · «move» {n, uci}: cada uno publica su jugada, numerada, en cuanto la hace (antes de animarla).
+//   · «press» {side, n, white, black}: tras animarla, lo que marca su reloj; el suyo manda sobre el mío.
+//   · «ping» {n}: cada cuatro segundos, cuántas jugadas conoce (las hechas, la que anima y las del rival que
+//     ya le han llegado). Quien tiene más le manda la lista entera («sync»); quien tiene menos la pide
+//     («want»). Así se recupera lo que se pierde en un corte.
+//   · «resign»: se rinde; «bye»: se va al acabar. Y en mi buzón, «cancel»: el rival no llegó a empezarla.
+//   Sin noticias del rival en un rato, se avisa de que se ha perdido la conexión; en más, se da por ido.
 
 // Usuario y contraseña de shiftr.io: los públicos de su instancia de pruebas, que son de su documentación.
 export const BROKERS = [
@@ -682,9 +689,10 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
 }
 
 // ---- La partida ----
-// `moves()`: las jugadas que llevo (para el latido y para poner al día al rival). Eventos (`on`): 'move'
-// ({ n, uci }), 'press' ({ side, n, white, black }), 'sync' ({ moves }), 'resign', 'bye', 'lost', 'back', 'gone',
-// 'cancel' (el rival no llegó a empezar: se había emparejado con otro).
+// `moves()`: las jugadas que conozco (`partida.js`, `conocidas`): las que cuento en el latido y las que mando
+// para poner al día al rival. Eventos (`on`), solo con lo que el rival dice con sentido: 'move' ({ n, uci }),
+// 'press' ({ side, n, white, black }), 'sync' ({ moves }), 'resign', 'bye', 'lost' (calla), 'back' (vuelve),
+// 'gone' (calla demasiado) y 'cancel' (no llegó a empezar: se había emparejado con otro).
 export function createSession({ bus, me, game, opponent, white, moves, now = Date.now, timers = TIMERS }) {
   const topic = gameTopic(game);
   const oyentes = new Map();
@@ -851,7 +859,7 @@ export function createOnline({ urls = BROKERS } = {}) {
       if (!info) return null;
       return { info, color: info.white === me ? 'white' : 'black', time: info.time, opponentName: info.opponentName ?? '' };
     },
-    // La sesión de la partida emparejada; `moves()` da las jugadas que lleva el juego.
+    // La sesión de la partida emparejada; `moves()` da las jugadas que conoce el juego (`createSession`).
     session(info, moves) {
       return createSession({ bus: getBus(), me, game: info.game, opponent: info.opponent, white: info.white, moves });
     },
