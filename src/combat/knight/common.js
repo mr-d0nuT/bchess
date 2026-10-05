@@ -195,8 +195,9 @@ export async function victoryLap({ entry, clock, cinema, obstacles = [], move })
 // cara (lo vio el usuario). Así queda entera por encima del puño, que es como se alza una lanza.
 const RAISED_GRIP = -0.42;
 
-export async function celebrate(entry, clock) {
-  grita(entry, 'victoria'); // ¡yahoo!, ¡woohoo!… o, las negras, una risa de villano
+// `shout`: si lo grita (en el jaque mate lo celebran todas a la vez, y gritan solo unas pocas).
+export async function celebrate(entry, clock, { shout = true } = {}) {
+  if (shout) grita(entry, 'victoria'); // ¡yahoo!, ¡woohoo!… o, las negras, una risa de villano
   const fighter = fighterOf(entry);
   const lanza = Boolean(fighter.props?.spear);
   if (lanza) {

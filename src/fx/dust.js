@@ -25,8 +25,9 @@ function texture() {
 export function createDust(scene) {
   const active = [];
 
-  // `color` tiñe la nube: la de un agujero en la madera es parda y oscura, no blanca de dibujos.
-  function puff(position, { count = 9, radius = 0.45, duration = 0.4, color = null } = {}) {
+  // `color` tiñe la nube: la de un agujero en la madera es parda y oscura, no blanca de dibujos. `size`
+  // la encoge o la agranda: la de unas rodillas contra la peana, vista de cerca, es una nubecilla.
+  function puff(position, { count = 9, radius = 0.45, duration = 0.4, color = null, size = 1 } = {}) {
     for (let i = 0; i < count; i++) {
       const material = new THREE.SpriteMaterial({ map: texture(), transparent: true, depthWrite: false });
       if (color) material.color.set(color);
@@ -35,15 +36,15 @@ export function createDust(scene) {
       const distance = radius * (0.35 + Math.random() * 0.4);
       sprite.position.set(
         position.x + Math.cos(angle) * distance,
-        position.y + 0.1 + Math.random() * 0.25,
+        position.y + (0.1 + Math.random() * 0.25) * size,
         position.z + Math.sin(angle) * distance,
       );
       sprite.userData = {
         age: 0,
         duration: duration * (0.8 + Math.random() * 0.4),
-        from: 0.25 + Math.random() * 0.15,
-        to: 0.7 + Math.random() * 0.35,
-        drift: new THREE.Vector3(Math.cos(angle) * 0.6, 0.5 + Math.random() * 0.3, Math.sin(angle) * 0.6),
+        from: (0.25 + Math.random() * 0.15) * size,
+        to: (0.7 + Math.random() * 0.35) * size,
+        drift: new THREE.Vector3(Math.cos(angle) * 0.6, 0.5 + Math.random() * 0.3, Math.sin(angle) * 0.6).multiplyScalar(size),
       };
       sprite.scale.setScalar(sprite.userData.from);
       scene.add(sprite);

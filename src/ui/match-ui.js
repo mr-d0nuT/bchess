@@ -102,7 +102,8 @@ export function createMatchUi(root = document.getElementById('hud')) {
 
     // El final. `status`: el de `Position.status()` o 'time' (se le acabó el tiempo a `flagged`);
     // `winner`, el color que gana (o null si son tablas). Devuelve 'rematch' o 'menu'.
-    gameOver({ status, winner, mode, human, flagged = null, nombres = {} }) {
+    // `escena`: detrás está la del jaque mate (el rey de rodillas, el confeti…): el cartel va abajo y deja verla.
+    gameOver({ status, winner, mode, human, flagged = null, nombres = {}, escena = false }) {
       let titulo = t('final.tablas');
       let texto = t(`tablas.${status}`);
       let tipo = 'tablas';
@@ -131,6 +132,7 @@ export function createMatchUi(root = document.getElementById('hud')) {
       revancha.textContent = mode === 'online' ? t('final.otro') : t('final.revancha'); // online, otro rival
       menu.textContent = t('final.menu');
       final.dataset.tipo = tipo;
+      final.classList.toggle('con-escena', escena);
       final.hidden = false;
       final.classList.remove('entra');
       void final.offsetWidth;

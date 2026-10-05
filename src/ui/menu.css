@@ -718,6 +718,12 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
   background: radial-gradient(circle at 50% 45%, rgba(0, 20, 60, 0.55), rgba(0, 0, 0, 0.78));
 }
 .final[hidden], .corona[hidden] { display: none; }
+/* Con la escena del jaque mate detrás: el cartel abajo y un velo ligero, que se vea al rey de rodillas y la fiesta. */
+.final.con-escena {
+  place-items: end center;
+  padding-bottom: max(22px, env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 45%, rgba(0, 0, 0, 0.55));
+}
 .final-caja, .corona-caja {
   position: relative;
   width: min(380px, 100%);

@@ -62,7 +62,14 @@ ve si algo se ha roto.
 
 ## Fase 2 — Espectáculo
 
-### 6. Jaque mate de película · M
+### 6. Jaque mate de película · M · ✔ hecho
+**Hecho (5/10/2026):** golpe de orquesta y la cámara a la cara del rey vencido (lo que lo tape se apaga,
+como en los combates); se le cae el báculo, que vuelca y rebota contra el tablero hacia donde no hay
+piezas, y él cae de rodillas, hundido, respirando hondo. Luego fanfarria (o trombón triste si ha ganado la
+CPU), la cámara sube y lo rodea, llueve confeti de los colores del bando que gana y estallan fuegos
+artificiales; y plano general desde detrás del ejército ganador, que lo celebra: el rey voltea el báculo y
+lo alza, la reina levanta los brazos, los demás hacen su animación de victoria y las torres disparan
+cohetes. El cartel del final sale abajo, con la fiesta detrás; un toque lo saca antes.
 **Qué:** al dar mate, el rey vencido suelta el báculo y cae de rodillas. Las piezas del ganador lo
 celebran, suena una fanfarria, la cámara da una vuelta y caen confeti o chispas del color del bando.
 **Por qué:** ahora el final es un cartel. Es el momento más importante de la partida.

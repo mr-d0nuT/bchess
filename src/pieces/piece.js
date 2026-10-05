@@ -66,6 +66,11 @@ const STEP_ACTIONS = new Set(['walk', 'run', 'trot', 'canter', 'gallop', 'turn']
 const SPEAR_FLIGHT = 0.8; // segundos que tarda en desvanecerse la lanza que sale volando
 const SPEAR_GRAVITY = 6;
 const SPEAR_PLANT_DEPTH = 0.12; // lo que se clava en el tablero la lanza que se deja en el suelo
+// El báculo que se le cae al rey vencido (`dropSpear`).
+const SPEAR_DROP_GRAVITY = 12; // algo más viva que la de verdad: la caída es corta y ha de verse
+const SPEAR_DROP_SPIN = 0.5; // radianes por segundo con los que ya sale volcando
+const SPEAR_DROP_BOUNCE = 0.3; // lo que rebota la cabeza al dar en el tablero
+const SPEAR_DROP_REST = 0.1; // a qué altura del tablero se queda la punta de la cabeza: lo que abulta
 const DEGREES = Math.PI / 180;
 const STRUT_SECONDS = 1.1; // lo que dura un ciclo de contoneo cuando la pieza se desliza sin dar pasos
 
@@ -346,6 +351,7 @@ export function spawnPiece(kit) {
   const armPose = new THREE.Quaternion(); // la estocada a lo largo del antebrazo, en el sistema del modelo
   let forearmBone = null;
   let flying = null; // lanza que ha salido volando: { velocity, axis, age }
+  let dropping = null; // báculo que se ha soltado y cae (`dropSpear`)
   const cuts = []; // acciones de `playOnce` que acaban antes, por `seconds`: { action, at, resolve }
   let planted = false; // lanza clavada en el tablero
   // Giros y escalas que el código impone a algunos huesos encima de la animación (sentarse en la silla,
@@ -959,18 +965,116 @@ export function spawnPiece(kit) {
     const spear = props.spear;
     if (!spear) return;
     flying = null;
+    dropping = null;
     object.attach(spear);
     spear.quaternion.identity();
     spear.position.copy(object.worldToLocal(new THREE.Vector3(at.x, -spearEnds.bottom * spear.scale.y - SPEAR_PLANT_DEPTH, at.z)));
     planted = true;
   }
 
-  // Vuelve a poner la lanza en la mano, como al crear la pieza, aunque estuviera clavada o hubiera
-  // salido volando.
+  // SE LE CAE: el báculo se escapa de la mano, baja hasta dar con el regatón en el suelo (la peana, si cae
+  // encima, o el tablero) y desde ahí vuelca hacia `direction` (horizontal, unitaria) como un palo que se
+  // cae, cada vez más deprisa, hasta que la cabeza da en el tablero y rebota un par de veces. Lo usa el rey
+  // vencido del jaque mate. `onHit(end, strength, at)`: cada golpe contra el suelo (`end`, 'bottom' o
+  // 'top'; `strength` de 0 a 1; `at`, dónde), para el ruido y el polvo.
+  function dropSpear(direction, { onHit = null } = {}) {
+    const spear = props.spear;
+    if (!spear || flying || dropping) return false;
+    planted = false;
+    object.attach(spear);
+    spear.updateMatrixWorld(true);
+    const bottom = spear.localToWorld(new THREE.Vector3(0, spearEnds.bottom, 0));
+    const top = spear.localToWorld(new THREE.Vector3(0, spearEnds.top, 0));
+    const dir = new THREE.Vector3(direction.x, 0, direction.z).normalize();
+    // El suelo bajo el regatón: lo alto de la peana si cae dentro de ella, y si no, el tablero.
+    const base = pedestal.getWorldPosition(new THREE.Vector3());
+    const onPedestal = Math.hypot(bottom.x - base.x, bottom.z - base.z) < kit.radius;
+    dropping = {
+      dir,
+      axis: new THREE.Vector3(dir.z, 0, -dir.x), // girando sobre él, lo de arriba va hacia `dir`
+      pivot: bottom.clone(), // el regatón, que es sobre lo que vuelca
+      shaft: top.clone().sub(bottom), // del regatón a la cabeza, al soltarlo
+      startPosition: spear.position.clone(),
+      startQuaternion: spear.quaternion.clone(),
+      startPivot: bottom.clone(),
+      floor: base.y + (onPedestal ? kit.pedestalHeight : 0),
+      fall: 0, // velocidad de caída (hacia abajo, negativa)
+      angle: 0, // lo que lleva volcado
+      spin: SPEAR_DROP_SPIN, // y lo deprisa que vuelca
+      stage: 'fall',
+      bounces: 0,
+      end: Math.PI / 2,
+      onHit,
+    };
+    return true;
+  }
+
+  // Un fotograma de la caída del báculo (`dropSpear`).
+  const dropTurn = new THREE.Quaternion();
+  const dropShaft = new THREE.Vector3();
+  function dropStep(spear, dt) {
+    const d = dropping;
+    if (d.stage === 'fall') {
+      d.fall -= SPEAR_DROP_GRAVITY * dt;
+      d.pivot.y += d.fall * dt;
+      d.angle += d.spin * dt;
+      if (d.pivot.y <= d.floor) {
+        d.pivot.y = d.floor;
+        d.stage = 'tip';
+        d.end = topTouchAngle(d);
+        d.onHit?.('bottom', Math.min(1, -d.fall / 4), d.pivot.clone());
+      }
+    } else if (d.stage === 'tip') {
+      // Un palo que vuelca sobre una punta: cuanto más inclinado, más deprisa (3g/2L por el seno).
+      const largo = d.shaft.length();
+      dropShaft.copy(d.shaft).applyQuaternion(dropTurn.setFromAxisAngle(d.axis, d.angle));
+      const lean = (dropShaft.x * d.dir.x + dropShaft.z * d.dir.z) / largo;
+      d.spin += ((3 * SPEAR_DROP_GRAVITY) / (2 * largo)) * Math.max(lean, 0.05) * dt;
+      d.angle += d.spin * dt;
+      if (d.angle >= d.end) {
+        d.angle = d.end;
+        const strength = Math.min(1, d.spin / 5);
+        const head = d.pivot.clone().add(dropShaft.copy(d.shaft).applyQuaternion(dropTurn.setFromAxisAngle(d.axis, d.angle)));
+        d.onHit?.('top', strength, head);
+        if (d.bounces < 2 && d.spin > 1) {
+          d.spin *= -SPEAR_DROP_BOUNCE; // rebota
+          d.bounces += 1;
+        } else {
+          d.spin = 0;
+          d.stage = 'rest';
+        }
+      }
+    }
+    // Todo el báculo gira alrededor del regatón: la postura del principio, girada y llevada a donde está.
+    dropTurn.setFromAxisAngle(d.axis, d.angle);
+    spear.quaternion.copy(dropTurn).multiply(d.startQuaternion);
+    dropShaft.copy(d.startPosition).sub(object.worldToLocal(d.startPivot.clone())).applyQuaternion(dropTurn);
+    spear.position.copy(object.worldToLocal(d.pivot.clone())).add(dropShaft);
+  }
+
+  // Cuánto ha de volcar el báculo, sobre su regatón, para que la cabeza toque el tablero.
+  function topTouchAngle(d) {
+    const turn = new THREE.Quaternion();
+    const v = new THREE.Vector3();
+    const reaches = (angle) => d.pivot.y + v.copy(d.shaft).applyQuaternion(turn.setFromAxisAngle(d.axis, angle)).y <= SPEAR_DROP_REST;
+    if (!reaches(Math.PI)) return Math.PI;
+    let lo = 0;
+    let hi = Math.PI;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (reaches(mid)) hi = mid;
+      else lo = mid;
+    }
+    return hi;
+  }
+
+  // Vuelve a poner la lanza en la mano, como al crear la pieza, aunque estuviera clavada, hubiera
+  // salido volando o se le hubiera caído.
   function holdSpear() {
     const spear = props.spear;
     if (!spear) return;
     flying = null;
+    dropping = null;
     planted = false;
     spearBone.add(spear);
     spear.position.copy(spearGripAt);
@@ -994,8 +1098,14 @@ export function spawnPiece(kit) {
   function liftBone(name, lift) {
     const pose = poseOf(name);
     if (!pose) return false;
-    if (lift === null || lift === undefined) pose.lift = null;
-    else pose.lift = typeof lift === 'number' ? { x: 0, y: lift, z: 0 } : { x: lift.x ?? 0, y: lift.y ?? 0, z: lift.z ?? 0 };
+    if (lift === null || lift === undefined) {
+      // A su sitio ya: en las figuras sin animaciones (el rey, la reina) nadie lo devuelve en cada
+      // fotograma, y el hueso se quedaba para siempre donde lo había dejado el último desplazamiento.
+      if (pose.lift !== null && pose.applied) pose.bone.position.copy(pose.basePos);
+      pose.lift = null;
+    } else {
+      pose.lift = typeof lift === 'number' ? { x: 0, y: lift, z: 0 } : { x: lift.x ?? 0, y: lift.y ?? 0, z: lift.z ?? 0 };
+    }
     return true;
   }
 
@@ -1354,6 +1464,10 @@ export function spawnPiece(kit) {
       flySpear(spear, dt);
       return;
     }
+    if (dropping) {
+      dropStep(spear, dt);
+      return;
+    }
     if (planted) return;
     // Con la lanza en la mano, la postura no se ve: la próxima empieza ya en su sitio.
     if (spearBlend <= 0.0001) poseNow.copy(spearPose);
@@ -1456,7 +1570,7 @@ export function spawnPiece(kit) {
     // brazo ni al atacar.
     const enGuardia = currentName === 'idle' || currentName === 'walk' || currentName === 'jump'
       || (currentName === 'fidget' && currentVariant?.key === 'look_around') || Boolean(spearSpin);
-    const quiere = enGuardia && !planted && !flying && props.spear?.visible ? 1 : 0;
+    const quiere = enGuardia && !planted && !flying && !dropping && props.spear?.visible ? 1 : 0;
     const paso = (spearSpin ? STANCE_SNAP : STANCE_RATE) * Math.max(dt, 0); // para el molinete, de golpe: la lanza ya voltea
     stance.w += THREE.MathUtils.clamp(quiere - stance.w, -paso, paso);
     if (dt === 0 && quiere) stance.w = 1; // al nacer, ya en guardia
@@ -1566,7 +1680,7 @@ export function spawnPiece(kit) {
   const fistParent = new THREE.Quaternion();
   const fistSpear = new THREE.Quaternion();
   function alignFist(spear) {
-    if (!fistTunnel || spearSpin || planted || flying || spear.parent !== spearBone) return;
+    if (!fistTunnel || spearSpin || planted || flying || dropping || spear.parent !== spearBone) return;
     spear.getWorldQuaternion(fistSpear);
     fistShaft.set(0, 1, 0).applyQuaternion(fistSpear);
     // Lo que ha resbalado la lanza por el puño, a lo largo de ella: girar la muñeca no lo puede cambiar.
@@ -1790,6 +1904,7 @@ export function spawnPiece(kit) {
     },
     throwSpear,
     plantSpear,
+    dropSpear,
     holdSpear,
     // Cierra el guante en un puño alrededor de la lanza (`fist-mesh.js`), para el peón, que tiene la mano de
     // una pieza: sin huesos en los dedos, la lanza le iba pegada a la mano abierta (lo vio el usuario). El

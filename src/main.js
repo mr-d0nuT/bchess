@@ -16,6 +16,7 @@ import { loadRookKit, spawnRook } from './pieces/rook.js';
 import { loadKnightKit, spawnKnight } from './pieces/knight.js';
 import { createDust } from './fx/dust.js';
 import { createRubble } from './fx/rubble.js';
+import { createConfetti } from './fx/confetti.js';
 import { createDebris } from './pieces/limbs.js';
 import { createBubbles } from './ui/bubble.js';
 import { createMover } from './moves/sequence.js';
@@ -47,6 +48,7 @@ import { createCinema } from './scene/cinema.js';
 import { createView } from './scene/view.js';
 import { createFade } from './scene/fade.js';
 import { createFocus } from './scene/focus.js';
+import { createFinale } from './scene/finale.js';
 import { STYLES, pickStyle } from './combat/plan.js';
 import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
@@ -278,6 +280,29 @@ async function start() {
   const cinema = createCinema(stage, { onShake: (size) => vibra(size), onRestore: () => focus.off() });
   const rubble = createRubble(stage.scene);
   const debris = createDebris(stage.scene);
+  // El jaque mate de película: el rey vencido de rodillas, confeti, fuegos y la cámara dando vueltas.
+  const confetti = createConfetti(stage.scene);
+  // Mientras dura, lo que tape al rey vencido se apaga, como en los combates, y el resto se desenfoca.
+  const finale = createFinale({
+    clock,
+    cinema,
+    camera: stage.camera,
+    confetti,
+    dust,
+    onFocus: (king) => {
+      fade.dim(pieces.filter((entry) => entry !== king).map(describe), { opacity: 1 });
+      fade.watch(() => (pieces.includes(king) ? [describe(king)] : []));
+      focus.on(() => {
+        const p = king.piece.figure.position;
+        return new Vector3(p.x, 1, p.z);
+      });
+    },
+    offFocus: () => {
+      focus.off();
+      fade.watch(null);
+      fade.restore();
+    },
+  });
   // El punto donde enfoca la cámara: el medio de los que siguen en pie (al final, el que ha ganado,
   // que es a quien se le hace el primer plano de la celebración).
   const centerOf = (entries) => {
@@ -395,7 +420,7 @@ async function start() {
       gesture.at = now + nextGestureDelay();
     }
     if (now < gesture.at) return;
-    const candidates = state.busy || state.fighting
+    const candidates = state.busy || state.fighting || finale.playing
       ? []
       : pieces.filter((entry) => (entry.kind === 'pawn' || entry.kind === 'knight') && entry !== state.selected);
     const actor = pickPerformer(candidates, gesture.last);
@@ -487,6 +512,8 @@ async function start() {
     rubble.update(step);
     debris.update(step);
     fx.update(step);
+    confetti.update(step);
+    finale.update(step);
     highlights.pulse(now / 1000, dt);
     fade.update(dt, stage.camera);
     cinema.settle();
@@ -604,9 +631,10 @@ async function start() {
     event.stopPropagation();
     tocaCombate();
   });
-  stage.renderer.domElement.addEventListener('pointerup', () => tocaCombate());
+  // Durante la escena del jaque mate, un toque saca ya el cartel del final.
+  stage.renderer.domElement.addEventListener('pointerup', () => (finale.playing ? finale.hurry() : tocaCombate()));
   window.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' || event.key === 'Enter') tocaCombate();
+    if (event.key === 'Escape' || event.key === 'Enter') (finale.playing ? finale.hurry() : tocaCombate());
   });
   onLanguage(pintaSalto);
 
@@ -1436,10 +1464,13 @@ async function start() {
     if (status === 'resign') winner = (game.mode === 'pvp' ? game.position.side : game.human) === 'white' ? 'black' : 'white';
     const cartel = status === 'checkmate' ? t('cartel.mate') : status === 'time' ? t('cartel.tiempo') : t('cartel.tablas');
     // Y suena el final: fanfarria para quien gana; contra la CPU, si gana ella, trombón triste; tablas, trompetas.
-    sfx.play(!winner ? 'tablas' : (game.mode === 'cpu' || game.mode === 'online') && winner !== game.human ? 'derrota' : 'victoria');
+    // En el mate, cuando empieza la fiesta (`escenaMate`).
+    const fanfarria = !winner ? 'tablas' : (game.mode === 'cpu' || game.mode === 'online') && winner !== game.human ? 'derrota' : 'victoria';
+    const escena = status === 'checkmate' ? escenaMate(winner, fanfarria) : null;
+    if (!escena) sfx.play(fanfarria);
     if (!['abandon', 'rivalResigned', 'resign'].includes(status)) {
       ui.banner(cartel, { tipo: winner ? 'jaque' : 'tablas', ms: 1700 });
-      await new Promise((resolve) => setTimeout(resolve, 1700));
+      await (escena ?? new Promise((resolve) => setTimeout(resolve, 1700)));
     }
     // Online, la partida con ese rival se acaba aquí (y la revancha es buscar otro).
     const eraOnline = game.mode === 'online';
@@ -1449,11 +1480,32 @@ async function start() {
     game.session = null;
     pintaPartidas();
     ponEstado('menu');
-    const que = await ui.gameOver({ status, winner, mode: game.mode, human: game.human, flagged, nombres: game.nombres });
+    const que = await ui.gameOver({ status, winner, mode: game.mode, human: game.human, flagged, nombres: game.nombres, escena: Boolean(escena) });
+    // Fin de la fiesta: el rey, otra vez de pie, y la cámara, para el usuario.
+    if (escena) {
+      finale.undo();
+      await cinema.restore(clock);
+    }
     if (partida) quitaPartida(partida);
     if (que === 'rematch' && eraOnline) await jugarOnline({ time: game.control?.key ?? 'libre:libre' });
     else if (que === 'rematch') await newGame({ mode: game.mode, level: game.level, color: game.color, time: game.control?.key ?? 'libre:libre', nombres: game.nombres });
     else await toMenu();
+  }
+
+  // EL JAQUE MATE DE PELÍCULA (`scene/finale.js`): el rey de `winner` ha dado mate. Devuelve cuándo sacar el
+  // cartel del final, o null si no hay rey vencido en el tablero (una posición de prueba).
+  function escenaMate(winner, fanfare) {
+    const vencido = winner === 'white' ? 'black' : 'white';
+    const king = pieces.find((entry) => entry.kind === 'king' && entry.color === vencido);
+    if (!king) return null;
+    const others = pieces.filter((entry) => entry !== king);
+    return finale.play({
+      king,
+      winners: pieces.filter((entry) => entry.color === winner),
+      others,
+      color: winner,
+      fanfare,
+    });
   }
 
   function paintTurn() {
@@ -2078,6 +2130,7 @@ async function start() {
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
     stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music, view,
+    finale, confetti,
     game, menu, ui, cpu, newGame, playMove, toMenu, setup, settleKnights, empezar,
     // La partida guardada, tal como se continuaría (o null).
     get guardada() {
