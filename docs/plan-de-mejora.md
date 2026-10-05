@@ -36,7 +36,11 @@ instante exacto). Llevará sonidos provisionales hasta que lleguen tus WAV. Func
 que es el más exigente con el sonido.
 **Depende de:** tus WAV para el sonido definitivo; el sistema no los necesita para empezar.
 
-### 3. Carga rápida y juego sin conexión · S–M
+### 3. Carga rápida y juego sin conexión · S–M · ✔ hecho
+**Hecho (5/10/2026):** `sw.js` guarda en el aparato todo lo que la web va pidiendo; desde la segunda
+visita carga al instante y funciona sin cobertura (salvo lo online). El código se pregunta siempre a la
+web por detrás, y si ha cambiado, el menú avisa: «Hay una versión nueva del juego · Actualizar». En
+local solo se activa con `?sw`.
 **Qué:** tras la primera visita, el juego queda guardado en el móvil. Las siguientes veces carga al
 instante y funciona aunque no haya cobertura.
 **Por qué:** hoy baja unos 18 MB de figuras más la música cada vez que el navegador borra su caché.
@@ -89,7 +93,9 @@ ganador de su bando, se tapan los ojos…
 **Qué:** un panel plegable con la lista de jugadas y las piezas comidas por cada bando, con la
 ventaja de material (+3, −1…).
 
-### 12. Rendirse y ofrecer tablas · S
+### 12. Rendirse y ofrecer tablas · S · rendirse ✔ hecho
+**Hecho:** la bandera blanca, en cualquier partida (online, contra la CPU y uno contra uno). Falta
+ofrecer tablas.
 **Qué:** botones en ajustes. Contra la CPU, esta acepta las tablas o no según cómo vaya la partida.
 
 ### 13. Pista · S
@@ -125,7 +131,10 @@ que el móvil no se caliente.
 cada mejora sea más segura. No cambia nada que se vea; se puede ir haciendo por dentro de otros
 puntos.
 
-### 20. Jugar por internet · L
+### 20. Jugar por internet · L · ✔ hecho (sin servidor)
+**Hecho (4-5/10/2026):** por brokers MQTT públicos y gratuitos, sin servidor propio: emparejamiento al
+azar, sala con quién hay conectado (buscador y retos directos), nombres, rendirse y varias partidas a la
+vez, en espera.
 **Qué:** partida con un amigo a distancia mediante un enlace de invitación. Necesita un pequeño
 servidor que conecte a los dos jugadores.
 

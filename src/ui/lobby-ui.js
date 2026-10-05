@@ -301,14 +301,15 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
       if (!root.hidden) pintaPartidas();
     },
     // Un aviso arriba (el rival ha movido en una partida en espera, o se ha acabado), con un botón.
-    notify({ texto, boton, accion }) {
+    // `dura`: lo que se queda (en ms; 0, hasta que se toque). `icono`: el dibujo de la izquierda.
+    notify({ texto, boton, accion, dura = 8000, icono: dibujo = '♞' }) {
       const el = document.createElement('div');
       el.className = 'reto aviso';
       el.setAttribute('role', 'status');
       const icono = document.createElement('span');
       icono.className = 'reto-icono';
       icono.setAttribute('aria-hidden', 'true');
-      icono.textContent = '♞';
+      icono.textContent = dibujo;
       const textos = document.createElement('span');
       textos.className = 'reto-textos';
       const b = document.createElement('b');
@@ -330,12 +331,14 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
         });
         el.append(ver);
       }
-      const barra = document.createElement('span');
-      barra.className = 'reto-tiempo';
-      barra.style.setProperty('--dura', '8s');
-      el.append(barra);
+      if (dura > 0) {
+        const barra = document.createElement('span');
+        barra.className = 'reto-tiempo';
+        barra.style.setProperty('--dura', `${dura / 1000}s`);
+        el.append(barra);
+        setTimeout(quita, dura);
+      }
       retosCaja.append(el);
-      setTimeout(quita, 8000);
     },
     // El nombre con el que se aparece en la sala.
     setName(nombre) {

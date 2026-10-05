@@ -52,6 +52,8 @@ const TIMERS = {
   stop: (h) => clearInterval(h),
 };
 
+const RETRY_MAX = 60000; // lo más que se espera para volver a probar un broker que no contesta
+
 export const randomId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
 // ---- El bus: varios brokers como si fueran uno ----
@@ -79,8 +81,11 @@ export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, c
     for (const fn of oyentes) fn(topic, msg);
   }
 
+  // Si no contesta, se vuelve a probar, cada vez esperando el doble (hasta un minuto): hay redes que cierran
+  // los puertos de algunos brokers, y probar cada dos segundos para siempre solo gasta batería.
   async function engancha(broker) {
     const { url, username = null, password = null } = typeof broker === 'string' ? { url: broker } : broker;
+    let espera = retry;
     while (!cerrado) {
       try {
         const c = await connect(url, { clientId: `${clientId}-${urls.indexOf(broker)}`, username, password });
@@ -88,15 +93,17 @@ export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, c
           c.close();
           return;
         }
+        espera = retry;
         clientes.set(url, c);
         c.onMessage(recibe);
         for (const t of temas) c.subscribe(t);
         await new Promise((resolve) => c.onClose(resolve));
         clientes.delete(url);
       } catch {
-        // no contesta: se vuelve a probar
+        // no contesta: se vuelve a probar, más tarde
       }
-      if (!cerrado) await new Promise((resolve) => setTimeout(resolve, retry));
+      if (!cerrado) await new Promise((resolve) => setTimeout(resolve, espera));
+      espera = Math.min(espera * 2, RETRY_MAX);
     }
   }
 

@@ -60,6 +60,16 @@ import { pawnThrowsBomb } from './combat/pawn-bomb.js';
 // piensa en su propio hilo (`chess/cpu.js`); uno contra uno, el tablero se da la vuelta en cada turno
 // para que cada jugador lo vea desde su lado.
 
+// El aviso de versión nueva de lo guardado en el aparato (`sw.js`): se escucha desde el principio, porque
+// puede llegar antes de que el juego acabe de cargar (y lo que llega sin nadie escuchando se pierde).
+let versionNueva = false;
+const alHaberVersion = new Set();
+navigator.serviceWorker?.addEventListener('message', (event) => {
+  if (event.data?.tipo !== 'nueva-version') return;
+  versionNueva = true;
+  for (const fn of alHaberVersion) fn();
+});
+
 const SIDES = [
   { color: 'white', pawn: 'white-pawn', rook: 'white-rook', knight: 'white-knight', bishop: 'white-bishop', queen: 'white-queen', king: 'white-king', pawnRank: 2, backRank: 1 },
   { color: 'black', pawn: 'black-pawn', rook: 'black-rook', knight: 'black-knight', bishop: 'black-bishop', queen: 'black-queen', king: 'black-king', pawnRank: 7, backRank: 8 },
@@ -336,6 +346,24 @@ async function start() {
     // Desde el menú, como JUGAR con «Online»; a mitad de partida, la búsqueda directamente.
     onQuick: () => menu.answer({ ...menu.choice, mode: 'online' }) || jugarOnline({ time: menu.choice.time }),
   });
+  // LA WEB, GUARDADA EN EL MÓVIL (`sw.js`, punto 3 del plan de mejora): carga al instante, funciona sin
+  // conexión y avisa cuando hay versión nueva. En la web publicada; en local, solo con `?sw` (si no, al
+  // programar se vería lo guardado y no lo último). El aviso, en el menú: actualizar recarga la página, y a
+  // media partida la cortaría.
+  function avisaVersion() {
+    if (!versionNueva || state.phase !== 'menu') return;
+    versionNueva = false;
+    salaUi.notify({ texto: t('version.nueva'), boton: t('version.actualizar'), accion: () => location.reload(), dura: 0, icono: '✨' });
+  }
+  alHaberVersion.add(avisaVersion);
+  const local = /^(localhost|127\.|\[::1\])/.test(location.hostname);
+  if ('serviceWorker' in navigator && (!local || new URLSearchParams(location.search).has('sw'))) {
+    navigator.serviceWorker.register('sw.js').catch((err) => console.warn('[BChess] Sin guardado en el aparato:', err));
+  } else if ('serviceWorker' in navigator && local) {
+    // En local sin `?sw`, fuera el que se registrara probando (si no, se seguiría viendo lo guardado).
+    navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((reg) => reg.unregister())).catch(() => {});
+  }
+
   function ponMiNombre(nombre) {
     game.miNombre = cleanName(nombre);
     sala.set({ name: game.miNombre });
@@ -1804,7 +1832,9 @@ async function start() {
     select(null);
     music.backToIntro();
     ponEstado('menu');
-    const eleccion = await menu.show({ guardada: resumenGuardada() });
+    const mostrando = menu.show({ guardada: resumenGuardada() });
+    avisaVersion(); // si llegó a media partida, ahora
+    const eleccion = await mostrando;
     music.endIntro();
     await menu.hide(); // y la cámara del menú baja en vuelo hasta la vista de la partida
     await empezar(eleccion);
