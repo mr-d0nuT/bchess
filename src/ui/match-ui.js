@@ -162,6 +162,7 @@ export function createMatchUi(root = document.getElementById('hud')) {
         texto = winner ? t(`final.sintiempo.${flagged}`) : t('tablas.time');
       }
       if (status === 'checkmate') titulo = t('final.mate');
+      if (status === 'anulada') titulo = t('final.anulada'); // online: ya no era la misma partida en los dos lados
       if (status === 'abandon' || status === 'rivalResigned') titulo = t('final.ganas'); // online: el rival se ha ido o se ha rendido
       // Me he rendido (uno contra uno, el que movía: el que no gana).
       if (status === 'resign') titulo = mode === 'pvp' && winner ? t(`final.rinde.${winner === 'white' ? 'black' : 'white'}`) : t('final.rendido');

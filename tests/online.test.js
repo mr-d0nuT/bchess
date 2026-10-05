@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { connectPacket, encodeLength, publishPacket, readPublish, splitPackets, PUBLISH } from '../src/net/mqtt.js';
-import { LOBBY, createBus, createLobby, createMatchmaker, createSession, gameTopic, inbox } from '../src/net/online.js';
+import { LOBBY, createBus, createLobby, createMatchmaker, createSession, gameTopic, huella, inbox } from '../src/net/online.js';
 import { cleanName } from '../src/names.js';
 
 test('la longitud de MQTT va de 7 en 7 bits', () => {
@@ -400,4 +400,81 @@ test('al volver la conexión, la partida da un latido y la sala dice que sigue a
   sesion.leave();
   sala.close();
   assert.equal(estados.size, 0);
+});
+
+// ---- Partidas desincronizadas ----
+
+// La partida de «b2» (negras) contra «a1», con las jugadas que diga `mias`; `dice` habla por el rival.
+function partidaDeB(mias) {
+  const enviados = [];
+  const net = red({ drop: (m) => !enviados.push(m) });
+  const quieto = { every: () => 0, stop: () => {} };
+  const B = createSession({ bus: net.bus('b'), me: 'b2', game: 'a1-b2-x', opponent: 'a1', white: 'a1', moves: () => mias, timers: quieto });
+  const rival = net.bus('a');
+  const dice = (m) => rival.publish(gameTopic('a1-b2-x'), { from: 'a1', ...m });
+  const deB = (k) => enviados.filter((m) => m.from === 'b2' && m.k === k);
+  return { B, dice, deB };
+}
+
+test('la huella de las jugadas es la misma en los dos lados si las listas son iguales', () => {
+  assert.equal(huella(['e2e4', 'e7e5']), huella(['e2e4', 'e7e5']));
+  assert.notEqual(huella(['e2e4', 'e7e5']), huella(['e2e4', 'e7e6']));
+  assert.notEqual(huella(['e2e4']), huella(['e2e4', 'e7e5']));
+  assert.equal(typeof huella([]), 'string');
+});
+
+test('el latido lleva la huella; dos seguidos que no casan anulan la partida (y se le dice al rival), uno suelto no', async () => {
+  const mias = ['e2e4', 'e7e5'];
+  const { B, dice, deB } = partidaDeB(mias);
+  assert.equal(deB('ping')[0].h, huella(mias));
+  let anulada = 0;
+  B.on('desync', () => anulada++);
+  dice({ k: 'ping', n: 2, h: huella(['e2e4', 'e7e6']) }); // una que no casa
+  await espera(10);
+  dice({ k: 'ping', n: 2, h: huella(mias) }); // y luego sí: era de paso
+  await espera(10);
+  dice({ k: 'ping', n: 1, h: huella(['e2e4']) }); // de las que tengo, las suyas: casan
+  dice({ k: 'ping', n: 3, h: 'zz' }); // más que yo: no se puede comparar
+  dice({ k: 'ping', n: 2, h: huella(['e2e4', 'e7e6']) });
+  await espera(10);
+  assert.equal(anulada, 0);
+  dice({ k: 'ping', n: 1, h: huella(['d2d4']) }); // la segunda seguida
+  await espera(10);
+  assert.equal(anulada, 1);
+  assert.equal(deB('bye').length, 1);
+  assert.equal(deB('bye')[0].anulada, true);
+  dice({ k: 'move', n: 2, uci: 'g1f3' }); // ya no se escucha
+  await espera(10);
+  assert.equal(anulada, 1);
+});
+
+test('una lista del rival que no empieza como la mía anula la partida; una vieja, más corta, no', async () => {
+  const { B, dice } = partidaDeB(['e2e4', 'e7e5', 'g1f3']);
+  const listas = [];
+  let anulada = 0;
+  B.on('sync', ({ moves }) => listas.push(moves.length));
+  B.on('desync', () => anulada++);
+  dice({ k: 'sync', moves: ['e2e4'] });
+  dice({ k: 'sync', moves: ['e2e4', 'e7e5', 'g1f3', 'b8c6'] });
+  await espera(10);
+  assert.deepEqual(listas, [1, 4]);
+  assert.equal(anulada, 0);
+  dice({ k: 'sync', moves: ['e2e4', 'e7e6'] });
+  await espera(10);
+  assert.equal(anulada, 1);
+  assert.deepEqual(listas, [1, 4]);
+});
+
+test('si el rival anula la partida, aquí también; y se le pueden volver a pedir las jugadas', async () => {
+  const { B, dice, deB } = partidaDeB([]);
+  B.pide();
+  assert.equal(deB('want').length, 1);
+  let anulada = 0;
+  let adios = 0;
+  B.on('desync', () => anulada++);
+  B.on('bye', () => adios++);
+  dice({ k: 'bye', anulada: true });
+  await espera(10);
+  assert.equal(anulada, 1);
+  assert.equal(adios, 0, 'no es un adiós (ni gana nadie)');
 });

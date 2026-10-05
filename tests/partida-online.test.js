@@ -57,9 +57,9 @@ test('la lista entera del rival completa lo que falta, solo si empieza por lo qu
 test('en espera, lo que llega del rival se juega seguido y se pulsa su reloj; lo que llega desordenado espera su turno', () => {
   const p = createPartidaOnline({ info: info(), yo: 'bbbb', now: 0 }); // yo, negras
   p.recibe(2, 'g1f3'); // la tercera llega antes que la primera
-  assert.deepEqual(p.avanza(1000), { movio: false, status: null });
+  assert.deepEqual(p.avanza(1000), { movio: false, mala: false, status: null });
   p.recibe(0, 'e2e4');
-  assert.deepEqual(p.avanza(5000), { movio: true, status: 'playing' });
+  assert.deepEqual(p.avanza(5000), { movio: true, mala: false, status: 'playing' });
   assert.deepEqual(p.moves, ['e2e4']);
   assert.equal(p.position.side, 'black');
   assert.equal(p.clock.running, 'black', 'su reloj, pulsado: ahora corre el mío');
@@ -67,15 +67,22 @@ test('en espera, lo que llega del rival se juega seguido y se pulsa su reloj; lo
   assert.ok(p.remote.has(2), 'la tercera, después de la mía');
   // La mía (en el tablero) y su respuesta, que ya estaba: se juega al avanzar.
   juega(p, 'e7e5');
-  assert.deepEqual(p.avanza(6000), { movio: true, status: 'playing' });
+  assert.deepEqual(p.avanza(6000), { movio: true, mala: false, status: 'playing' });
   assert.deepEqual(p.moves, ['e2e4', 'e7e5', 'g1f3']);
 });
 
-test('una jugada que no vale aquí no se juega (y lo de detrás espera)', () => {
+test('una jugada del rival que no vale aquí se tira (para que llegue la buena), y a la tercera ya no hay arreglo', () => {
   const p = createPartidaOnline({ info: info(), yo: 'bbbb' });
   p.recibe(0, 'e2e5');
-  assert.deepEqual(p.avanza(0), { movio: false, status: null });
+  assert.deepEqual(p.avanza(0), { movio: false, mala: true, status: null });
   assert.deepEqual(p.moves, []);
+  assert.equal(p.remote.has(0), false, 'fuera: si no, la buena no se guardaba nunca');
+  assert.equal(p.malas, 1);
+  // La buena llega después (en la lista que se le pide) y se juega.
+  assert.equal(p.sincroniza(['e2e4']), 1);
+  assert.deepEqual(p.avanza(0), { movio: true, mala: false, status: 'playing' });
+  assert.equal(p.descarta(5), false);
+  assert.equal(p.descarta(5), true, 'la tercera');
 });
 
 test('el reloj del rival es el que dice él: se pone al hacer su jugada aquí, aunque llegue antes; el mío no lo toca', () => {
@@ -123,4 +130,19 @@ test('en el latido cuentan las jugadas que conozco: las hechas, la que se anima 
   assert.deepEqual(p.conocidas('g1f3'), ['e2e4', 'e7e5', 'g1f3', 'b8c6']);
   assert.deepEqual(p.jugadas('g1f3'), ['e2e4', 'e7e5', 'g1f3']);
   assert.deepEqual(p.moves, ['e2e4', 'e7e5'], 'sin tocar las de verdad');
+});
+
+test('lo que llegó con la partida en el tablero (y se quedó aparcado al cambiar de partida) se juega al ponerla en espera', () => {
+  // Yo, blancas, he movido; mientras buscaba otro rival, su respuesta llegó y se quedó guardada sin jugar.
+  const p = createPartidaOnline({ info: info(), yo: 'aaaa', now: 0 });
+  juega(p, 'e2e4');
+  p.clock.press('white', 3000);
+  p.recibe(1, 'e7e5');
+  p.pulsa({ side: 'black', n: 2, white: 179000, black: 178000 }, 6000);
+  // Al quedar en espera se juega ya, y corre mi reloj (antes seguía corriendo el suyo hasta «ganarle» por tiempo).
+  assert.deepEqual(p.avanza(9000), { movio: true, mala: false, status: 'playing' });
+  assert.deepEqual(p.moves, ['e2e4', 'e7e5']);
+  assert.equal(p.position.side, 'white');
+  assert.equal(p.clock.running, 'white');
+  assert.equal(p.clock.remaining('black', 9000), 178000, 'el suyo, lo que dijo él');
 });

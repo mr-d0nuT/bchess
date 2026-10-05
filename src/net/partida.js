@@ -2,6 +2,9 @@ import { INITIAL_FEN, Position } from '../chess/position.js';
 import { createChessClock, findTimeControl } from '../chess/timecontrol.js';
 import { cleanName } from '../names.js';
 
+// A la tercera jugada del rival que no vale aquí, la partida ya no es la misma en los dos lados: se anula.
+export const MAX_MALAS = 3;
+
 // UNA PARTIDA ONLINE, LAS CUENTAS. Cada partida online es un registro: con quién y con qué color, sus reglas
 // (`Position`), sus jugadas, su reloj y lo que ha llegado del rival y aún no se ha jugado. La del tablero es
 // una de ellas (main.js anima sus piezas); las demás esperan, y lo que llega de su rival se juega aquí, sin
@@ -28,6 +31,7 @@ export function createPartidaOnline({ info, yo, miNombre = '', now = 0 }) {
     moves: [],
     remote: new Map(), // número de jugada → la del rival, llegada y aún sin jugar
     pendingPress: null, // lo que dijo su reloj al pulsar, si llegó antes que su jugada
+    malas: 0, // jugadas suyas que no valían aquí
     acabada: null, // { status, winner, flagged } al acabar
     aviso: false, // ha movido mientras esperaba: se marca en la lista
     session: null, // la de `online.js`, que pone quien la crea
@@ -64,20 +68,35 @@ export function createPartidaOnline({ info, yo, miNombre = '', now = 0 }) {
     },
 
     // En espera (no en el tablero): lo que ha llegado del rival, seguido, se juega en sus reglas y se pulsa su
-    // reloj. Devuelve { movio, status } (el de las reglas tras lo jugado, o null si no ha movido).
+    // reloj. Devuelve { movio, mala, status }: si ha movido, si ha topado con una que no vale (y la ha tirado)
+    // y el estado de las reglas tras lo jugado (null si no ha movido).
     avanza(now) {
       let movio = false;
+      let mala = false;
       while (!p.acabada && p.position.side === p.rival && p.remote.has(p.moves.length)) {
         const uci = p.remote.get(p.moves.length);
         const m = p.position.findUci(uci);
-        if (m === null || m === undefined) break;
+        if (m === null || m === undefined) {
+          p.descarta(p.moves.length);
+          mala = true;
+          break;
+        }
         p.position.make(m);
         p.moves.push(uci);
         p.clock?.press(p.rival, now);
         p.pulsaPendiente(now);
         movio = true;
       }
-      return { movio, status: movio ? p.position.status() : null };
+      return { movio, mala, status: movio ? p.position.status() : null };
+    },
+
+    // Una jugada suya que no vale aquí (rota por el camino, o de una versión con otras reglas): fuera, para que
+    // pueda llegar la buena (se guarda la primera que llega, y si no se tirase, la partida se quedaba colgada para
+    // siempre en «Turno de…»). Devuelve true a la tercera: entonces ya no hay arreglo.
+    descarta(n) {
+      p.remote.delete(n);
+      p.malas += 1;
+      return p.malas >= MAX_MALAS;
     },
 
     // Llega lo que marca su reloj al pulsar tras su jugada `n`: se pone ya si esa jugada está hecha aquí (y

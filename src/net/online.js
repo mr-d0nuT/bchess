@@ -25,10 +25,11 @@ import { cleanName } from '../names.js';
 // - LA PARTIDA, en su tema (`…/g/<partida>`), con mensajes que se comprueban antes de usarlos:
 //   · «move» {n, uci}: cada uno publica su jugada, numerada, en cuanto la hace (antes de animarla).
 //   · «press» {side, n, white, black}: tras animarla, lo que marca su reloj; el suyo manda sobre el mío.
-//   · «ping» {n}: cada cuatro segundos, cuántas jugadas conoce (las hechas, la que anima y las del rival que
-//     ya le han llegado). Quien tiene más le manda la lista entera («sync»); quien tiene menos la pide
-//     («want»). Así se recupera lo que se pierde en un corte.
-//   · «resign»: se rinde; «bye»: se va al acabar. Y en mi buzón, «cancel»: el rival no llegó a empezarla.
+//   · «ping» {n, h}: cada cuatro segundos, cuántas jugadas conoce (las hechas, la que anima y las del rival que
+//     ya le han llegado) y su huella. Quien tiene más le manda la lista entera («sync»); quien tiene menos la
+//     pide («want»). Así se recupera lo que se pierde en un corte. Si las huellas no casan, se anula.
+//   · «resign»: se rinde; «bye»: se va al acabar (con `anulada`, se anula). Y en mi buzón, «cancel»: el rival
+//     no llegó a empezarla.
 //   Sin noticias del rival en un rato, se avisa de que se ha perdido la conexión; en más, se da por ido.
 
 // Usuario y contraseña de shiftr.io: los públicos de su instancia de pruebas, que son de su documentación.
@@ -688,11 +689,30 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
   };
 }
 
+// La huella de una lista de jugadas (FNV-1a de 32 bits): la misma en los dos lados si las listas son iguales.
+// Va en cada latido, para notar que la partida ya no es la misma en los dos lados.
+export function huella(moves) {
+  let h = 0x811c9dc5;
+  for (const ch of moves.join(' ')) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}
+
 // ---- La partida ----
 // `moves()`: las jugadas que conozco (`partida.js`, `conocidas`): las que cuento en el latido y las que mando
 // para poner al día al rival. Eventos (`on`), solo con lo que el rival dice con sentido: 'move' ({ n, uci }),
 // 'press' ({ side, n, white, black }), 'sync' ({ moves }), 'resign', 'bye', 'lost' (calla), 'back' (vuelve),
-// 'gone' (calla demasiado) y 'cancel' (no llegó a empezar: se había emparejado con otro).
+// 'gone' (calla demasiado), 'cancel' (no llegó a empezar: se había emparejado con otro) y 'desync' (la partida
+// ya no es la misma en los dos lados: se anula).
+//
+// DESINCRONIZADA. Antes, si las dos listas de jugadas llegaban a ser distintas, los dos se mandaban la lista
+// cada cuatro segundos para siempre, la partida se quedaba quieta y nadie decía nada. Ahora cada latido lleva
+// la huella de las jugadas que cuenta (`h`): si dos seguidos no casan con las mías (o llega una lista que no
+// empieza como la mía), se anula, y se le dice al rival (un «bye» con `anulada`, que los de antes leen como
+// un adiós). Sin arreglos: haría falta deshacer jugadas en los dos tableros, y con lo que se comprueba ya
+// todo lo que llega, no debería pasar nunca.
 export function createSession({ bus, me, game, opponent, white, moves, now = Date.now, timers = TIMERS }) {
   const topic = gameTopic(game);
   const oyentes = new Map();
@@ -701,18 +721,31 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
   let perdido = false;
   let cerrada = false;
   let supoAlgo = false; // el rival ya ha dicho algo en la partida
+  let distintas = 0; // latidos seguidos con una huella que no casa con mis jugadas
   const emit = (k, data) => {
     for (const fn of oyentes.get(k) ?? []) fn(data);
   };
   const send = (k, data = {}) => {
     if (!cerrada) bus.publish(topic, { ...data, k, from: me });
   };
+  const late = () => {
+    const mias = moves();
+    send('ping', { n: mias.length, h: huella(mias) });
+  };
+  function anula() {
+    send('bye', { anulada: true });
+    cerrar();
+  }
+  function desincronizada() {
+    anula();
+    emit('desync');
+  }
   // Lo que dice el rival, solo si tiene sentido: sus jugadas son las de su color (las pares si lleva blancas),
   // escritas como jugadas y dentro de una partida posible; su reloj, el suyo y con tiempos de verdad. Antes, un
   // `press` con otro bando escribía mi tiempo en el reloj del rival, y una lista sin fin se aceptaba entera.
   function vale(msg) {
     switch (msg.k) {
-      case 'ping': return esEntero(msg.n);
+      case 'ping': return esEntero(msg.n) && (msg.h === undefined || (typeof msg.h === 'string' && msg.h.length <= 16));
       case 'want': case 'resign': case 'bye': return true;
       case 'move': return esEntero(msg.n, MAX_JUGADAS - 1) && msg.n % 2 === (suyo === 'white' ? 0 : 1) && esJugada(msg.uci);
       case 'sync': return Array.isArray(msg.moves) && msg.moves.length <= MAX_JUGADAS && msg.moves.every(esJugada);
@@ -739,6 +772,15 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     }
     if (msg.k === 'ping') {
       const mias = moves();
+      // Su huella, contra las mías hasta donde llega la suya (las que tengo de más aún no las sabe). Una sola
+      // que no casa puede ser de paso; dos seguidas, no.
+      if (typeof msg.h === 'string' && msg.n <= mias.length) {
+        distintas = huella(mias.slice(0, msg.n)) === msg.h ? 0 : distintas + 1;
+        if (distintas >= 2) {
+          desincronizada();
+          return;
+        }
+      }
       if (msg.n < mias.length) send('sync', { moves: mias });
       else if (msg.n > mias.length) send('want');
     } else if (msg.k === 'want') {
@@ -746,9 +788,20 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     } else if (msg.k === 'move') {
       emit('move', { n: msg.n, uci: msg.uci });
     } else if (msg.k === 'sync') {
+      // Hasta donde llegan las dos, han de ser iguales (una lista vieja, más corta, no dice nada nuevo).
+      const mias = moves();
+      for (let i = 0; i < Math.min(mias.length, msg.moves.length); i++) {
+        if (mias[i] !== msg.moves[i]) {
+          desincronizada();
+          return;
+        }
+      }
       emit('sync', { moves: [...msg.moves] });
     } else if (msg.k === 'press') {
       emit('press', { side: msg.side, n: msg.n, white: msg.white, black: msg.black });
+    } else if (msg.k === 'bye' && msg.anulada === true) {
+      cerrar();
+      emit('desync');
     } else if (msg.k === 'resign' || msg.k === 'bye') {
       cerrar();
       emit(msg.k);
@@ -760,7 +813,7 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
   bus.subscribe(topic);
 
   const latido = timers.every(() => {
-    send('ping', { n: moves().length });
+    late();
     if (!perdido && now() - visto > LOST_AFTER) {
       perdido = true;
       emit('lost');
@@ -770,9 +823,9 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       emit('gone');
     }
   }, PING_EVERY);
-  send('ping', { n: moves().length });
+  late();
   // Al volver la conexión, un latido ya: si algo se perdió mientras tanto, se pide en el momento.
-  const offEstado = bus.onEstado?.((estado) => estado === 'conectado' && send('ping', { n: moves().length }));
+  const offEstado = bus.onEstado?.((estado) => estado === 'conectado' && late());
 
   // Se acabó del todo: ni latidos, ni oídos, ni su tema (antes se seguía suscrito a todas las partidas
   // jugadas, y al reconectar se volvían a pedir todas).
@@ -804,6 +857,12 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     press(side, remaining, n) {
       send('press', { side, n, white: remaining.white, black: remaining.black });
     },
+    // Que me mande otra vez sus jugadas (la que llegó no valía aquí).
+    pide() {
+      send('want');
+    },
+    // La partida se anula (ya no es la misma en los dos lados): se le dice al rival y se acaba.
+    anula,
     // Se va: abandona (`resign`) o se marcha sin más (`bye`, al acabar).
     leave(k = 'bye') {
       send(k);
