@@ -39,6 +39,10 @@ export function armsDown(drop = 66) {
   };
 }
 
+// La postura de reposo de los brazos de una figura: bajados, si viene con ellos en cruz (`armDrop`, el rey);
+// si ya le cuelgan (la reina), ninguna: ponerle algo la dejaba con los codos doblados de más.
+export const restPoseOf = (piece) => (piece?.armDrop > 0 ? armsDown(piece.armDrop) : {});
+
 // EL REY. Llama a la tormenta con el báculo en alto y lo clava delante de él contra el tablero (el báculo
 // resbala por el puño hasta el suelo: `setGripSlide`, lo pone quien lo usa).
 //

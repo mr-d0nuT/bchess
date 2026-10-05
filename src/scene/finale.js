@@ -5,8 +5,7 @@ import { celebrate } from '../combat/knight/common.js';
 import { poseTo } from '../combat/royal/royal.js';
 import { FRENA, twirl } from '../combat/twirl.js';
 import { COLORS } from '../fx/confetti.js';
-import { KING, QUEEN, blend } from '../pieces/cast.js';
-import { GAIT_BONES, restArms } from '../pieces/gait.js';
+import { KING, QUEEN, blend, restPoseOf as restPose } from '../pieces/cast.js';
 import { findBone } from '../pieces/bone-names.js';
 import { staffDirection, wideFraming } from './finale-plan.js';
 
@@ -100,12 +99,6 @@ const SHOUTERS = 3; // ni gritan todas: con más de tres voces a la vez, no se e
 
 const easeIn = (t) => t * t;
 const easeOut = (t) => 1 - (1 - t) * (1 - t);
-
-// Los brazos de reposo de una figura que viene con ellos en cruz, con los nombres de hueso de siempre.
-function restPose(piece) {
-  const brazos = restArms(piece.armDrop ?? 0);
-  return Object.fromEntries(Object.entries(brazos).map(([parte, giro]) => [GAIT_BONES[parte], giro]));
-}
 
 // `camera`: la del escenario. `dust`, `confetti`: los efectos. `cinema` y `clock`, los de siempre.
 // `onFocus(king)`: que no lo tape nadie y que el resto se desenfoque; `offFocus()`, al acabar.

@@ -49,6 +49,7 @@ import { createView } from './scene/view.js';
 import { createFade } from './scene/fade.js';
 import { createFocus } from './scene/focus.js';
 import { createFinale } from './scene/finale.js';
+import { createCoronation } from './scene/coronation.js';
 import { STYLES, pickStyle } from './combat/plan.js';
 import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
@@ -282,6 +283,8 @@ async function start() {
   const debris = createDebris(stage.scene);
   // El jaque mate de película: el rey vencido de rodillas, confeti, fuegos y la cámara dando vueltas.
   const confetti = createConfetti(stage.scene);
+  // La coronación de película: columna de luz, el peón sube girando y baja convertido, y hace su pose.
+  const coronation = createCoronation({ scene: stage.scene, camera: stage.camera, cinema, clock, fx, dust, confetti });
   // Mientras dura, lo que tape al rey vencido se apaga, como en los combates, y el resto se desenfoca.
   const finale = createFinale({
     clock,
@@ -883,7 +886,8 @@ async function start() {
         // En la captura al paso, el que come se queda donde estaba el comido: le falta un paso.
         if (actor.mover.square !== plan.to) await conCamara(actor, () => actor.mover.goTo(plan.to));
       } else {
-        await conCamara(actor, () => actor.mover.goTo(plan.to));
+        // Si corona, la cámara se queda cerca: la coronación la toma desde ahí.
+        await conCamara(actor, () => actor.mover.goTo(plan.to, { keepCamera: Boolean(plan.promotion) && actor.kind === 'pawn' }));
       }
       // El enroque: primero el rey y después la torre, que al andar hace que el rey se aparte.
       const torre = plan.castle ? pieceAt(plan.castle.rookFrom) : null;
@@ -891,6 +895,7 @@ async function start() {
       if (plan.promotion) await promote(actor, plan.promotion);
     } catch (err) {
       console.error('[BChess] La jugada no se pudo animar:', err);
+      cinema.reset(); // la cámara, al usuario ya: si no, se quedaba sin poder moverla
     } finally {
       game.animating = false;
     }
@@ -917,23 +922,32 @@ async function start() {
     }
   }
 
-  // El peón que llega al final se convierte: se esfuma entre destellos y en su casilla crece de la
-  // nada la pieza nueva.
+  // El peón que llega al final se convierte (`scene/coronation.js`): sube en una columna de luz, arriba es ya
+  // la pieza elegida, baja a su casilla y hace su pose. Lo que la tape se apaga, como al moverse.
   async function promote(pawn, kind) {
     const square = pawn.mover.square;
-    const at = board.squareToWorld(square);
-    fx.burst(new Vector3(at.x, 0.9, at.z), { size: 1.6, sparks: 30 });
-    sfx.play('corona');
-    fx.updraft(new Vector3(at.x, 0, at.z), { seconds: 1.2, count: 30, color: '#ffe7a0', radius: 0.45, height: 2.2 });
-    await pawn.mover.vanish();
-    removePiece(pawn);
-    const entry = spawnEntry(kind, pawn.color, square);
-    if (!entry) return;
-    const object = entry.piece.object;
-    object.scale.setScalar(0.01);
-    dust.puff(new Vector3(at.x, 0.05, at.z), { count: 14, radius: 0.6, duration: 0.6 });
-    await clock.tween(0.6, (t) => object.scale.setScalar(Math.max(0.01, 1 - (1 - t) ** 3)));
-    object.scale.setScalar(1);
+    let actual = pawn;
+    fade.dim(pieces.filter((other) => other !== pawn).map(describe), { opacity: 1 });
+    fade.watch(() => (pieces.includes(actual) ? [describe(actual)] : []));
+    focus.on(() => {
+      const p = actual.piece.figure.position;
+      return new Vector3(p.x, 1.4, p.z);
+    });
+    try {
+      await coronation.play({
+        pawn,
+        color: pawn.color,
+        swap: () => {
+          removePiece(pawn);
+          actual = spawnEntry(kind, pawn.color, square) ?? pawn;
+          return actual === pawn ? null : actual;
+        },
+      });
+    } finally {
+      focus.off();
+      fade.watch(null);
+      await fade.restore();
+    }
   }
 
   // El tablero ha de decir lo mismo que las reglas. Si una animación se ha torcido, se corrige aquí

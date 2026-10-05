@@ -67,7 +67,9 @@ export function createMover({ piece, board, dust, clock, onBusy = () => {}, rest
     await turnTo(restFacing, 0.35);
   }
 
-  function goTo(target) {
+  // `keepCamera`: al llegar, la cámara no vuelve al usuario, que después viene otra escena (el peón que
+  // corona): ir y volver le daba un tirón, del plano corto al tablero entero y otra vez al plano corto.
+  function goTo(target, { keepCamera = false } = {}) {
     if (target === square) return Promise.resolve(false);
     return exclusive(async () => {
       if (!cinema) return walkOver(target);
@@ -80,7 +82,7 @@ export function createMover({ piece, board, dust, clock, onBusy = () => {}, rest
         await walkOver(target);
       } finally {
         cinema.follow(null);
-        await cinema.restore(clock);
+        if (!keepCamera) await cinema.restore(clock);
       }
     });
   }

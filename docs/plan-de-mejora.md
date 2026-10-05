@@ -74,7 +74,11 @@ cohetes. El cartel del final sale abajo, con la fiesta detrás; un toque lo saca
 celebran, suena una fanfarria, la cámara da una vuelta y caen confeti o chispas del color del bando.
 **Por qué:** ahora el final es un cartel. Es el momento más importante de la partida.
 
-### 7. Coronación espectacular · S–M
+### 7. Coronación espectacular · S–M · ✔ hecho
+**Hecho (5/10/2026):** la cámara se queda cerca del peón al llegar y lo mira desde abajo; brota una columna
+de luz dorada y el peón sube dentro girando cada vez más deprisa, entre chispas; arriba, un fogonazo y ya es
+la pieza elegida, que frena, baja despacio a su casilla mientras la luz se apaga y hace su pose (la reina
+alza los brazos, el alfil y el caballero hacen su victoria, la torre dispara un cohete desde sus almenas).
 **Qué:** el peón que llega al final se eleva en una columna de luz, se transforma en la pieza
 elegida y hace su pose. Hoy desaparece entre chispas y aparece la nueva.
 
