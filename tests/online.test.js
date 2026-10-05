@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { connectPacket, encodeLength, publishPacket, readPublish, splitPackets, PUBLISH } from '../src/net/mqtt.js';
-import { createLobby, createMatchmaker, createSession } from '../src/net/online.js';
+import { LOBBY, createBus, createLobby, createMatchmaker, createSession, gameTopic, inbox } from '../src/net/online.js';
+import { cleanName } from '../src/names.js';
 
 test('la longitud de MQTT va de 7 en 7 bits', () => {
   assert.deepEqual(encodeLength(0), [0]);
@@ -214,4 +215,164 @@ test('un reto sin contestar caduca para los dos', async () => {
   assert.equal(b.invites().length, 0);
   a.close();
   b.close();
+});
+
+// ---- Lo que llega de la red no se cree a ciegas ----
+
+// Un broker de juguete detrás del bus de verdad: lo que se publica llega (más tarde, como por la red) a los
+// clientes suscritos a ese tema, y se apunta en qué tema se ha publicado. `inyecta` publica como lo haría
+// cualquiera desde fuera (un tramposo, por ejemplo).
+function brokerDeJuguete() {
+  const clientes = new Set();
+  const publicados = [];
+  const reparte = (t, texto) => {
+    for (const c of clientes) if (c.temas.has(t)) for (const fn of c.oyentes) setImmediate(() => fn(t, texto));
+  };
+  return {
+    publicados,
+    inyecta: (t, msg) => reparte(t, JSON.stringify(msg)),
+    async connect(url) {
+      const c = { temas: new Set(), oyentes: new Set() };
+      clientes.add(c);
+      return {
+        url,
+        subscribe: (t) => c.temas.add(t),
+        publish: (t, texto) => {
+          publicados.push(t);
+          reparte(t, texto);
+        },
+        onMessage: (fn) => {
+          c.oyentes.add(fn);
+          return () => c.oyentes.delete(fn);
+        },
+        onClose: () => () => {},
+        close: () => clientes.delete(c),
+      };
+    },
+  };
+}
+
+test('un remitente que no es un identificador se tira: nadie acaba publicando en un tema con comodines', async (t) => {
+  const broker = brokerDeJuguete();
+  const bus = createBus({ urls: ['wss://juguete'], clientId: 'prueba', connect: broker.connect });
+  const mm = createMatchmaker({ bus, me: 'aaaa1', time: 'libre:libre', timers: rapido });
+  const sala = createLobby({ bus, me: 'aaaa1', timers: rapido });
+  t.after(() => {
+    mm.stop();
+    sala.close();
+    bus.close();
+  });
+  await espera(80); // conectado y suscrito
+  // «~#» va detrás de «aaaa1»: si contara, se le ofrecería partida en su buzón… «…/p/~#».
+  for (const from of ['~#', 'zz+z', 'a/b', '#', '', 'ZZZZ', null, 42]) {
+    broker.inyecta(LOBBY, { k: 'seek', from, since: 0, time: 'libre:libre', mid: `s${from}` });
+    broker.inyecta(LOBBY, { k: 'here', from, name: 'Trampa', mid: `h${from}` });
+  }
+  broker.inyecta(LOBBY, { from: 'zzzz8', mid: 'sin-k' }); // sin decir qué es
+  broker.inyecta(LOBBY, { k: 'seek', from: 'zzzz9', since: 0, time: { a: 1 }, mid: 'bueno' }); // y uno de verdad
+  await espera(200);
+  assert.ok(broker.publicados.length > 0);
+  assert.deepEqual(broker.publicados.filter((t) => /[+#]/.test(t)), []);
+  assert.equal(mm.seekers(), 1);
+  assert.deepEqual(sala.players().map((p) => p.id), ['zzzz9']);
+});
+
+test('una oferta mal nombrada, con un tercero con blancas o sin ritmo, ni se contesta', async () => {
+  const enviados = [];
+  const net = red({ drop: (m) => !enviados.push(m) });
+  const b = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'libre:libre', timers: rapido });
+  const tramposo = net.bus('t');
+  const malas = [
+    { game: '#' },
+    { game: 'a1-b2-x/#' },
+    { game: 'zz-b2-x' }, // nombrada por otro
+    { game: 'b2-a1-x' }, // al revés
+    { white: 'zz' }, // con blancas, un tercero: los dos creerían llevar negras
+    { time: 'x'.repeat(40) },
+    { time: null },
+  ];
+  for (const m of malas) tramposo.publish(inbox('b2'), { k: 'offer', from: 'a1', game: 'a1-b2-x', white: 'a1', time: 'libre:libre', ...m });
+  await espera(60);
+  assert.equal(b.state, 'seeking');
+  assert.deepEqual(enviados.filter((m) => m.from === 'b2' && m.k !== 'seek'), []);
+  // La buena, sí.
+  tramposo.publish(inbox('b2'), { k: 'offer', from: 'a1', game: 'a1-b2-x', white: 'a1', time: 'blitz:3+2' });
+  await espera(20);
+  assert.equal(b.state, 'accepted');
+  b.stop();
+});
+
+test('un reto mal nombrado, con un tercero con blancas o sin ritmo, no llega', async () => {
+  const net = red();
+  const b = createLobby({ bus: net.bus('b'), me: 'b2', timers: rapido });
+  const retos = [];
+  b.onInvite((r) => retos.push(r));
+  const tramposo = net.bus('t');
+  for (const m of [{ game: '#' }, { game: 'zz-b2-x' }, { white: 'zz' }, { time: 7 }]) {
+    tramposo.publish(inbox('b2'), { k: 'invite', from: 'a1', game: 'a1-b2-x', white: 'a1', time: 'libre:libre', name: 'Ana', ...m });
+  }
+  await espera(40);
+  assert.deepEqual(retos, []);
+  tramposo.publish(inbox('b2'), { k: 'invite', from: 'a1', game: 'a1-b2-x', white: 'b2', time: 'blitz:3+2', name: 'Ana' });
+  await espera(20);
+  assert.deepEqual(b.invites().map((r) => [r.game, r.time]), [['a1-b2-x', 'blitz:3+2']]);
+  b.close();
+});
+
+test('en la partida se ignora lo que no tiene sentido: jugadas del otro color, relojes ajenos, listas sin fin', async () => {
+  const enviados = [];
+  const net = red({ drop: (m) => !enviados.push(m) });
+  const quieto = { every: () => 0, stop: () => {} };
+  // Yo llevo negras: las jugadas del rival son las pares, y su reloj, el de las blancas.
+  const B = createSession({ bus: net.bus('b'), me: 'b2', game: 'a1-b2-x', opponent: 'a1', white: 'a1', moves: () => [], timers: quieto });
+  const llega = [];
+  for (const k of ['move', 'press', 'sync']) B.on(k, (d) => llega.push([k, d]));
+  const rival = net.bus('a');
+  const dice = (m) => rival.publish(gameTopic('a1-b2-x'), { from: 'a1', ...m });
+  dice({ k: 'move', n: 1, uci: 'e7e5' }); // una de las negras: las mías
+  dice({ k: 'move', n: 0, uci: 'e2e4#' });
+  dice({ k: 'move', n: 0, uci: ['e2e4'] });
+  dice({ k: 'move', n: 0.5, uci: 'e2e4' });
+  dice({ k: 'move', n: 600, uci: 'e2e4' });
+  dice({ k: 'press', side: 'x', n: 1, white: 1000, black: 1000 }); // escribía mi tiempo en el suyo
+  dice({ k: 'press', side: 'black', n: 1, white: 1000, black: 1000 }); // mi reloj lo llevo yo
+  dice({ k: 'press', side: 'white', n: 1, white: -5, black: 1000 });
+  dice({ k: 'press', side: 'white', n: 1, white: '9', black: 1000 });
+  dice({ k: 'press', side: 'white', n: 1, white: 1e12, black: 1000 });
+  dice({ k: 'press', side: 'white', n: 'uno', white: 1000, black: 1000 });
+  dice({ k: 'sync', moves: Array(601).fill('e2e4') });
+  dice({ k: 'sync', moves: ['e2e4', 5] });
+  dice({ k: 'sync', moves: 'e2e4' });
+  dice({ k: 'ping', n: 'x' });
+  dice({ k: 'ping', n: 1000 }); // si contara, se le pedirían las jugadas
+  dice({ k: 'nadaqueverl' });
+  await espera(30);
+  assert.deepEqual(llega, []);
+  assert.deepEqual(enviados.filter((m) => m.from === 'b2' && m.k !== 'ping'), []);
+  dice({ k: 'move', n: 0, uci: 'e2e4' });
+  dice({ k: 'press', side: 'white', n: 1, white: 59000, black: 60000, extra: 'fuera' });
+  dice({ k: 'sync', moves: ['e2e4'] });
+  await espera(30);
+  assert.deepEqual(llega, [
+    ['move', { n: 0, uci: 'e2e4' }],
+    ['press', { side: 'white', n: 1, white: 59000, black: 60000 }],
+    ['sync', { moves: ['e2e4'] }],
+  ]);
+  B.leave();
+});
+
+test('la partida escucha su propio buzón: el «cancel» del rival llega aunque no haya sala ni emparejamiento', async () => {
+  const net = red();
+  const quieto = { every: () => 0, stop: () => {} };
+  const B = createSession({ bus: net.bus('b'), me: 'b2', game: 'a1-b2-x', opponent: 'a1', white: 'a1', moves: () => [], timers: quieto });
+  const cancelada = new Promise((resolve) => B.on('cancel', resolve));
+  net.bus('a').publish(inbox('b2'), { k: 'cancel', from: 'a1', game: 'a1-b2-x' });
+  await conPlazo(cancelada, 500);
+});
+
+test('los nombres que llegan de la red no traen caracteres invisibles que den la vuelta al texto', () => {
+  assert.equal(cleanName('Ana\u202Eodag'), 'Anaodag');
+  assert.equal(cleanName('\u2066Bruno\u2069\u200F'), 'Bruno');
+  assert.equal(cleanName('\uFEFFEva\u200B Luz'), 'Eva Luz');
+  assert.equal(cleanName('مرحبا'), 'مرحبا', 'el árabe se queda como está');
 });

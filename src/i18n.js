@@ -622,6 +622,8 @@ const TEXTS = {
     'creditos': 'تحية إلى Battle Chess (Interplay، 1988)', 'escena': 'رقعة شطرنج ثلاثية الأبعاد',
   },
 };
+// (Para las pruebas: que ningún idioma se quede sin un texto, ni con otros huecos.)
+export { TEXTS };
 
 function detect() {
   try {

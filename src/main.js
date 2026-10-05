@@ -1358,6 +1358,9 @@ async function start() {
   const partidas = [];
   const activa = (p) => game.mode === 'online' && game.partida === p;
   const partidasVivas = () => partidas.filter((p) => !p.acabada);
+  // Una partida que ya tengo no se vuelve a empezar: una oferta repetida (o falsa) con su nombre crearía otro
+  // registro de la misma partida, con las jugadas de las dos mezcladas.
+  const yaEsta = (info) => partidas.some((p) => p.id === info.game);
   // Las jugadas que lleva (las del tablero, con la que se está animando).
   const jugadasDe = (p) => (!p ? [] : activa(p) && game.enCurso ? [...p.moves, game.enCurso] : p.moves);
 
@@ -1979,7 +1982,7 @@ async function start() {
     });
     const r = await Promise.race([busca, boton.then(() => null)]);
     if (state.phase !== 'searching') return; // se ha ido al menú por los ajustes: ya está allí
-    if (!r) {
+    if (!r || yaEsta(r.info)) {
       online.cancel();
       if (fase === 'error') await boton; // sin conexión: lo dice y espera al botón
       onlineUi.hide();
@@ -2024,7 +2027,7 @@ async function start() {
 
   // Un reto aceptado (lo he aceptado yo o lo ha aceptado el retado): la partida, venga de donde venga.
   async function empezarReto(info) {
-    if (state.phase === 'starting') return;
+    if (state.phase === 'starting' || yaEsta(info)) return;
     salaUi.clearInvites();
     if (state.phase === 'menu' && menu.answer({ ...menu.choice, mode: 'online', reto: info })) return; // sigue `toMenu`
     if (state.phase === 'searching') online.cancel(); // `jugarOnline` ve que ya no busca y se aparta

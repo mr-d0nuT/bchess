@@ -31,9 +31,27 @@ export const BROKERS = [
   { url: 'wss://broker.hivemq.com:8884/mqtt' },
 ];
 const PREFIX = 'mrdonut-bchess/v1';
-const LOBBY = `${PREFIX}/lobby`;
-const inbox = (id) => `${PREFIX}/p/${id}`;
-const gameTopic = (game) => `${PREFIX}/g/${game}`;
+export const LOBBY = `${PREFIX}/lobby`;
+export const inbox = (id) => `${PREFIX}/p/${id}`;
+export const gameTopic = (game) => `${PREFIX}/g/${game}`;
+
+// LO QUE LLEGA DE LA RED NO SE CREE A CIEGAS: el código es público y cualquiera puede publicar en estos temas.
+// Los identificadores acaban dentro de temas MQTT (`…/p/<id>`, `…/g/<partida>`), y con un «#» o un «+» ahí
+// publicar va contra el protocolo y el broker corta la conexión: un solo «seek» falso con `from: "~#"` hacía
+// que todos los que buscaban rival le ofrecieran partida y los brokers los echaran, una y otra vez.
+const ID = /^[a-z0-9]{1,24}$/; // como los de `randomId`
+const PARTIDA = /^[a-z0-9]{1,24}-[a-z0-9]{1,24}-[a-z0-9]{1,8}$/; // `${quien ofrece}-${a quién}-${suerte}`
+export const UCI = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
+export const MAX_JUGADAS = 600; // ninguna partida de verdad llega a tantas (ni a la mitad)
+const MAX_TIEMPO = 8 * 24 * 3600 * 1000; // lo más que puede marcar un reloj: la diaria de 7 días, y algo
+// (Siempre mirando que sea texto: `RegExp.test` convierte lo que le den, y `undefined` pasaría por un id.)
+export const esId = (s) => typeof s === 'string' && ID.test(s);
+const esJugada = (uci) => typeof uci === 'string' && UCI.test(uci);
+const esRitmo = (time) => typeof time === 'string' && time.length <= 32;
+const esEntero = (n, max = MAX_JUGADAS) => Number.isInteger(n) && n >= 0 && n <= max;
+const esTiempo = (ms) => Number.isFinite(ms) && ms >= 0 && ms <= MAX_TIEMPO;
+// Una partida que me ofrece (o a la que me reta) `de`: la ha nombrado él, con él delante y yo detrás.
+const esPartidaDe = (game, de, para) => typeof game === 'string' && PARTIDA.test(game) && game.startsWith(`${de}-${para}-`);
 
 export const SEEK_EVERY = 2000; // cada cuánto se anuncia quien busca
 const SEEN_FOR = 7000; // un anuncio de hace más de esto ya no cuenta: se ha ido
@@ -74,6 +92,9 @@ export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, c
       return;
     }
     if (!msg || typeof msg !== 'object' || typeof msg.mid !== 'string') return;
+    // Todos los mensajes del juego dicen qué son y de quién: lo demás (o un remitente que no es un
+    // identificador, que acabaría en un tema) se tira aquí, en un solo sitio.
+    if (typeof msg.k !== 'string' || !esId(msg.from)) return;
     if (vistos.has(msg.mid)) return;
     vistos.add(msg.mid);
     orden.push(msg.mid);
@@ -223,7 +244,8 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
     if (state === 'matched' || state === 'stopped' || msg.from === me) return;
     if (topic === LOBBY) {
       if (msg.k === 'seek') {
-        seekers.set(msg.from, { since: msg.since, time: msg.time, seen: now() });
+        // Su reloj puede acabar siendo el de la partida: si no es un ritmo, sin reloj.
+        seekers.set(msg.from, { since: Number.isFinite(msg.since) ? msg.since : now(), time: esRitmo(msg.time) ? msg.time : 'libre:libre', seen: now() });
         tick();
       } else if (msg.k === 'leave') {
         seekers.delete(msg.from);
@@ -232,6 +254,10 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
     }
     if (topic !== inbox(me)) return;
     if (msg.k === 'offer') {
+      // Una oferta de verdad la ha nombrado quien la hace (`${él}-${yo}-…`), juega con blancas uno de los dos
+      // y trae un ritmo. Si no, es falsa o de algo roto: ni se contesta. (Con otro color, los dos creían
+      // llevar las negras; con «#» por partida, uno se suscribía a todas.)
+      if (!esPartidaDe(msg.game, msg.from, me) || (msg.white !== me && msg.white !== msg.from) || !esRitmo(msg.time)) return;
       if (state === 'seeking' || state === 'offering') {
         if (state === 'offering') to(pending.to, { k: 'cancel', game: pending.game });
         pending = null;
@@ -381,13 +407,15 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
     }
     if (topic !== inbox(me) || typeof msg.game !== 'string') return;
     if (msg.k === 'invite') {
+      // Como las ofertas del emparejamiento: nombrada por quien reta, uno de los dos con blancas y un ritmo.
+      if (!esPartidaDe(msg.game, msg.from, me) || (msg.white !== me && msg.white !== msg.from) || !esRitmo(msg.time)) return;
       if (recibidos.has(msg.game) || aceptando.has(msg.game)) return;
       const reto = {
         game: msg.game,
         from: msg.from,
         name: cleanName(msg.name),
-        time: typeof msg.time === 'string' ? msg.time : 'libre:libre',
-        white: msg.white === me ? me : msg.from,
+        time: msg.time,
+        white: msg.white,
         expires: now() + INVITE_FOR,
       };
       reto.plazo = timers.set(() => retira(msg.game), INVITE_FOR);
@@ -540,6 +568,7 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
 export function createSession({ bus, me, game, opponent, white, moves, now = Date.now, timers = TIMERS }) {
   const topic = gameTopic(game);
   const oyentes = new Map();
+  const suyo = white === opponent ? 'white' : 'black'; // el color del rival
   let visto = now();
   let perdido = false;
   let cerrada = false;
@@ -550,6 +579,19 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
   const send = (k, data = {}) => {
     if (!cerrada) bus.publish(topic, { ...data, k, from: me });
   };
+  // Lo que dice el rival, solo si tiene sentido: sus jugadas son las de su color (las pares si lleva blancas),
+  // escritas como jugadas y dentro de una partida posible; su reloj, el suyo y con tiempos de verdad. Antes, un
+  // `press` con otro bando escribía mi tiempo en el reloj del rival, y una lista sin fin se aceptaba entera.
+  function vale(msg) {
+    switch (msg.k) {
+      case 'ping': return esEntero(msg.n);
+      case 'want': case 'resign': case 'bye': return true;
+      case 'move': return esEntero(msg.n, MAX_JUGADAS - 1) && msg.n % 2 === (suyo === 'white' ? 0 : 1) && esJugada(msg.uci);
+      case 'sync': return Array.isArray(msg.moves) && msg.moves.length <= MAX_JUGADAS && msg.moves.every(esJugada);
+      case 'press': return msg.side === suyo && esEntero(msg.n) && esTiempo(msg.white) && esTiempo(msg.black);
+      default: return false;
+    }
+  }
 
   const off = bus.onMessage((t, msg) => {
     if (cerrada || msg.from !== opponent) return;
@@ -560,7 +602,7 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       }
       return;
     }
-    if (t !== topic) return;
+    if (t !== topic || !vale(msg)) return;
     supoAlgo = true;
     visto = now();
     if (perdido) {
@@ -569,21 +611,24 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     }
     if (msg.k === 'ping') {
       const mias = moves();
-      if (typeof msg.n === 'number' && msg.n < mias.length) send('sync', { moves: mias });
-      else if (typeof msg.n === 'number' && msg.n > mias.length) send('want');
+      if (msg.n < mias.length) send('sync', { moves: mias });
+      else if (msg.n > mias.length) send('want');
     } else if (msg.k === 'want') {
       send('sync', { moves: moves() });
-    } else if (msg.k === 'move' && typeof msg.uci === 'string') {
+    } else if (msg.k === 'move') {
       emit('move', { n: msg.n, uci: msg.uci });
-    } else if (msg.k === 'sync' && Array.isArray(msg.moves)) {
-      emit('sync', { moves: msg.moves.filter((m) => typeof m === 'string') });
+    } else if (msg.k === 'sync') {
+      emit('sync', { moves: [...msg.moves] });
     } else if (msg.k === 'press') {
-      emit('press', msg);
+      emit('press', { side: msg.side, n: msg.n, white: msg.white, black: msg.black });
     } else if (msg.k === 'resign' || msg.k === 'bye') {
       cerrar();
       emit(msg.k);
     }
   });
+  // Mi buzón, por mi cuenta: el «cancel» del rival llega ahí, y antes solo se oía si la sala o el
+  // emparejamiento se habían suscrito antes.
+  bus.subscribe(inbox(me));
   bus.subscribe(topic);
 
   const latido = timers.every(() => {
