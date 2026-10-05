@@ -158,6 +158,11 @@
           <span class="modo-titulo" data-i18n="menu.online">Online</span>
           <span class="modo-sub" data-i18n="menu.online.sub">Contra quien sea, por internet</span>
         </button>
+        <!-- La sala (`ui/lobby-ui.js`): cuántos hay conectados; al tocarla, la lista para retar a uno. -->
+        <button id="menu-sala" class="modo-sala" type="button" data-i18n-attr="title:sala.abrir;aria-label:sala.abrir">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c0-3.2 2.5-5.6 5.5-5.6s5.5 2.4 5.5 5.6"/><circle cx="17" cy="9" r="2.5"/><path d="M15.6 13.7c.5-.1 1-.2 1.4-.2 2.5 0 4.5 2 4.5 4.8"/></svg>
+          <span id="menu-sala-n">0</span>
+        </button>
       </div>
       <div class="menu-nombres" role="group" aria-hidden="true" data-i18n-attr="aria-label:menu.nombres">
         <label class="nombre-campo" data-lado="white"><span class="pieza-ico" aria-hidden="true">♔</span><input id="menu-nombre-white" type="text" maxlength="16" autocomplete="off" autocapitalize="words" spellcheck="false" enterkeyhint="done" data-i18n-attr="placeholder:color.white;aria-label:color.white"></label>
@@ -194,6 +199,25 @@
       </div>
     </div>
   </div>
+  <!-- La sala de los que hay online (`ui/lobby-ui.js`): buscar por nombre y retar. -->
+  <div id="sala" class="sala" hidden>
+    <div class="sala-caja" role="dialog" aria-modal="true" aria-labelledby="sala-titulo">
+      <div class="sala-cabecera">
+        <h2 id="sala-titulo" class="sala-titulo" data-i18n="sala.titulo">Jugadores online</h2>
+        <button id="sala-cerrar" class="sala-cerrar" type="button" data-i18n-attr="aria-label:ajustes.cerrar;title:ajustes.cerrar">✕</button>
+      </div>
+      <p id="sala-yo" class="sala-yo"></p>
+      <label class="sala-buscar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg>
+        <input id="sala-filtro" type="search" autocomplete="off" spellcheck="false" enterkeyhint="search" data-i18n-attr="placeholder:sala.buscar;aria-label:sala.buscar">
+      </label>
+      <ul id="sala-lista" class="sala-lista"></ul>
+      <p id="sala-vacia" class="sala-vacia" hidden></p>
+      <button id="sala-azar" class="final-boton principal" type="button" data-i18n="sala.azar">Buscar rival al azar</button>
+    </div>
+  </div>
+  <!-- Los retos que llegan: arriba, encima de todo. -->
+  <div id="retos" class="retos" aria-live="polite"></div>
   <!-- Buscando rival online (`ui/online-ui.js`): un radar, cuántos más buscan y «Cancelar». -->
   <div id="online" class="online" hidden>
     <div class="online-caja" role="dialog" aria-modal="true" aria-labelledby="online-titulo">

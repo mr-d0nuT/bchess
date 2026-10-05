@@ -179,7 +179,8 @@ function createSparks(canvas) {
 
 // `onShow()` y `onHide()`: se avisa al enseñarlo y al esconderlo (la cámara de cine del fondo, que empieza y
 // acaba con él); lo que devuelva `onHide`, se espera.
-export function createMenu({ onShow = null, onHide = null } = {}) {
+// `onChange(eleccion)`: cada vez que se escribe un nombre (la sala online lo enseña a los demás).
+export function createMenu({ onShow = null, onHide = null, onChange = null } = {}) {
   const root = document.getElementById('menu');
   const chispas = createSparks(root.querySelector('#menu-chispas'));
   const modos = [...root.querySelectorAll('.modo')];
@@ -344,7 +345,10 @@ export function createMenu({ onShow = null, onHide = null } = {}) {
     const pon = (valor) => {
       eleccion = { ...eleccion, nombres: { ...(eleccion.nombres ?? POR_DEFECTO.nombres), [lado]: valor } };
     };
-    campo.addEventListener('input', () => pon(campo.value));
+    campo.addEventListener('input', () => {
+      pon(campo.value);
+      onChange?.({ ...eleccion });
+    });
     campo.addEventListener('change', () => {
       campo.value = cleanName(campo.value);
       pon(campo.value);
@@ -422,6 +426,15 @@ export function createMenu({ onShow = null, onHide = null } = {}) {
       root.hidden = true;
       root.classList.remove('sale', 'entra');
       chispas.stop();
+    },
+    // Responde por el usuario, como si hubiera pulsado JUGAR con `value` (un reto aceptado en la sala).
+    answer(value) {
+      if (!responder) return false;
+      const listo = responder;
+      responder = null;
+      guardar(eleccion);
+      listo(value);
+      return true;
     },
     get choice() {
       return { ...eleccion };

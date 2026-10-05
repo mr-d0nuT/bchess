@@ -29,6 +29,7 @@ import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './che
 import { createCpu } from './chess/cpu.js';
 import { createOnline } from './net/online.js';
 import { createOnlineUi } from './ui/online-ui.js';
+import { createLobbyUi } from './ui/lobby-ui.js';
 import { cleanName } from './names.js';
 import { createMenu, levelName, timeLabel } from './ui/menu.js';
 import { createMatchUi } from './ui/match-ui.js';
@@ -311,7 +312,33 @@ async function start() {
   // partida con el rival; sus jugadas llegan a `game.remote` (número de jugada → jugada).
   const online = createOnline();
   const onlineUi = createOnlineUi();
-  const menu = createMenu({ onShow: () => attract.start(), onHide: () => attract.stop() });
+  const menu = createMenu({
+    onShow: () => attract.start(),
+    onHide: () => attract.stop(),
+    onChange: (eleccion) => ponMiNombre(eleccion.nombres?.yo),
+  });
+  // LA SALA (`net/online.js`, `ui/lobby-ui.js`): se conecta al arrancar, para ver quién hay online (y que los
+  // demás vean que estoy), retar a uno en concreto y recibir sus retos, estés donde estés.
+  const sala = online.lobby();
+  const enPartidaOnline = () => game.mode === 'online' && (state.phase === 'playing' || state.phase === 'starting');
+  const salaUi = createLobbyUi({
+    lobby: sala,
+    time: () => menu.choice.time,
+    canChallenge: () => !enPartidaOnline(),
+    onMatch: (info) => empezarReto(info),
+    onQuick: () => menu.answer({ ...menu.choice, mode: 'online' }),
+  });
+  function ponMiNombre(nombre) {
+    game.miNombre = cleanName(nombre);
+    sala.set({ name: game.miNombre });
+    salaUi.setName(game.miNombre);
+  }
+  ponMiNombre(menu.choice.nombres?.yo);
+  // Lo que digo de mí en la sala: disponible (en el menú o en una partida que no es online), buscando rival o
+  // jugando online.
+  function ponEstado(status) {
+    sala.set({ status, games: status === 'playing' ? 1 : 0 });
+  }
   const ui = createMatchUi();
   const clockUi = createChessClockUi(document.getElementById('hud'));
   const controlName = () => (game.control ? `${t(`tiempo.${game.control.key.split(':')[0]}`)} · ${timeLabel(game.control)}` : '');
@@ -1389,6 +1416,7 @@ async function start() {
     paintTurn();
     paintSettings();
     if (game.mode === 'cpu' && lado !== game.human) cpuTurn(); // le toca a la CPU (con blancas, empieza ella)
+    ponEstado(mode === 'online' ? 'playing' : 'menu');
     if (session) {
       conectaSesion(session);
       if (lado !== game.human) onlineTurn(); // el rival lleva las blancas: se espera su jugada
@@ -1398,8 +1426,9 @@ async function start() {
   // ONLINE: busca rival (la pantalla del radar) y, al encontrarlo, empieza la partida con el color que le
   // haya tocado y el reloj acordado. Si se cancela, o no hay conexión, vuelve al menú.
   async function jugarOnline({ time = 'libre:libre', nombres = null } = {}) {
-    if (nombres) game.miNombre = cleanName(nombres.yo);
+    if (nombres) ponMiNombre(nombres.yo);
     state.phase = 'searching';
+    ponEstado('seeking');
     paintTurn();
     let pulsado = null;
     const boton = new Promise((resolve) => {
@@ -1424,16 +1453,39 @@ async function start() {
       await toMenu();
       return;
     }
-    onlineUi.status({ phase: 'found', color: r.color, rival: r.opponentName });
+    await empezarOnline(r.info);
+  }
+
+  // La partida online con el rival de `info` (del emparejamiento o de un reto): un momento el «¡Rival
+  // encontrado!» y a jugar.
+  async function empezarOnline(info) {
+    state.phase = 'starting';
+    salaUi.clearInvites();
+    salaUi.close();
+    const color = info.white === online.me ? 'white' : 'black';
+    const rival = color === 'white' ? 'black' : 'white';
+    onlineUi.show(() => {});
+    onlineUi.status({ phase: 'found', color, rival: info.opponentName });
+    ponEstado('playing');
     await new Promise((resolve) => setTimeout(resolve, 1700));
-    const session = online.session(r.info, () => (game.enCurso ? [...game.moves, game.enCurso] : game.moves));
-    if (state.phase !== 'searching') {
+    const session = online.session(info, () => (game.enCurso ? [...game.moves, game.enCurso] : game.moves));
+    if (state.phase !== 'starting') {
       session.leave('resign'); // se fue justo ahora: que el rival no se quede esperando
       return;
     }
     onlineUi.hide();
-    const rival = r.color === 'white' ? 'black' : 'white';
-    await newGame({ mode: 'online', color: r.color, time: r.time, session, nombres: { [r.color]: game.miNombre, [rival]: r.opponentName } });
+    await newGame({ mode: 'online', color, time: info.time, session, nombres: { [color]: game.miNombre, [rival]: info.opponentName } });
+  }
+
+  // Un reto aceptado (lo he aceptado yo o lo ha aceptado el retado): la partida, venga de donde venga.
+  async function empezarReto(info) {
+    if (enPartidaOnline()) return;
+    salaUi.clearInvites();
+    if (state.phase === 'menu' && menu.answer({ ...menu.choice, mode: 'online', reto: info })) return; // sigue `toMenu`
+    if (state.phase === 'searching') online.cancel(); // `jugarOnline` ve que ya no busca y se aparta
+    else if (state.phase === 'playing') guardarPartida(); // la partida de aquí se puede continuar luego
+    ui.closeAll();
+    await empezarOnline(info);
   }
 
   // LA PARTIDA GUARDADA (`chess/saved-game.js`): tras cada jugada (nada más decidirla), al deshacer, al
@@ -1485,6 +1537,7 @@ async function start() {
     const guardada = eleccion.continuar ? partidaGuardada() : null;
     const elegida = eleccion.continuar ? menu.choice : eleccion;
     if (guardada) await newGame({ ...guardada, guardada });
+    else if (eleccion.reto) await empezarOnline(eleccion.reto);
     else if (elegida.mode === 'online') await jugarOnline(elegida);
     else await newGame(elegida);
   }
@@ -1515,6 +1568,7 @@ async function start() {
     ui.closeAll();
     select(null);
     music.backToIntro();
+    ponEstado('menu');
     const eleccion = await menu.show({ guardada: resumenGuardada() });
     music.endIntro();
     await menu.hide(); // y la cámara del menú baja en vuelo hasta la vista de la partida

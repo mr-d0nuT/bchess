@@ -15,6 +15,11 @@ import { cleanName } from '../names.js';
 //   el otro la acepta y el primero confirma («go»). Tres pasos y no dos: si mientras tanto alguno se ha
 //   emparejado con otro, lo dice («cancel») y los dos siguen buscando, sin quedarse nadie colgado. Juega
 //   con blancas uno de los dos a suertes, y con el reloj de quien llevaba más tiempo esperando.
+// - LA SALA: cada uno, mientras tiene el juego abierto, dice cada cuatro segundos que sigue ahí, con su
+//   nombre y qué hace (en el menú, buscando rival o jugando). Así se ve quién hay, y se le puede retar a
+//   uno en concreto: el reto le llega a su buzón, lo acepta o lo rechaza, y quien retó confirma (los mismos
+//   tres pasos que el emparejamiento, con mensajes propios para no cruzarse con él). Un reto caduca al
+//   minuto.
 // - LA PARTIDA: cada uno publica sus jugadas en el tema de la partida, numeradas. Cada cuatro segundos,
 //   un latido con cuántas jugadas lleva: si uno se ha perdido alguna (un corte), el otro le manda la lista
 //   entera. Sin latidos del rival en un rato, se avisa de que se ha perdido la conexión.
@@ -296,6 +301,231 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
   };
 }
 
+// ---- La sala: quién está conectado y los retos directos ----
+export const PRESENCE_EVERY = 4000; // cada cuánto dice cada uno que sigue ahí
+export const PRESENT_FOR = 13000; // sin noticias suyas en este tiempo, ya no está
+export const INVITE_FOR = 60000; // lo que dura un reto sin contestar
+const GO_WAIT = 6000; // tras aceptar un reto, lo que se espera la confirmación de quien retó
+const STATUSES = ['menu', 'seeking', 'playing'];
+
+// `bus`, `me`: como en el emparejamiento. Devuelve:
+// - players(): los que hay ({ id, name, status, games }), sin uno mismo; onPlayers(fn), cada vez que cambia.
+// - set({ name, status, games }): lo que digo de mí.
+// - invite(id, { time }): reta a `id`; { promise, cancel }. La promesa da el emparejamiento ({ game, white,
+//   time, opponent, opponentName }) o { declined | expired | canceled: true }.
+// - onInvite(fn): los retos que llegan ({ game, from, name, time, expires }) y los que se retiran
+//   ({ game, gone: true }). acceptInvite(game) da el emparejamiento (o null); declineInvite(game).
+export function createLobby({ bus, me, now = Date.now, random = Math.random, timers = TIMERS }) {
+  const players = new Map(); // id → { id, name, status, games, seen }
+  const oyentes = new Set();
+  const retosOyentes = new Set();
+  const enviados = new Map(); // game → { to, white, time, name, resolve, plazo }
+  const recibidos = new Map(); // game → { game, from, name, time, white, expires, plazo }
+  const aceptando = new Map(); // game → { reto, resolve, plazo }
+  let yo = { name: '', status: 'menu', games: 0 };
+  let cerrada = false;
+
+  const to = (id, msg) => bus.publish(inbox(id), { ...msg, from: me });
+  const lista = () => [...players.values()]
+    .filter((p) => now() - p.seen < PRESENT_FOR)
+    .map(({ id, name, status, games }) => ({ id, name, status, games }))
+    .sort((a, b) => (a.name || '\uffff').localeCompare(b.name || '\uffff') || a.id.localeCompare(b.id));
+  const avisa = () => {
+    const l = lista();
+    for (const fn of oyentes) fn(l);
+  };
+  const retoAvisa = (reto) => {
+    for (const fn of retosOyentes) fn(reto);
+  };
+  function retira(game) {
+    const reto = recibidos.get(game);
+    if (!reto) return;
+    recibidos.delete(game);
+    timers.clear(reto.plazo);
+    retoAvisa({ game, gone: true });
+  }
+
+  const off = bus.onMessage((topic, msg) => {
+    if (cerrada || msg.from === me) return;
+    if (topic === LOBBY) {
+      const antes = players.get(msg.from);
+      if (msg.k === 'here') {
+        players.set(msg.from, {
+          id: msg.from,
+          name: cleanName(msg.name),
+          status: STATUSES.includes(msg.status) ? msg.status : 'menu',
+          games: Math.max(0, Math.min(99, Number(msg.games) || 0)),
+          seen: now(),
+        });
+        avisa();
+      } else if (msg.k === 'seek') {
+        // Quien busca rival al azar también está (aunque sea de antes de la sala y no diga más).
+        players.set(msg.from, { id: msg.from, games: 0, ...antes, name: cleanName(msg.name) || antes?.name || '', status: 'seeking', seen: now() });
+        avisa();
+      } else if (msg.k === 'leave' && antes) {
+        // Ha dejado de buscar (el latido dirá qué hace ahora).
+        players.set(msg.from, { ...antes, status: antes.status === 'seeking' ? 'menu' : antes.status });
+        avisa();
+      } else if (msg.k === 'gone' && antes) {
+        players.delete(msg.from);
+        avisa();
+      }
+      return;
+    }
+    if (topic !== inbox(me) || typeof msg.game !== 'string') return;
+    if (msg.k === 'invite') {
+      if (recibidos.has(msg.game) || aceptando.has(msg.game)) return;
+      const reto = {
+        game: msg.game,
+        from: msg.from,
+        name: cleanName(msg.name),
+        time: typeof msg.time === 'string' ? msg.time : 'libre:libre',
+        white: msg.white === me ? me : msg.from,
+        expires: now() + INVITE_FOR,
+      };
+      reto.plazo = timers.set(() => retira(msg.game), INVITE_FOR);
+      recibidos.set(msg.game, reto);
+      retoAvisa({ game: reto.game, from: reto.from, name: reto.name, time: reto.time, expires: reto.expires });
+    } else if (msg.k === 'invite-cancel') {
+      retira(msg.game);
+      const a = aceptando.get(msg.game);
+      if (a) {
+        aceptando.delete(msg.game);
+        timers.clear(a.plazo);
+        a.resolve(null);
+      }
+    } else if (msg.k === 'invite-accept') {
+      const s = enviados.get(msg.game);
+      if (s && s.to === msg.from) {
+        enviados.delete(msg.game);
+        timers.clear(s.plazo);
+        to(msg.from, { k: 'invite-go', game: msg.game });
+        s.resolve({ game: msg.game, white: s.white, time: s.time, opponent: msg.from, opponentName: cleanName(msg.name) || s.name });
+      } else {
+        to(msg.from, { k: 'invite-cancel', game: msg.game });
+      }
+    } else if (msg.k === 'invite-decline') {
+      const s = enviados.get(msg.game);
+      if (s && s.to === msg.from) {
+        enviados.delete(msg.game);
+        timers.clear(s.plazo);
+        s.resolve({ declined: true });
+      }
+    } else if (msg.k === 'invite-go') {
+      const a = aceptando.get(msg.game);
+      if (a && a.reto.from === msg.from) {
+        aceptando.delete(msg.game);
+        timers.clear(a.plazo);
+        a.resolve({ game: a.reto.game, white: a.reto.white, time: a.reto.time, opponent: a.reto.from, opponentName: a.reto.name });
+      }
+    }
+  });
+
+  function anuncia() {
+    if (cerrada) return;
+    bus.publish(LOBBY, { k: 'here', from: me, name: yo.name, status: yo.status, games: yo.games });
+    let cambio = false;
+    for (const [id, p] of players) {
+      if (now() - p.seen >= PRESENT_FOR) {
+        players.delete(id);
+        cambio = true;
+      }
+    }
+    if (cambio) avisa();
+  }
+  bus.subscribe(LOBBY);
+  bus.subscribe(inbox(me));
+  const latido = timers.every(anuncia, PRESENCE_EVERY);
+  anuncia();
+
+  return {
+    players: lista,
+    get me() {
+      return me;
+    },
+    set(cambios) {
+      yo = { ...yo, ...cambios, name: cleanName(cambios.name ?? yo.name) };
+      anuncia();
+    },
+    onPlayers(fn) {
+      oyentes.add(fn);
+      fn(lista());
+      return () => oyentes.delete(fn);
+    },
+    onInvite(fn) {
+      retosOyentes.add(fn);
+      return () => retosOyentes.delete(fn);
+    },
+    invite(id, { time = 'libre:libre' } = {}) {
+      const game = `${me}-${id}-${Math.floor(random() * 1e9).toString(36)}`;
+      const white = random() < 0.5 ? me : id;
+      let resolver;
+      const promise = new Promise((resolve) => {
+        resolver = resolve;
+      });
+      const plazo = timers.set(() => {
+        if (!enviados.has(game)) return;
+        enviados.delete(game);
+        to(id, { k: 'invite-cancel', game });
+        resolver({ expired: true });
+      }, INVITE_FOR);
+      enviados.set(game, { to: id, white, time, name: players.get(id)?.name ?? '', resolve: resolver, plazo });
+      to(id, { k: 'invite', game, white, time, name: yo.name });
+      return {
+        game,
+        promise,
+        cancel() {
+          const s = enviados.get(game);
+          if (!s) return;
+          enviados.delete(game);
+          timers.clear(s.plazo);
+          to(id, { k: 'invite-cancel', game });
+          s.resolve({ canceled: true });
+        },
+      };
+    },
+    acceptInvite(game) {
+      const reto = recibidos.get(game);
+      if (!reto) return Promise.resolve(null);
+      recibidos.delete(game);
+      timers.clear(reto.plazo);
+      to(reto.from, { k: 'invite-accept', game, name: yo.name });
+      return new Promise((resolve) => {
+        const plazo = timers.set(() => {
+          aceptando.delete(game);
+          resolve(null);
+        }, GO_WAIT);
+        aceptando.set(game, { reto, resolve, plazo });
+      });
+    },
+    declineInvite(game) {
+      const reto = recibidos.get(game);
+      if (!reto) return;
+      recibidos.delete(game);
+      timers.clear(reto.plazo);
+      to(reto.from, { k: 'invite-decline', game });
+    },
+    // Los retos que tengo sin contestar.
+    invites() {
+      return [...recibidos.values()].map(({ game, from, name, time, expires }) => ({ game, from, name, time, expires }));
+    },
+    close() {
+      if (cerrada) return;
+      for (const [game, s] of enviados) {
+        to(s.to, { k: 'invite-cancel', game });
+        timers.clear(s.plazo);
+        s.resolve({ canceled: true });
+      }
+      enviados.clear();
+      for (const game of [...recibidos.keys()]) this.declineInvite(game);
+      bus.publish(LOBBY, { k: 'gone', from: me });
+      cerrada = true;
+      timers.stop(latido);
+      off();
+    },
+  };
+}
+
 // ---- La partida ----
 // `moves()`: las jugadas que llevo (para el latido y para poner al día al rival). Eventos (`on`): 'move'
 // ({ n, uci }), 'press' ({ side, n, white, black }), 'sync' ({ moves }), 'resign', 'bye', 'lost', 'back', 'gone',
@@ -410,8 +640,17 @@ export function createOnline({ urls = BROKERS } = {}) {
     return bus;
   }
 
+  let sala = null;
   return {
     me,
+    // La sala (quién hay y los retos), que se conecta al pedirla y se queda abierta.
+    lobby() {
+      if (!sala) sala = createLobby({ bus: getBus(), me });
+      return sala;
+    },
+    get connected() {
+      return Boolean(bus?.connected);
+    },
     async find({ time, name = '', onStatus = () => {} }) {
       busca?.stop();
       onStatus({ phase: 'connecting', seekers: 0 });

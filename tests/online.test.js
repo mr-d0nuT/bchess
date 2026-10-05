@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { connectPacket, encodeLength, publishPacket, readPublish, splitPackets, PUBLISH } from '../src/net/mqtt.js';
-import { createMatchmaker, createSession } from '../src/net/online.js';
+import { createLobby, createMatchmaker, createSession } from '../src/net/online.js';
 
 test('la longitud de MQTT va de 7 en 7 bits', () => {
   assert.deepEqual(encodeLength(0), [0]);
@@ -138,4 +138,80 @@ test('en la partida llegan las jugadas, y si una se pierde, el latido la recuper
   A.leave('resign');
   await conPlazo(adios);
   B.leave();
+});
+
+// La sala, con los tiempos cincuenta veces más deprisa.
+const espera = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test('en la sala cada uno ve a los demás, con su nombre y qué hacen, y deja de verlos al irse', async () => {
+  const net = red();
+  const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: rapido });
+  const b = createLobby({ bus: net.bus('b'), me: 'b2', timers: rapido });
+  a.set({ name: 'Ana', status: 'menu' });
+  b.set({ name: 'Bruno', status: 'playing', games: 2 });
+  await espera(120);
+  assert.deepEqual(a.players(), [{ id: 'b2', name: 'Bruno', status: 'playing', games: 2 }]);
+  assert.deepEqual(b.players().map((p) => p.name), ['Ana']);
+  b.close();
+  await espera(50);
+  assert.deepEqual(a.players(), []);
+  a.close();
+});
+
+test('un reto aceptado empareja a los dos en la misma partida, con colores contrarios', async () => {
+  const net = red();
+  const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: rapido });
+  const b = createLobby({ bus: net.bus('b'), me: 'b2', timers: rapido });
+  a.set({ name: 'Ana' });
+  b.set({ name: 'Bruno' });
+  await espera(60);
+  const llega = new Promise((resolve) => b.onInvite(resolve));
+  const reto = a.invite('b2', { time: 'blitz:3+2' });
+  const visto = await conPlazo(llega);
+  assert.equal(visto.name, 'Ana');
+  assert.equal(visto.time, 'blitz:3+2');
+  const [suyo, mio] = await conPlazo(Promise.all([b.acceptInvite(visto.game), reto.promise]));
+  assert.equal(suyo.game, mio.game);
+  assert.equal(suyo.white, mio.white);
+  assert.equal(mio.opponent, 'b2');
+  assert.equal(mio.opponentName, 'Bruno');
+  assert.equal(suyo.opponent, 'a1');
+  assert.equal(suyo.opponentName, 'Ana');
+  assert.equal(suyo.time, 'blitz:3+2');
+  a.close();
+  b.close();
+});
+
+test('un reto rechazado lo sabe quien retó; y uno retirado desaparece para el retado', async () => {
+  const net = red();
+  const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: rapido });
+  const b = createLobby({ bus: net.bus('b'), me: 'b2', timers: rapido });
+  const retos = [];
+  b.onInvite((r) => retos.push(r));
+  const primero = a.invite('b2');
+  await espera(30);
+  b.declineInvite(retos[0].game);
+  assert.deepEqual(await conPlazo(primero.promise), { declined: true });
+  const segundo = a.invite('b2');
+  await espera(30);
+  assert.equal(b.invites().length, 1);
+  segundo.cancel();
+  await espera(30);
+  assert.deepEqual(await segundo.promise, { canceled: true });
+  assert.equal(b.invites().length, 0);
+  assert.ok(retos.some((r) => r.game === segundo.game && r.gone));
+  a.close();
+  b.close();
+});
+
+test('un reto sin contestar caduca para los dos', async () => {
+  const net = red();
+  const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: rapido });
+  const b = createLobby({ bus: net.bus('b'), me: 'b2', timers: rapido });
+  const reto = a.invite('b2');
+  assert.deepEqual(await conPlazo(reto.promise, 4000), { expired: true });
+  await espera(30);
+  assert.equal(b.invites().length, 0);
+  a.close();
+  b.close();
 });
