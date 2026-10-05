@@ -225,6 +225,25 @@ html, body {
 #pantalla .cerrar, #pantalla[aria-pressed="true"] .abrir { display: none; } /* dentro, el icono es de salir */
 #pantalla[aria-pressed="true"] .cerrar { display: inline; }
 .boton[hidden] { display: none; }
+#partidas { position: relative; }
+/* El globo de «Tus partidas»: en cuántas te toca. */
+.boton-globo {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #ffc451;
+  color: #2a1400;
+  font: 800 11px/17px system-ui, sans-serif;
+  text-align: center;
+  box-shadow: 0 0 8px rgba(255, 180, 40, 0.85);
+  animation: globo-late 1.4s ease-in-out infinite;
+}
+.boton-globo[hidden] { display: none; }
+@keyframes globo-late { 50% { transform: scale(1.18); } }
 /* Rendirse: al primer toque se despliega en rojo y pregunta; el segundo lo confirma. */
 #rendirse .boton-texto { display: none; font: 700 14px/1 system-ui, sans-serif; white-space: nowrap; }
 #rendirse.confirma { display: flex; gap: 6px; width: auto; padding: 0 13px 0 9px; border-radius: 999px; border-color: #ff6b5b; color: #ffb3a8; box-shadow: 0 0 12px rgba(255, 80, 60, 0.6); }

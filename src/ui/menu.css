@@ -1148,3 +1148,39 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
   .modo-sala.hay, .modo[data-modo="online"].hay-gente::after, .reto-icono, .sala-retar.esperando { animation: none !important; }
 }
+
+/* Tus partidas, arriba de la sala. */
+.sala-seccion { display: flex; flex-direction: column; gap: 6px; }
+.sala-seccion[hidden] { display: none; }
+.sala-subtitulo { margin: 4px 0 0; font: 800 12px/1 system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.7; }
+.sala-partidas { max-height: 34vh; }
+.sala-partida { display: flex; align-items: center; gap: 6px; animation: aparece 0.3s ease both; }
+.sala-partida-boton {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.sala-partida-boton:disabled { cursor: default; }
+.sala-partida[data-estado="toca"] .sala-partida-boton { border-color: #ffc451; box-shadow: 0 0 14px rgba(255, 170, 40, 0.35); }
+.sala-partida[data-estado="aqui"] .sala-partida-boton { border-color: rgba(90, 180, 255, 0.6); }
+.sala-chip { flex: none; padding: 5px 9px; border-radius: 999px; font: 800 11.5px/1 system-ui, sans-serif; background: rgba(255, 255, 255, 0.1); color: #dfe8ff; }
+.sala-partida[data-estado="toca"] .sala-chip { background: #ffc451; color: #2a1400; animation: gente-late 1.2s ease-in-out infinite; }
+.sala-partida[data-estado="aqui"] .sala-chip { background: rgba(90, 180, 255, 0.25); color: #bfe3ff; }
+.sala-partida[data-estado="ganada"] .sala-chip { background: rgba(40, 240, 130, 0.25); color: #b9ffd5; }
+.sala-partida[data-estado="perdida"] .sala-chip { background: rgba(255, 90, 70, 0.25); color: #ffc2b8; }
+.sala-quitar { flex: none; width: 30px; height: 30px; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 50%; background: rgba(255, 255, 255, 0.06); color: #dfe8ff; cursor: pointer; }
+/* Los avisos de tus partidas (no son retos): azules. */
+.reto.aviso { background: linear-gradient(165deg, rgba(10, 24, 50, 0.97), rgba(4, 8, 18, 0.98)); box-shadow: 0 0 0 1px rgba(90, 180, 255, 0.8), 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 22px rgba(0, 130, 255, 0.4); }
+.reto.aviso .reto-textos b { color: #dcecff; white-space: normal; }
+.reto.aviso .reto-tiempo { background: linear-gradient(90deg, #37b6ff, #7a3cff); }
+.sala-partida .sala-avatar::after { display: none; } /* el punto de estado es de los jugadores, no de las partidas */

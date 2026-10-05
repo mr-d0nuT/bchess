@@ -320,13 +320,21 @@ async function start() {
   // LA SALA (`net/online.js`, `ui/lobby-ui.js`): se conecta al arrancar, para ver quién hay online (y que los
   // demás vean que estoy), retar a uno en concreto y recibir sus retos, estés donde estés.
   const sala = online.lobby();
-  const enPartidaOnline = () => game.mode === 'online' && (state.phase === 'playing' || state.phase === 'starting');
   const salaUi = createLobbyUi({
     lobby: sala,
     time: () => menu.choice.time,
-    canChallenge: () => !enPartidaOnline(),
+    canChallenge: () => state.phase !== 'starting',
+    onGame: (id) => {
+      const p = partidas.find((x) => x.id === id);
+      if (p) irAPartida(p);
+    },
+    onDismissGame: (id) => {
+      const p = partidas.find((x) => x.id === id);
+      if (p?.acabada && !activa(p)) quitaPartida(p);
+    },
     onMatch: (info) => empezarReto(info),
-    onQuick: () => menu.answer({ ...menu.choice, mode: 'online' }),
+    // Desde el menú, como JUGAR con «Online»; a mitad de partida, la búsqueda directamente.
+    onQuick: () => menu.answer({ ...menu.choice, mode: 'online' }) || jugarOnline({ time: menu.choice.time }),
   });
   function ponMiNombre(nombre) {
     game.miNombre = cleanName(nombre);
@@ -337,7 +345,8 @@ async function start() {
   // Lo que digo de mí en la sala: disponible (en el menú o en una partida que no es online), buscando rival o
   // jugando online.
   function ponEstado(status) {
-    sala.set({ status, games: status === 'playing' ? 1 : 0 });
+    const vivas = partidasVivas().length;
+    sala.set({ status: status === 'seeking' ? 'seeking' : vivas ? 'playing' : status, games: vivas });
   }
   const ui = createMatchUi();
   const clockUi = createChessClockUi(document.getElementById('hud'));
@@ -375,6 +384,13 @@ async function start() {
   const flipButton = document.getElementById('girar');
   const zoomButton = document.getElementById('acercar');
   const undoButton = document.getElementById('deshacer');
+  // Tus partidas online (las que están en espera): se abre la sala, con ellas arriba. El globo, en cuántas te toca.
+  const partidasBoton = document.getElementById('partidas');
+  const partidasGlobo = partidasBoton?.querySelector('.boton-globo');
+  partidasBoton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    salaUi.open();
+  });
   flipButton?.addEventListener('click', (event) => {
     event.stopPropagation();
     view.flip();
@@ -410,14 +426,16 @@ async function start() {
       const puede = canUndo();
       if (undoButton.disabled !== !puede) undoButton.disabled = !puede;
     }
-    // Online no se deshace: en su lugar, la bandera blanca.
-    const enLinea = game.mode === 'online' && state.phase === 'playing';
+    // Online no se deshace. Y la bandera blanca, en cualquier partida (lo pidió el usuario): online gana el
+    // rival; contra la CPU, la CPU; uno contra uno, se rinde el que mueve.
+    const jugando = state.phase === 'playing';
+    const enLinea = game.mode === 'online' && jugando;
     if (undoButton && undoButton.hidden !== enLinea) undoButton.hidden = enLinea;
     if (resignButton) {
-      if (resignButton.hidden !== !enLinea) resignButton.hidden = !enLinea;
-      const puede = enLinea && !state.fighting && !game.animating;
+      if (resignButton.hidden !== !jugando) resignButton.hidden = !jugando;
+      const puede = jugando && !state.fighting && !game.animating;
       if (resignButton.disabled !== !puede) resignButton.disabled = !puede;
-      if (!enLinea) resignButton.classList.remove('confirma');
+      if (!jugando) resignButton.classList.remove('confirma');
     }
     if (!zoomButton) return;
     const puede = quieta && (view.zoomed || Boolean(state.selected));
@@ -1051,12 +1069,17 @@ async function start() {
     await playMove(m);
   }
 
-  // Online: me rindo. Se le dice al rival (gana él) y se acaba la partida.
+  // Me rindo. Online se le dice al rival (gana él); contra la CPU gana ella; uno contra uno, se rinde el que
+  // mueve. Y se acaba la partida.
   async function rendirse() {
-    if (game.mode !== 'online' || state.phase !== 'playing' || !game.session) return;
-    game.session.leave('resign');
-    game.session = null;
+    if (state.phase !== 'playing' || game.animating || state.fighting) return;
+    if (game.mode === 'online') {
+      if (!game.session) return;
+      game.session.leave('resign');
+      game.session = null;
+    }
     sueltaEspera();
+    cpu.cancel();
     game.id += 1;
     await gameOver('resign');
   }
@@ -1078,70 +1101,262 @@ async function start() {
   // rival, se pone lo que dice su propio reloj (si ya ha llegado: si no, en cuanto llegue). Después de
   // pulsar, y no antes, para no sumarle dos veces el incremento.
   function relojOnline(movio) {
+    const p = game.partida;
+    if (!p) return;
     const ahora = performance.now();
     if (movio === game.human) {
       game.session?.press(movio, { white: game.clock.remaining('white', ahora), black: game.clock.remaining('black', ahora) }, game.moves.length);
-    } else if (game.pendingPress && game.moves.length >= game.pendingPress.n) {
-      ponTiempoDelRival(game.pendingPress);
-      game.pendingPress = null;
+    } else if (p.pendingPress && game.moves.length >= p.pendingPress.n) {
+      aplicaTiempo(p, p.pendingPress);
+      p.pendingPress = null;
     }
   }
-  function ponTiempoDelRival({ side, white, black }) {
-    if (!game.clock || side === game.human || !Number.isFinite(white) || !Number.isFinite(black)) return;
-    const mio = game.clock.remaining(game.human, performance.now());
-    game.clock.restore(side === 'white' ? { white, black: mio } : { white: mio, black });
+  function aplicaTiempo(p, { side, white, black }) {
+    if (!p.clock || side === p.color || !Number.isFinite(white) || !Number.isFinite(black)) return;
+    const mio = p.clock.remaining(p.color, performance.now());
+    p.clock.restore(side === 'white' ? { white, black: mio } : { white: mio, black });
   }
 
-  // La partida online con el rival: sus jugadas, su reloj y si se va.
-  function conectaSesion(session) {
-    const id = game.id;
-    const vale = () => id === game.id && game.session === session;
-    game.remote = new Map();
-    const llega = (n, uci) => {
-      if (!vale() || n < game.moves.length || game.remote.has(n)) return;
-      game.remote.set(n, uci);
+  // VARIAS PARTIDAS ONLINE A LA VEZ. Lo pidió el usuario: poder jugar varias, quedando en espera. Cada
+  // partida online es un registro con su sesión, sus jugadas, sus reglas y su reloj; la del tablero es una
+  // de ellas (`game.partida`, y `game.moves`/`game.position` son los suyos), y las demás siguen vivas en
+  // espera: lo que llega de su rival se juega en sus reglas al momento, sin animar, y se avisa. Al ponerla
+  // en el tablero, las piezas se colocan como está.
+  const partidas = [];
+  const activa = (p) => game.mode === 'online' && game.partida === p;
+  const partidasVivas = () => partidas.filter((p) => !p.acabada);
+  // Las jugadas que lleva (las del tablero, con la que se está animando).
+  const jugadasDe = (p) => (!p ? [] : activa(p) && game.enCurso ? [...p.moves, game.enCurso] : p.moves);
+
+  function crearPartida(info, session) {
+    const color = info.white === online.me ? 'white' : 'black';
+    const rival = color === 'white' ? 'black' : 'white';
+    const control = findTimeControl(info.time);
+    const p = {
+      id: info.game, session, color, rival, time: info.time ?? 'libre:libre',
+      nombres: { [color]: game.miNombre, [rival]: cleanName(info.opponentName) },
+      control, clock: control ? createChessClock(control) : null,
+      start: INITIAL_FEN, position: Position.initial(), moves: [],
+      remote: new Map(), pendingPress: null, acabada: null, aviso: false,
+    };
+    p.clock?.start('white', performance.now());
+    partidas.push(p);
+    session.on('move', ({ n, uci }) => llegaJugada(p, n, uci));
+    // Las que se perdieron por el camino: solo si la lista del rival empieza por lo que ya tenemos.
+    session.on('sync', ({ moves }) => {
+      const mias = jugadasDe(p);
+      if (!mias.every((uci, i) => moves[i] === uci)) return;
+      for (let n = mias.length; n < moves.length; n++) llegaJugada(p, n, moves[n]);
+    });
+    session.on('press', (msg) => {
+      if (!p.clock || p.acabada) return;
+      if (p.moves.length >= msg.n && p.clock.running !== msg.side) aplicaTiempo(p, msg);
+      else p.pendingPress = msg;
+    });
+    session.on('lost', () => {
+      if (activa(p) && state.phase === 'playing') ui.banner(t('online.perdido'), { tipo: 'tablas', ms: 4000 });
+    });
+    session.on('back', () => {
+      if (activa(p) && state.phase === 'playing') ui.banner(t('online.vuelve'), { tipo: 'tablas', ms: 2000 });
+    });
+    session.on('resign', () => seVa(p, 'rivalResigned'));
+    session.on('bye', () => seVa(p, 'abandon'));
+    session.on('gone', () => seVa(p, 'abandon'));
+    // Se había emparejado con otro a la vez y no llegó a empezar: fuera; y si estaba en el tablero, a buscar otra.
+    session.on('cancel', () => {
+      if (p.moves.length || p.acabada) return;
+      const estaba = activa(p);
+      quitaPartida(p);
+      if (estaba && state.phase === 'playing') jugarOnline({ time: p.time });
+    });
+    pintaPartidas();
+    return p;
+  }
+
+  function llegaJugada(p, n, uci) {
+    if (p.acabada || n < jugadasDe(p).length || p.remote.has(n)) return;
+    p.remote.set(n, uci);
+    if (activa(p)) {
       if (game.remoteWait?.n === n) {
         const espera = game.remoteWait;
         game.remoteWait = null;
         espera.resolve(uci);
       }
-    };
-    session.on('move', ({ n, uci }) => llega(n, uci));
-    // Las que se perdieron por el camino: solo si la lista del rival empieza por lo que ya tenemos.
-    session.on('sync', ({ moves }) => {
-      if (!vale()) return;
-      const mias = game.enCurso ? [...game.moves, game.enCurso] : game.moves;
-      if (!mias.every((uci, i) => moves[i] === uci)) return;
-      for (let n = mias.length; n < moves.length; n++) llega(n, moves[n]);
-    });
-    session.on('press', (msg) => {
-      if (!vale() || !game.clock) return;
-      if (game.moves.length >= msg.n && game.clock.running !== msg.side) ponTiempoDelRival(msg);
-      else game.pendingPress = msg;
-    });
-    session.on('lost', () => {
-      if (vale() && state.phase === 'playing') ui.banner(t('online.perdido'), { tipo: 'tablas', ms: 4000 });
-    });
-    session.on('back', () => {
-      if (vale() && state.phase === 'playing') ui.banner(t('online.vuelve'), { tipo: 'tablas', ms: 2000 });
-    });
-    // Se rinde, se va o desaparece: gana el jugador.
-    const seVa = (como) => () => {
-      if (!vale() || state.phase !== 'playing') return;
+      return;
+    }
+    avanzaEnEspera(p);
+  }
+
+  // Una partida en espera: lo que ha llegado de su rival se juega en sus reglas, sin animar, y se avisa.
+  function avanzaEnEspera(p) {
+    let movio = false;
+    while (!p.acabada && p.position.side === p.rival && p.remote.has(p.moves.length)) {
+      const m = p.position.findUci(p.remote.get(p.moves.length));
+      if (m === null || m === undefined) break;
+      p.position.make(m);
+      p.moves.push(p.remote.get(p.moves.length));
+      p.clock?.press(p.rival, performance.now());
+      if (p.pendingPress && p.moves.length >= p.pendingPress.n) {
+        aplicaTiempo(p, p.pendingPress);
+        p.pendingPress = null;
+      }
+      movio = true;
+    }
+    if (!movio) return;
+    const status = p.position.status();
+    if (status !== 'playing' && status !== 'check') {
+      acabaEnEspera(p, status);
+      return;
+    }
+    p.aviso = true;
+    salaUi.notify({ texto: t('aviso.movio', { nombre: nombreRival(p) }), boton: t('aviso.ver'), accion: () => irAPartida(p) });
+    pintaPartidas();
+  }
+
+  const nombreRival = (p) => p.nombres[p.rival] || t('sala.anonimo');
+
+  // El rival se rinde, se va o desaparece: en el tablero, el final de siempre; en espera, se acaba ahí y se avisa.
+  function seVa(p, como) {
+    if (p.acabada) return;
+    if (activa(p)) {
+      if (state.phase !== 'playing') return;
       sueltaEspera();
       game.id += 1;
       game.session = null;
       gameOver(como);
-    };
-    session.on('resign', seVa('rivalResigned'));
-    session.on('bye', seVa('abandon'));
-    session.on('gone', seVa('abandon'));
-    // Se había emparejado con otro a la vez y no llegó a empezar: a buscar otra vez.
-    session.on('cancel', () => {
-      if (!vale() || game.moves.length) return;
-      game.session = null;
-      jugarOnline({ time: game.control?.key ?? 'libre:libre' }); // con el mismo nombre (`game.miNombre`)
+      return;
+    }
+    acabaEnEspera(p, como);
+  }
+
+  // Quién gana una partida que se acaba: `status`, el de las reglas, 'time' (sin tiempo `flagged`) o el
+  // del online ('abandon', 'rivalResigned', 'resign').
+  function ganador(p, status, flagged = null) {
+    if (status === 'checkmate') return p.position.side === 'white' ? 'black' : 'white';
+    if (status === 'time') {
+      const otro = flagged === 'white' ? 'black' : 'white';
+      return p.position.hasMatingMaterial(otro) ? otro : null;
+    }
+    if (status === 'abandon' || status === 'rivalResigned') return p.color;
+    if (status === 'resign') return p.rival;
+    return null;
+  }
+
+  function acabaEnEspera(p, status, flagged = null) {
+    const winner = ganador(p, status, flagged);
+    p.acabada = { status, winner, flagged };
+    p.session.leave();
+    const nombre = nombreRival(p);
+    const texto = status === 'rivalResigned' ? t('aviso.rinde', { nombre })
+      : status === 'abandon' ? t('aviso.seva', { nombre })
+        : !winner ? t('aviso.tablas', { nombre })
+          : winner === p.color ? t('aviso.gana', { nombre }) : t('aviso.pierde', { nombre });
+    salaUi.notify({ texto, boton: t('aviso.ver'), accion: () => irAPartida(p) });
+    pintaPartidas();
+    ponEstado(state.phase === 'searching' ? 'seeking' : 'menu');
+  }
+
+  function quitaPartida(p) {
+    const i = partidas.indexOf(p);
+    if (i >= 0) partidas.splice(i, 1);
+    if (!p.acabada) p.session.leave();
+    pintaPartidas();
+  }
+
+  // En espera, los relojes siguen: si a alguien se le acaba el tiempo, esa partida se acaba (una vez por
+  // segundo basta).
+  let revisadas = 0;
+  function revisaPartidasEnEspera(ahora) {
+    if (ahora - revisadas < 1000) return;
+    revisadas = ahora;
+    for (const p of partidasVivas()) {
+      if (activa(p) || !p.clock) continue;
+      const sinTiempo = p.clock.flagged(ahora);
+      if (sinTiempo) acabaEnEspera(p, 'time', sinTiempo);
+    }
+    pintaPartidas();
+  }
+
+  // Lo que se enseña de cada una (la sala y el botón «Tus partidas»).
+  function pintaPartidas() {
+    const ahora = performance.now();
+    salaUi.setGames(partidas.map((p) => ({
+      id: p.id,
+      rival: nombreRival(p),
+      rivalId: p.session.opponent,
+      color: p.color,
+      jugada: Math.floor(p.moves.length / 2) + 1,
+      aqui: activa(p),
+      toca: !p.acabada && p.position.side === p.color,
+      aviso: p.aviso,
+      acabada: p.acabada && (!p.acabada.winner ? 'tablas' : p.acabada.winner === p.color ? 'ganada' : 'perdida'),
+      reloj: p.clock ? { white: p.clock.remaining('white', ahora), black: p.clock.remaining('black', ahora) } : null,
+    })));
+    const meToca = partidas.filter((p) => !activa(p) && !p.acabada && p.position.side === p.color).length;
+    if (partidasBoton) {
+      partidasBoton.hidden = partidas.length === 0;
+      partidasGlobo.hidden = meToca === 0;
+      partidasGlobo.textContent = String(meToca);
+    }
+  }
+
+  // Ir a una partida online desde donde se esté: desde el menú (se cierra y sigue `toMenu`), desde la
+  // búsqueda al azar (se cancela) o desde otra partida.
+  function irAPartida(p) {
+    if (!partidas.includes(p)) return;
+    if (state.phase === 'menu' && menu.answer({ ...menu.choice, partida: p.id })) return;
+    if (state.phase === 'searching') {
+      state.phase = 'starting'; // `jugarOnline` ve que ya no busca y se aparta
+      online.cancel();
+      onlineUi.hide();
+    }
+    activarPartida(p);
+  }
+
+  // Pone en el tablero la partida online `p`. La que había se queda en espera (si es online) o guardada
+  // para continuarla (si es de aquí).
+  async function activarPartida(p) {
+    if (!partidas.includes(p) || activa(p)) return;
+    while (game.animating || state.fighting || view.moving) await new Promise((resolve) => setTimeout(resolve, 150));
+    const ahora = performance.now();
+    if (game.mode === 'online' && game.partida && !game.partida.acabada) {
+      sueltaEspera();
+      game.partida.clock?.resume(ahora);
+    } else if (state.phase === 'playing') {
+      guardarPartida();
+    }
+    salaUi.close();
+    game.id += 1;
+    cpu.cancel();
+    clockUi.cancel();
+    ui.closeAll();
+    select(null);
+    highlights.check(null);
+    if (p.moves.length) resetPieces(p.position);
+    else if (game.moves.length || pieces.length !== 32) resetPieces();
+    settleKnights({ instant: true });
+    Object.assign(game, {
+      start: p.start, position: p.position, moves: p.moves, enCurso: null, deConsola: false,
+      mode: 'online', level: 30, color: p.color, human: p.color, thinking: false, press: null,
+      nombres: p.nombres, session: p.session, partida: p, remote: p.remote,
+      control: p.control, clock: p.clock,
     });
+    p.aviso = false;
+    clockUi.show(game.control, controlName);
+    await view.zoomOut();
+    await view.flipTo(game.human === 'black');
+    state.phase = p.acabada ? 'over' : 'playing';
+    const status = game.position.status();
+    highlights.check(status === 'check' ? squareName(game.position.kings[game.position.turn >> 3]) : null);
+    paintTurn();
+    paintSettings();
+    pintaPartidas();
+    ponEstado('playing');
+    if (p.acabada) {
+      ui.banner(p.acabada.winner === p.color ? t('final.ganas') : p.acabada.winner ? t('final.pierdes') : t('cartel.tablas'), { tipo: 'tablas', ms: 2200 });
+      return;
+    }
+    if (game.position.side !== game.human) onlineTurn();
   }
 
   async function cpuTurn() {
@@ -1189,7 +1404,8 @@ async function start() {
       winner = game.position.hasMatingMaterial(otro) ? otro : null;
     }
     if (status === 'abandon' || status === 'rivalResigned') winner = game.human; // online: el rival se ha ido o se ha rendido
-    if (status === 'resign') winner = game.human === 'white' ? 'black' : 'white'; // online: me he rendido
+    // Me he rendido (uno contra uno, el que mueve): gana el otro.
+    if (status === 'resign') winner = (game.mode === 'pvp' ? game.position.side : game.human) === 'white' ? 'black' : 'white';
     const cartel = status === 'checkmate' ? t('cartel.mate') : status === 'time' ? t('cartel.tiempo') : t('cartel.tablas');
     // Y suena el final: fanfarria para quien gana; contra la CPU, si gana ella, trombón triste; tablas, trompetas.
     sfx.play(!winner ? 'tablas' : (game.mode === 'cpu' || game.mode === 'online') && winner !== game.human ? 'derrota' : 'victoria');
@@ -1199,9 +1415,14 @@ async function start() {
     }
     // Online, la partida con ese rival se acaba aquí (y la revancha es buscar otro).
     const eraOnline = game.mode === 'online';
+    const partida = eraOnline ? game.partida : null;
+    if (partida) partida.acabada = { status, winner, flagged };
     game.session?.leave();
     game.session = null;
+    pintaPartidas();
+    ponEstado('menu');
     const que = await ui.gameOver({ status, winner, mode: game.mode, human: game.human, flagged, nombres: game.nombres });
+    if (partida) quitaPartida(partida);
     if (que === 'rematch' && eraOnline) await jugarOnline({ time: game.control?.key ?? 'libre:libre' });
     else if (que === 'rematch') await newGame({ mode: game.mode, level: game.level, color: game.color, time: game.control?.key ?? 'libre:libre', nombres: game.nombres });
     else await toMenu();
@@ -1222,6 +1443,7 @@ async function start() {
   // El reloj en cada fotograma: corre solo mientras el que mueve puede mover (las animaciones y los
   // combates no cuentan), se pinta, y si a alguien se le acaba el tiempo, se acabó la partida.
   function tickClock() {
+    revisaPartidasEnEspera(performance.now());
     const reloj = game.clock;
     if (!reloj) return;
     const ahora = performance.now();
@@ -1369,10 +1591,11 @@ async function start() {
     game.id += 1;
     cpu.cancel();
     sueltaEspera();
-    if (game.session && game.session !== session) game.session.leave(); // la online de antes se acaba
+    // La online que estuviera en el tablero se queda en espera (sigue viva, con su reloj).
+    if (game.mode === 'online' && game.partida && !game.partida.acabada) game.partida.clock?.resume(performance.now());
     game.session = session;
+    game.partida = null;
     game.remote = null;
-    game.pendingPress = null;
     clockUi.cancel();
     ui.closeAll();
     select(null);
@@ -1416,17 +1639,16 @@ async function start() {
     paintTurn();
     paintSettings();
     if (game.mode === 'cpu' && lado !== game.human) cpuTurn(); // le toca a la CPU (con blancas, empieza ella)
-    ponEstado(mode === 'online' ? 'playing' : 'menu');
-    if (session) {
-      conectaSesion(session);
-      if (lado !== game.human) onlineTurn(); // el rival lleva las blancas: se espera su jugada
-    }
+    ponEstado('menu');
   }
 
   // ONLINE: busca rival (la pantalla del radar) y, al encontrarlo, empieza la partida con el color que le
   // haya tocado y el reloj acordado. Si se cancela, o no hay conexión, vuelve al menú.
   async function jugarOnline({ time = 'libre:libre', nombres = null } = {}) {
     if (nombres) ponMiNombre(nombres.yo);
+    // Si se busca desde una partida (la sala está también a mitad de partida), al cancelar se vuelve a ella.
+    const volver = state.phase === 'playing' ? { partida: game.mode === 'online' ? game.partida : null } : null;
+    if (volver && game.mode === 'online') sueltaEspera();
     state.phase = 'searching';
     ponEstado('seeking');
     paintTurn();
@@ -1450,7 +1672,17 @@ async function start() {
       online.cancel();
       if (fase === 'error') await boton; // sin conexión: lo dice y espera al botón
       onlineUi.hide();
-      await toMenu();
+      if (volver?.partida && partidas.includes(volver.partida)) {
+        game.partida = null; // para que `activarPartida` la vuelva a poner
+        state.phase = 'starting';
+        await activarPartida(volver.partida);
+      } else if (volver) {
+        state.phase = 'playing'; // la partida de aquí sigue donde estaba
+        ponEstado('menu');
+        paintTurn();
+      } else {
+        await toMenu();
+      }
       return;
     }
     await empezarOnline(r.info);
@@ -1463,23 +1695,25 @@ async function start() {
     salaUi.clearInvites();
     salaUi.close();
     const color = info.white === online.me ? 'white' : 'black';
-    const rival = color === 'white' ? 'black' : 'white';
     onlineUi.show(() => {});
     onlineUi.status({ phase: 'found', color, rival: info.opponentName });
-    ponEstado('playing');
     await new Promise((resolve) => setTimeout(resolve, 1700));
-    const session = online.session(info, () => (game.enCurso ? [...game.moves, game.enCurso] : game.moves));
+    let partida = null;
+    const session = online.session(info, () => jugadasDe(partida));
+    partida = crearPartida(info, session);
     if (state.phase !== 'starting') {
-      session.leave('resign'); // se fue justo ahora: que el rival no se quede esperando
+      partida.session.leave('resign'); // se fue justo ahora: que el rival no se quede esperando
+      quitaPartida(partida);
       return;
     }
     onlineUi.hide();
-    await newGame({ mode: 'online', color, time: info.time, session, nombres: { [color]: game.miNombre, [rival]: info.opponentName } });
+    state.phase = 'playing'; // para que `activarPartida` deje en espera la que hubiera
+    await activarPartida(partida);
   }
 
   // Un reto aceptado (lo he aceptado yo o lo ha aceptado el retado): la partida, venga de donde venga.
   async function empezarReto(info) {
-    if (enPartidaOnline()) return;
+    if (state.phase === 'starting') return;
     salaUi.clearInvites();
     if (state.phase === 'menu' && menu.answer({ ...menu.choice, mode: 'online', reto: info })) return; // sigue `toMenu`
     if (state.phase === 'searching') online.cancel(); // `jugarOnline` ve que ya no busca y se aparta
@@ -1536,7 +1770,9 @@ async function start() {
   async function empezar(eleccion) {
     const guardada = eleccion.continuar ? partidaGuardada() : null;
     const elegida = eleccion.continuar ? menu.choice : eleccion;
-    if (guardada) await newGame({ ...guardada, guardada });
+    const enEspera = eleccion.partida ? partidas.find((p) => p.id === eleccion.partida) : null;
+    if (enEspera) await activarPartida(enEspera);
+    else if (guardada) await newGame({ ...guardada, guardada });
     else if (eleccion.reto) await empezarOnline(eleccion.reto);
     else if (elegida.mode === 'online') await jugarOnline(elegida);
     else await newGame(elegida);
@@ -1550,12 +1786,11 @@ async function start() {
   // Al menú: vuelve la melodía de la carga y, al pulsar JUGAR, se funde y empieza la partida elegida.
   async function toMenu() {
     guardarPartida(); // la de ahora se puede continuar desde el menú
-    // Online, irse a media partida es abandonar: el rival gana.
-    if (game.session) {
-      game.session.leave(state.phase === 'playing' ? 'resign' : 'bye');
-      game.session = null;
-    }
+    // Online, la partida del tablero se queda en espera, viva (rendirse es con la bandera blanca).
     sueltaEspera();
+    if (game.mode === 'online' && game.partida && !game.partida.acabada) game.partida.clock?.resume(performance.now());
+    game.session = null;
+    game.partida = null;
     online.cancel(); // si estaba buscando rival, deja de buscar
     onlineUi.hide();
     state.phase = 'menu';

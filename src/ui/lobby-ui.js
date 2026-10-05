@@ -12,10 +12,14 @@ import { timeLabel } from './menu.js';
 // - Los retos que llegan salen arriba, encima de todo (en el menú o jugando): quién reta, con qué reloj,
 //   «Aceptar» o «Rechazar» y una barra con lo que le queda antes de caducar.
 //
-// `lobby`: la sala de `net/online.js`. `canChallenge()`: si ahora se puede retar o aceptar (no a media
-// partida online). `onMatch(info)`: un reto aceptado (por mí o por el otro), con el emparejamiento.
-// `onQuick()`: «Buscar rival al azar». `time()`: el reloj elegido en el menú.
-export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch, onQuick }) {
+// - Y arriba de la sala, «Tus partidas»: las online que tienes abiertas a la vez (lo pidió el usuario: varias
+//   partidas, quedando en espera), con a quién le toca; tocando una, se pone en el tablero.
+//
+// `lobby`: la sala de `net/online.js`. `canChallenge()`: si ahora se puede retar o aceptar.
+// `onMatch(info)`: un reto aceptado (por mí o por el otro), con el emparejamiento. `onQuick()`: «Buscar
+// rival al azar». `time()`: el reloj elegido en el menú. `onGame(id)`: ir a una de tus partidas;
+// `onDismissGame(id)`: quitar de la lista una acabada.
+export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch, onQuick, onGame, onDismissGame }) {
   const pildora = document.getElementById('menu-sala');
   const numero = document.getElementById('menu-sala-n');
   const tarjeta = document.querySelector('.modo[data-modo="online"]');
@@ -25,6 +29,9 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
   const filtro = root.querySelector('#sala-filtro');
   const yoTexto = root.querySelector('#sala-yo');
   const retosCaja = document.getElementById('retos');
+  const partidasCaja = root.querySelector('#sala-partidas-caja');
+  const partidasLista = root.querySelector('#sala-partidas');
+  let partidas = [];
   let jugadores = [];
   let miNombre = '';
   const retando = new Map(); // id → { reto, estado: 'esperando' | 'rechaza' | 'nocontesta', hasta }
@@ -100,7 +107,7 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
         boton.addEventListener('click', () => r.reto.cancel());
       } else {
         boton.textContent = t('sala.retar');
-        boton.disabled = !disponible(p) || !canChallenge();
+        boton.disabled = !canChallenge();
         boton.addEventListener('click', () => reta(p));
       }
       li.append(avatar, datos, boton);
@@ -134,8 +141,63 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
     }
   }
 
+  // ---- Tus partidas ----
+  const minutos = (ms) => {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+  function pintaPartidas() {
+    partidasCaja.hidden = partidas.length === 0;
+    partidasLista.replaceChildren(...partidas.map((g) => {
+      const estado = g.acabada ?? (g.aqui ? 'aqui' : g.toca ? 'toca' : 'letoca');
+      const li = document.createElement('li');
+      li.className = 'sala-partida';
+      li.dataset.estado = estado;
+      const boton = document.createElement('button');
+      boton.type = 'button';
+      boton.className = 'sala-partida-boton';
+      const avatar = document.createElement('span');
+      avatar.className = 'sala-avatar';
+      avatar.style.setProperty('--tono', String(tono({ name: g.rival, id: g.rivalId ?? g.id })));
+      avatar.textContent = (g.rival || '?').slice(0, 1).toLocaleUpperCase();
+      const datos = document.createElement('span');
+      datos.className = 'sala-datos';
+      const nombre = document.createElement('span');
+      nombre.className = 'sala-nombre';
+      nombre.textContent = t('partidas.contra', { nombre: g.rival });
+      const detalle = document.createElement('span');
+      detalle.className = 'sala-estado';
+      const partes = [t(`color.${g.color}`), t('partidas.jugada', { n: g.jugada })];
+      if (g.reloj) partes.push(`${minutos(g.reloj.white)} | ${minutos(g.reloj.black)}`);
+      detalle.textContent = partes.join(' · ');
+      datos.append(nombre, detalle);
+      const chip = document.createElement('span');
+      chip.className = 'sala-chip';
+      chip.textContent = t(`partidas.${estado}`);
+      boton.append(avatar, datos, chip);
+      boton.disabled = g.aqui;
+      boton.addEventListener('click', () => {
+        cerrar();
+        onGame?.(g.id);
+      });
+      li.append(boton);
+      if (g.acabada && !g.aqui) {
+        const quitar = document.createElement('button');
+        quitar.type = 'button';
+        quitar.className = 'sala-quitar';
+        quitar.textContent = '✕';
+        quitar.title = t('partidas.quitar');
+        quitar.setAttribute('aria-label', t('partidas.quitar'));
+        quitar.addEventListener('click', () => onDismissGame?.(g.id));
+        li.append(quitar);
+      }
+      return li;
+    }));
+  }
+
   function abrir() {
     root.hidden = false;
+    pintaPartidas();
     root.classList.remove('entra');
     void root.offsetWidth;
     root.classList.add('entra');
@@ -233,6 +295,48 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
   });
 
   return {
+    // Tus partidas online: [{ id, rival, rivalId, color, jugada, aqui, toca, aviso, acabada, reloj }].
+    setGames(lista) {
+      partidas = lista;
+      if (!root.hidden) pintaPartidas();
+    },
+    // Un aviso arriba (el rival ha movido en una partida en espera, o se ha acabado), con un botón.
+    notify({ texto, boton, accion }) {
+      const el = document.createElement('div');
+      el.className = 'reto aviso';
+      el.setAttribute('role', 'status');
+      const icono = document.createElement('span');
+      icono.className = 'reto-icono';
+      icono.setAttribute('aria-hidden', 'true');
+      icono.textContent = '♞';
+      const textos = document.createElement('span');
+      textos.className = 'reto-textos';
+      const b = document.createElement('b');
+      b.textContent = texto;
+      textos.append(b);
+      el.append(icono, textos);
+      const quita = () => {
+        el.classList.add('sale');
+        setTimeout(() => el.remove(), 300);
+      };
+      if (boton && accion) {
+        const ver = document.createElement('button');
+        ver.type = 'button';
+        ver.className = 'reto-si';
+        ver.textContent = boton;
+        ver.addEventListener('click', () => {
+          quita();
+          accion();
+        });
+        el.append(ver);
+      }
+      const barra = document.createElement('span');
+      barra.className = 'reto-tiempo';
+      barra.style.setProperty('--dura', '8s');
+      el.append(barra);
+      retosCaja.append(el);
+      setTimeout(quita, 8000);
+    },
     // El nombre con el que se aparece en la sala.
     setName(nombre) {
       miNombre = nombre;

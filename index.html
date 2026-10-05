@@ -51,6 +51,11 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 21V3.5"/><path d="M5.5 4.5c2.4-1.5 4.8-1.5 7.2 0s4.8 1.5 7.3 0v9c-2.5 1.5-4.9 1.5-7.3 0s-4.8-1.5-7.2 0"/></svg>
         <span class="boton-texto"></span>
       </button>
+      <!-- Tus partidas online, si tienes alguna en espera: abre la sala con ellas arriba. -->
+      <button id="partidas" class="boton" type="button" hidden aria-label="Tus partidas online" title="Tus partidas online" data-i18n-attr="title:partidas.abrir;aria-label:partidas.abrir">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="7.5" width="12" height="12" rx="1.5"/><path d="M8 3.5h10.5a2 2 0 0 1 2 2V16"/><path d="M3.5 13.5h12M9.5 7.5v12"/></svg>
+        <span class="boton-globo" hidden>0</span>
+      </button>
       <button id="pantalla" class="boton" type="button" aria-pressed="false" aria-label="Pantalla completa" title="Pantalla completa">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path class="abrir" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><path class="cerrar" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
       </button>
@@ -207,6 +212,11 @@
         <button id="sala-cerrar" class="sala-cerrar" type="button" data-i18n-attr="aria-label:ajustes.cerrar;title:ajustes.cerrar">✕</button>
       </div>
       <p id="sala-yo" class="sala-yo"></p>
+      <div id="sala-partidas-caja" class="sala-seccion" hidden>
+        <h3 class="sala-subtitulo" data-i18n="partidas.titulo">Tus partidas</h3>
+        <ul id="sala-partidas" class="sala-lista sala-partidas"></ul>
+        <h3 class="sala-subtitulo" data-i18n="sala.titulo">Jugadores online</h3>
+      </div>
       <label class="sala-buscar">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg>
         <input id="sala-filtro" type="search" autocomplete="off" spellcheck="false" enterkeyhint="search" data-i18n-attr="placeholder:sala.buscar;aria-label:sala.buscar">

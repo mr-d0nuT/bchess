@@ -112,7 +112,8 @@ export function createMatchUi(root = document.getElementById('hud')) {
       }
       if (status === 'checkmate') titulo = t('final.mate');
       if (status === 'abandon' || status === 'rivalResigned') titulo = t('final.ganas'); // online: el rival se ha ido o se ha rendido
-      if (status === 'resign') titulo = t('final.rendido'); // online: me he rendido yo
+      // Me he rendido (uno contra uno, el que movía: el que no gana).
+      if (status === 'resign') titulo = mode === 'pvp' && winner ? t(`final.rinde.${winner === 'white' ? 'black' : 'white'}`) : t('final.rendido');
       if (winner) {
         if (mode === 'cpu') texto = winner === human ? t('final.ganaste') : t('final.perdiste');
         else if (mode === 'online' && status === 'abandon') texto = t('final.abandono');
