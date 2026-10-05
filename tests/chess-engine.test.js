@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Position } from '../src/chess/position.js';
-import { chooseMove, createEngine, evaluate, levelSettings } from '../src/chess/engine.js';
+import { chooseMove, createEngine, evaluate, levelSettings, pickLikeAPerson } from '../src/chess/engine.js';
+import { bookMoves, pickBookMove } from '../src/chess/book.js';
 
 const uci = (m) => Position.uci(m);
 // Un «azar» que siempre devuelve lo mismo, para que las pruebas no dependan de la suerte.
@@ -54,9 +55,64 @@ test('los niveles van de flojo a fuerte', () => {
   assert.ok(uno.depth < cien.depth);
   assert.ok(uno.noise > cien.noise);
   assert.equal(cien.noise, 0);
-  assert.equal(cien.random, 0);
-  assert.ok(uno.random > 0.3);
+  assert.equal(cien.temperature, 0, 'el nivel más alto juega siempre su mejor jugada');
+  assert.ok(uno.temperature > 100, 'el más bajo se conforma a menudo con una peor');
+  assert.ok(levelSettings(30).temperature < uno.temperature);
+  assert.ok(uno.book < cien.book, 'el principiante se sale antes del libro');
+  assert.equal(uno.random, undefined, 'ya no mueve nunca a lo loco');
   assert.ok(cien.timeMs <= 2100, 'ni en el nivel más alto se piensa más de dos segundos');
+});
+
+// Un azar que se repite (mulberry32): las pruebas de estadística no dependen de la suerte.
+function semilla(n) {
+  let a = n >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+test('como una persona: la mejor es la más probable, y una mucho peor casi nunca sale', () => {
+  const scored = [{ move: 'buena', score: 50 }, { move: 'regular', score: 0 }, { move: 'mala', score: -900 }];
+  const azar = semilla(7);
+  const veces = { buena: 0, regular: 0, mala: 0 };
+  for (let i = 0; i < 2000; i++) veces[pickLikeAPerson(scored, 100, azar)] += 1;
+  assert.ok(veces.buena > veces.regular, JSON.stringify(veces));
+  assert.ok(veces.regular > 300, `la regular también sale: ${JSON.stringify(veces)}`);
+  assert.ok(veces.mala < 10, `la que pierde la dama, casi nunca: ${JSON.stringify(veces)}`);
+  // Sin temperatura que valga, siempre la mejor.
+  assert.equal(pickLikeAPerson(scored, 1, semilla(3)), 'buena');
+});
+
+test('el nivel 1 ya no regala: casi siempre se come la dama que le dejan', () => {
+  const p = Position.fromFEN('rnb1kbnr/pppp1ppp/8/4q3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3');
+  const azar = semilla(11);
+  let come = 0;
+  const N = 40;
+  for (let i = 0; i < N; i++) {
+    const m = chooseMove(p, 1, { random: azar, clock: (() => { let t = 0; return () => (t += 5); })() });
+    if (uci(m) === 'f3e5') come += 1;
+  }
+  assert.ok(come >= N * 0.8, `se la come ${come} de ${N} veces`);
+});
+
+test('el libro de aperturas: jugadas de verdad, y no siempre la misma', () => {
+  const inicio = Position.initial();
+  const primeras = bookMoves(inicio).map((o) => o.uci).sort();
+  assert.deepEqual(primeras, ['c2c4', 'd2d4', 'e2e4', 'g1f3']);
+  const azar = semilla(5);
+  const vistas = new Set();
+  for (let i = 0; i < 60; i++) vistas.add(Position.uci(chooseMove(inicio, 100, { random: azar })));
+  assert.ok(vistas.size >= 3, `abre con ${[...vistas].join(', ')}`);
+  for (const m of vistas) assert.ok(primeras.includes(m));
+  // Llegando a la misma posición por otro orden de jugadas, el libro también la conoce.
+  const p = Position.initial();
+  for (const m of ['c2c4', 'g8f6', 'd2d4', 'e7e6', 'b1c3', 'f8b4']) p.playUci(m); // la nimzoindia, por otro orden
+  assert.ok(bookMoves(p).some((o) => o.uci === 'e2e3'), 'la nimzoindia por otro orden');
+  assert.equal(pickBookMove(Position.fromFEN('8/8/8/4k3/8/8/8/4K3 w - - 0 1')), null);
 });
 
 test('en cualquier nivel devuelve una jugada que vale', () => {

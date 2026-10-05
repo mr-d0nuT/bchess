@@ -129,7 +129,13 @@ principio).
 
 ## Fase 4 — CPU y rendimiento
 
-### 16. Niveles de la CPU más humanos · M
+### 16. Niveles de la CPU más humanos · M · ✔ hecho
+**Hecho (5/10/2026):** ya no mueve nunca a lo loco. Por debajo del nivel 60 puntúa todas sus jugadas y elige
+como una persona: casi siempre una buena, a menudo una algo peor y, cuanto más bajo el nivel, más a menudo un
+error de verdad (dejarse un peón o una pieza). Y abre con un libro de 32 aperturas reales (española,
+italiana, siciliana, francesa, Caro-Kann, gambito de dama, india de rey, nimzoindia, inglesa…), elegidas al
+azar según lo que se juegan; el principiante se sale del libro enseguida y el nivel alto lo sigue hasta 16
+jugadas.
 **Qué:** en los niveles bajos, fallos creíbles (no jugadas al azar), y aperturas variadas para que
 no empiece siempre igual.
 

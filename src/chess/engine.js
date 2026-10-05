@@ -1,4 +1,5 @@
 import { BISHOP, BLACK, KING, KNIGHT, PAWN, Position, QUEEN, ROOK, WHITE } from './position.js';
+import { pickBookMove } from './book.js';
 
 // LA CPU. Piensa como los motores de siempre: prueba jugadas, contesta por el rival, vuelve a
 // contestar… y se queda con la que mejor acaba suponiendo que el otro también juega lo mejor que
@@ -11,8 +12,14 @@ import { BISHOP, BLACK, KING, KNIGHT, PAWN, Position, QUEEN, ROOK, WHITE } from 
 // siempre, a mano, con los valores de medio juego y de final mezclados según el material que quede.
 //
 // El nivel (1-100) lo decide todo: hasta dónde mira, cuánto tiempo se da, cuánto «ruido» mete al
-// puntuar (con ruido juega jugadas razonables pero no las mejores) y, en los niveles más bajos,
-// cuántas veces mueve a lo loco.
+// puntuar (con ruido juega jugadas razonables pero no las mejores), cuántas jugadas de libro sigue al
+// empezar y, en los niveles bajos, cuánto se conforma con una jugada peor que la mejor.
+//
+// FALLOS CREÍBLES (punto 16 del plan de mejora). Antes los niveles bajos movían de vez en cuando a lo loco:
+// una jugada cualquiera, que ninguna persona haría. Ahora puntúan TODAS sus jugadas y eligen entre ellas como
+// un jugador flojo: casi siempre una de las buenas, a menudo una algo peor, y de vez en cuando un error de
+// verdad (dejarse un peón, una pieza…), más cuanto más bajo el nivel. Es la «temperatura»: la probabilidad
+// de cada jugada cae con lo que pierde respecto a la mejor, y a más temperatura, más despacio cae.
 
 const VALUE = [0, 100, 320, 330, 500, 900, 0];
 const MATE = 30000;
@@ -161,13 +168,18 @@ export function evaluate(p, noise = 0, seed = 0) {
 }
 
 // La fuerza de cada nivel (1-100).
+export const HUMAN_UNTIL = 60; // por debajo de este nivel elige «como una persona» (`temperature`)
 export function levelSettings(level) {
-  const n = Math.max(1, Math.min(100, Math.round(level))) / 100;
+  const nivel = Math.max(1, Math.min(100, Math.round(level)));
+  const n = nivel / 100;
   return {
     depth: Math.max(1, Math.min(8, 1 + Math.floor(n * 7.4))),
     timeMs: Math.round(120 + n * n * 1900),
-    noise: Math.round(260 * (1 - n) ** 1.7), // centipeones de error al puntuar
-    random: level < 20 ? 0.45 * (20 - level) / 19 : 0, // cada cuánto mueve a lo loco
+    noise: Math.round(120 * (1 - n) ** 2), // centipeones de error al puntuar
+    // Lo que se conforma con una jugada peor, en centipeones: cada 1 × esto que pierda una jugada respecto a
+    // la mejor, sale e veces menos. 0, siempre la mejor.
+    temperature: nivel >= HUMAN_UNTIL ? 0 : Math.round(150 * ((HUMAN_UNTIL - nivel) / (HUMAN_UNTIL - 1)) ** 1.4),
+    book: 2 + Math.floor(n * 14), // jugadas del libro de aperturas que sigue, como mucho
   };
 }
 
@@ -336,6 +348,38 @@ export function createEngine() {
     return best;
   }
 
+  // Lo que vale cada jugada (no solo la mejor), para que los niveles flojos elijan entre todas como lo haría
+  // una persona. Cada una con su ventana entera, que si no solo se sabría que son peores, no cuánto.
+  // Profundiza mientras quede tiempo, como `search`: valen las puntuaciones de la última vuelta acabada.
+  function scoreMoves(p, { depth: maxDepth = 3, timeMs = 500, noise: ruido = 0, seed: semilla = 0, clock } = {}) {
+    now = clock ?? (() => Date.now());
+    nodes = 0;
+    stopped = false;
+    noise = ruido;
+    seed = semilla;
+    deadline = now() + timeMs;
+    for (const k of killers) {
+      k[0] = 0;
+      k[1] = 0;
+    }
+    historia.fill(0);
+    const raiz = p.legalMoves();
+    let hechas = raiz.map((move) => ({ move, score: 0 }));
+    for (let depth = 1; depth <= maxDepth; depth++) {
+      const vuelta = [];
+      for (const m of ordena(p, raiz, 0, 0)) {
+        p.make(m);
+        const score = -negamax(p, depth - 1, -INF, INF, 1, true);
+        p.unmake();
+        if (stopped) break;
+        vuelta.push({ move: m, score });
+      }
+      if (stopped) break;
+      hechas = vuelta;
+    }
+    return hechas;
+  }
+
   // Busca la mejor jugada, profundizando mientras quede tiempo.
   function search(p, { depth: maxDepth = 6, timeMs = 1000, noise: ruido = 0, seed: semilla = 0, clock } = {}) {
     now = clock ?? (() => Date.now());
@@ -380,8 +424,26 @@ export function createEngine() {
     return { move: bestMove, score: bestScore, depth: hecha, nodes };
   }
 
-  return { search };
+  return { search, scoreMoves };
 }
+
+// Elige entre jugadas puntuadas ({ move, score }) como un jugador de esa `temperature`: la mejor es la más
+// probable, y cada una lo es menos cuanto más pierde respecto a ella.
+export function pickLikeAPerson(scored, temperature, random = Math.random) {
+  if (!scored.length) return null;
+  const mejor = Math.max(...scored.map((s) => s.score));
+  const pesos = scored.map((s) => Math.exp((s.score - mejor) / Math.max(1, temperature)));
+  const total = pesos.reduce((a, b) => a + b, 0);
+  let r = random() * total;
+  for (let i = 0; i < scored.length; i++) {
+    r -= pesos[i];
+    if (r < 0) return scored[i].move;
+  }
+  return scored.at(-1).move;
+}
+
+// Las jugadas que lleva la partida, contando desde el principio por el número de jugada.
+const pliesOf = (p) => (p.fullmove - 1) * 2 + (p.turn === WHITE ? 0 : 1);
 
 // La jugada de la CPU para un nivel. `random` (0-1) para poder repetirlo en las pruebas.
 export function chooseMove(p, level, { random = Math.random, clock, engine = createEngine(), maxMs = null } = {}) {
@@ -389,7 +451,23 @@ export function chooseMove(p, level, { random = Math.random, clock, engine = cre
   if (maxMs > 0) ajustes.timeMs = Math.min(ajustes.timeMs, maxMs); // con reloj, lo que se pueda permitir
   const legales = p.legalMoves();
   if (!legales.length) return null;
-  if (ajustes.random > 0 && random() < ajustes.random) return legales[Math.floor(random() * legales.length)];
+  // Al empezar, del libro: aperturas de verdad, y no siempre la misma.
+  if (pliesOf(p) < ajustes.book) {
+    const libro = pickBookMove(p, random);
+    const m = libro ? p.findUci(libro) : null;
+    if (m !== null) return m;
+  }
+  // Los niveles flojos, como una persona: puntúa todas y elige sin ser perfecto.
+  if (ajustes.temperature > 0) {
+    const scored = engine.scoreMoves(p, {
+      depth: ajustes.depth,
+      timeMs: ajustes.timeMs,
+      noise: ajustes.noise,
+      seed: Math.floor(random() * 0x7fffffff),
+      clock,
+    });
+    return pickLikeAPerson(scored, ajustes.temperature, random) ?? legales[0];
+  }
   const { move } = engine.search(p, {
     depth: ajustes.depth,
     timeMs: ajustes.timeMs,
