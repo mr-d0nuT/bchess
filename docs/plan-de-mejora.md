@@ -113,7 +113,10 @@ ventaja de material (+3, −1…).
 ofrecer tablas.
 **Qué:** botones en ajustes. Contra la CPU, esta acepta las tablas o no según cómo vaya la partida.
 
-### 13. Pista · S
+### 13. Pista · S · ✔ hecho
+**Hecho (5/10/2026):** botón de bombilla con un globo que dice cuántas quedan (tres por partida, contra la
+CPU o uno contra uno; online no, que sería hacer trampa). La CPU piensa a nivel alto la jugada del que mueve
+y la marca con la flecha dorada, con la pieza ya elegida: solo falta tocar adónde va.
 **Qué:** la CPU te sugiere una jugada y la marca en el tablero, con un número limitado de pistas por
 partida.
 

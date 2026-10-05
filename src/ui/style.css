@@ -244,6 +244,12 @@ html, body {
 }
 .boton-globo[hidden] { display: none; }
 @keyframes globo-late { 50% { transform: scale(1.18); } }
+/* La pista: su globo dice cuántas quedan, quieto (no es un aviso); mientras la CPU piensa, la bombilla late. */
+#pista { position: relative; }
+#pista .boton-globo { animation: none; background: #ffe08a; }
+#pista:disabled .boton-globo { opacity: 0.5; box-shadow: none; }
+#pista.pensando { color: #ffd66b; animation: pista-piensa 0.9s ease-in-out infinite; }
+@keyframes pista-piensa { 50% { box-shadow: 0 0 14px rgba(255, 210, 90, 0.9); } }
 /* Rendirse: al primer toque se despliega en rojo y pregunta; el segundo lo confirma. */
 #rendirse .boton-texto { display: none; font: 700 14px/1 system-ui, sans-serif; white-space: nowrap; }
 #rendirse.confirma { display: flex; gap: 6px; width: auto; padding: 0 13px 0 9px; border-radius: 999px; border-color: #ff6b5b; color: #ffb3a8; box-shadow: 0 0 12px rgba(255, 80, 60, 0.6); }

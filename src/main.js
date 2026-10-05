@@ -482,8 +482,66 @@ async function start() {
     resignButton.classList.add('confirma');
     preguntaRendirse = setTimeout(() => resignButton.classList.remove('confirma'), 3500);
   });
+  // LA PISTA (punto 13 del plan de mejora): la CPU piensa, a nivel alto, la mejor jugada del que mueve y la
+  // marca: la flecha dorada de la casilla de salida a la de llegada, y la pieza ya elegida, que solo falta
+  // tocar adónde va. Tres por partida, contra la CPU o uno contra uno; online, ninguna (sería hacer trampa).
+  const PISTAS = 3;
+  const PISTA_NIVEL = 85;
+  const PISTA_MS = 1500;
+  const pistaBoton = document.getElementById('pista');
+  const pistaGlobo = pistaBoton?.querySelector('.boton-globo');
+  const pista = { quedan: PISTAS, pensando: false, partida: null, titulo: '' };
+  function puedePista() {
+    if (state.phase !== 'playing' || game.mode === 'online' || pista.pensando || pista.quedan <= 0) return false;
+    if (game.animating || state.fighting || state.busy || game.thinking || view.moving) return false;
+    return game.mode !== 'cpu' || game.position.side === game.human;
+  }
+  pistaBoton?.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    if (!puedePista()) return;
+    const id = game.id;
+    const jugadas = game.moves.length;
+    pista.pensando = true;
+    pistaBoton.classList.add('pensando');
+    let uci = null;
+    try {
+      uci = await cpu.think({ fen: game.start, moves: game.moves.slice(), maxMs: PISTA_MS }, PISTA_NIVEL);
+    } catch (err) {
+      console.error('[BChess] Sin pista:', err);
+    }
+    pista.pensando = false;
+    pistaBoton.classList.remove('pensando');
+    // Si mientras pensaba se ha movido, o ya es otra partida, no vale (ni se gasta).
+    if (!uci || id !== game.id || jugadas !== game.moves.length || state.phase !== 'playing') return;
+    pista.quedan -= 1;
+    sfx.play('conjuro', { volume: 0.5 });
+    highlights.trail(uci.slice(0, 2), uci.slice(2, 4));
+    const pieza = pieceAt(uci.slice(0, 2));
+    if (pieza) select(pieza);
+  });
+  function pintaPista() {
+    if (!pistaBoton) return;
+    if (pista.partida !== game.id) {
+      pista.partida = game.id; // partida nueva: otra vez tres
+      pista.quedan = PISTAS;
+    }
+    const visible = state.phase === 'playing' && game.mode !== 'online';
+    if (pistaBoton.hidden !== !visible) pistaBoton.hidden = !visible;
+    const puede = puedePista();
+    if (pistaBoton.disabled !== !puede) pistaBoton.disabled = !puede;
+    const n = String(pista.quedan);
+    if (pistaGlobo && pistaGlobo.textContent !== n) pistaGlobo.textContent = n;
+    const titulo = pista.quedan > 0 ? t('boton.pista', { n }) : t('pista.ninguna');
+    if (titulo !== pista.titulo) {
+      pista.titulo = titulo;
+      pistaBoton.title = titulo;
+      pistaBoton.setAttribute('aria-label', titulo);
+    }
+  }
+
   function paintViewButtons() {
     historial.show(state.phase === 'playing' || state.phase === 'over');
+    pintaPista();
     const quieta = !state.fighting && !view.moving;
     if (flipButton && flipButton.disabled !== !quieta) flipButton.disabled = !quieta;
     if (undoButton) {
