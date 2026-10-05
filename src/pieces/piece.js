@@ -35,8 +35,16 @@ const SPEAR_POSES = {
   couch: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(85)),
 };
 const SPEAR_TURN_SPEED = 7; // por segundo: la lanza tarda ~0,15 s en cambiar de postura
+const IDENTITY = new THREE.Quaternion();
 const THRUST_BLEND = 0.15; // segundos del clip en que la espada pasa del agarre a la estocada, y vuelta
 const THRUST_ARM = 0.05; // lo que ha de distar de la mano el hueso que marca la línea del antebrazo
+// LA ESTOCADA A LO LARGO DEL BRAZO (`thrustAlongArm`, el peón). Con la lanza de punta fija respecto a la
+// figura y el puño delante del pecho (sus estocadas son puñetazos), lo que quedaba del palo detrás del puño
+// le atravesaba el cuerpo, y para sacarlo la lanza resbalaba hasta quedar cogida por el regatón: la punta
+// llegaba tan lejos que al impactar atravesaba medio metro al rival (lo vio el usuario). Ahora, en la
+// estocada, la lanza sigue la línea del antebrazo —la parte de atrás pasa junto al codo y el hombro, por
+// el costado— y se coge más por en medio, como se coge de verdad.
+const ARM_TURN_SPEED = 14; // radianes por segundo: sigue al antebrazo casi sin retraso
 // El eje sobre el que el báculo da vueltas cuando se le pide (`setSpearSpin`): perpendicular a la
 // vara, así que voltea de punta a regatón, no gira sobre sí mismo como un taladro —que en un palo
 // redondo casi no se ve. Y como su origen está en el agarre, voltea alrededor del PUÑO.
@@ -333,6 +341,10 @@ export function spawnPiece(kit) {
   let spearSpin = 0; // radianes que el báculo lleva volteados sobre el puño
   let gripTarget = 0; // lo que el combate pide que la lanza resbale hacia el regatón
   let grip = 0;
+  let armThrust = null; // `thrustAlongArm`: { grip }, lo que se sube el puño por el palo en la estocada
+  let armGrip = 0; // lo que lleva subido, que va hacia lo que toque sin saltos
+  const armPose = new THREE.Quaternion(); // la estocada a lo largo del antebrazo, en el sistema del modelo
+  let forearmBone = null;
   let flying = null; // lanza que ha salido volando: { velocity, axis, age }
   const cuts = []; // acciones de `playOnce` que acaban antes, por `seconds`: { action, at, resolve }
   let planted = false; // lanza clavada en el tablero
@@ -348,15 +360,34 @@ export function spawnPiece(kit) {
   // `spearRest`: la de la pieza cuando nada pide otra (el peón, en guardia: erguida). Por debajo de todas.
   let spearRest = null;
   const spearPoseName = () => spearOverride ?? currentVariant?.spear ?? spearDefault ?? spearRest;
+  // ¿Estocada a lo largo del brazo ahora mismo?
+  const thrustingAlongArm = () => Boolean(armThrust) && spearPoseName() === 'forward';
   function applySpearPose() {
     const name = spearPoseName();
-    const pose = name === 'body' ? bodyPose : SPEAR_POSES[name];
+    const pose = name === 'body' ? bodyPose : name === 'forward' && armThrust ? armPose : SPEAR_POSES[name];
     if (pose) spearPose = pose;
     spearTarget = pose ? 1 : 0;
   }
   // La de 'body', con la postura de ahora: del eje del cuerpo (cadera → cabeza) en el sistema del modelo.
   let bodyAxis = null;
   const bodyUp = new THREE.Vector3(0, 1, 0);
+  // La de la estocada a lo largo del brazo: del codo a la mano, en el sistema del modelo. El codo es el
+  // primer hueso por encima de la mano que no está pegado a ella (los de giro del antebrazo, sí).
+  function followArm() {
+    if (!forearmBone) {
+      let arm = spearBone?.parent;
+      spearBone?.getWorldPosition(guardTo);
+      while (arm?.parent?.isBone && arm.getWorldPosition(guardFrom).distanceTo(guardTo) < THRUST_ARM) arm = arm.parent;
+      forearmBone = arm?.isBone ? arm : null;
+      if (!forearmBone) return;
+    }
+    spearBone.getWorldPosition(guardTo);
+    forearmBone.getWorldPosition(guardFrom);
+    axis.subVectors(guardTo, guardFrom);
+    if (axis.lengthSq() < 1e-8) return;
+    axis.applyQuaternion(model.getWorldQuaternion(guardTurn).invert()).normalize();
+    armPose.setFromUnitVectors(bodyUp, axis);
+  }
   function followBody() {
     bodyAxis ??= bodyGuard ? { from: bodyGuard.from, to: bodyGuard.to } : { from: findBone(model, 'Hip'), to: findBone(model, 'Head') };
     if (!bodyAxis.from || !bodyAxis.to) return;
@@ -779,10 +810,43 @@ export function spawnPiece(kit) {
   }
 
   // Dos pasadas: al girar el palo, puede ser otro trozo el que quede más cerca del cuerpo.
+  //
+  // Y el giro, SUAVE. Calculado de cero en cada fotograma, saltaba: cuando el palo cruzaba el cuerpo junto
+  // al puño (ahí girarlo no sirve) se soltaba de golpe, y en una estocada la punta se teletransportaba medio
+  // metro de un fotograma al siguiente (y la medida del golpe caía en uno de esos saltos). Ahora lo que pide
+  // cada fotograma es el objetivo, y el giro que se aplica va hacia él a `GUARD_TURN_RATE`.
+  const GUARD_TURN_RATE = 6; // radianes por segundo
+  const guardBefore = new THREE.Quaternion();
+  const guardWant = new THREE.Quaternion();
+  const guardSmooth = new THREE.Quaternion();
+  const guardGrip = new THREE.Vector3();
   function keepSpearOffBody(spear, dt = 0) {
     if (!bodyGuard || !spearEnds) return;
     slideRearOut(spear, dt);
+    spear.updateWorldMatrix(true, false);
+    spear.getWorldQuaternion(guardBefore);
+    const posBefore = spear.position.clone();
+    const quatBefore = spear.quaternion.clone();
     if (pushSpearOut(spear)) pushSpearOut(spear);
+    // Lo que ha girado este fotograma (en el mundo), y vuelta a como estaba.
+    spear.getWorldQuaternion(guardWant).multiply(guardBefore.invert());
+    spear.position.copy(posBefore);
+    spear.quaternion.copy(quatBefore);
+    spear.updateWorldMatrix(false, false);
+    if (dt > 0) guardSmooth.rotateTowards(guardWant, GUARD_TURN_RATE * dt);
+    else guardSmooth.copy(guardWant);
+    if (guardSmooth.angleTo(IDENTITY) < 1e-4) return;
+    spearBone.localToWorld(guardGrip.copy(spearGripAt));
+    turnSpearAround(spear, guardSmooth, guardGrip);
+  }
+
+  // Gira la lanza `turn` (en el mundo) alrededor del punto `pivot`: el palo gira y su origen gira alrededor.
+  function turnSpearAround(spear, turn, pivot) {
+    spear.getWorldPosition(spearAt).sub(pivot).applyQuaternion(turn).add(pivot);
+    spear.parent.getWorldQuaternion(parentTurn2);
+    spear.quaternion.premultiply(parentTurn2).premultiply(turn).premultiply(parentTurn2.invert());
+    spear.position.copy(spear.parent.worldToLocal(spearAt));
+    spear.updateWorldMatrix(false, false);
   }
 
   // LA PARTE DE ATRÁS. Con el puño delante de la barriga y la lanza apuntando al frente (preparando la
@@ -804,7 +868,9 @@ export function spawnPiece(kit) {
     // no, al resbalar dejaría de tocar, volvería y no pararía de ir y venir.
     const atras = rearGrip.clone().sub(bottom).dot(rearAxis); // del regatón al puño, a lo largo de la lanza
     let quiere = 0;
-    if (atras > REAR_MIN) {
+    // En la estocada a lo largo del brazo, no: lo de atrás ya pasa por el costado, y resbalar es lo que la
+    // dejaba cogida por el regatón.
+    if (atras > REAR_MIN && !thrustingAlongArm()) {
       bodyGuard.from.getWorldPosition(guardFrom);
       bodyGuard.to.getWorldPosition(guardTo);
       guardTo.addScaledVector(axis.subVectors(guardTo, guardFrom), bodyGuard.over);
@@ -866,11 +932,7 @@ export function spawnPiece(kit) {
     pushOut.multiplyScalar(radius).add(onBody).sub(gripAt).normalize();
     guardTurn.setFromUnitVectors(axis, pushOut);
     // Se aplica en el mundo: el palo gira y su origen gira alrededor del puño.
-    spear.getWorldPosition(spearAt).sub(gripAt).applyQuaternion(guardTurn).add(gripAt);
-    spear.parent.getWorldQuaternion(parentTurn2);
-    spear.quaternion.premultiply(parentTurn2).premultiply(guardTurn).premultiply(parentTurn2.invert());
-    spear.position.copy(spear.parent.worldToLocal(spearAt));
-    spear.updateWorldMatrix(false, false);
+    turnSpearAround(spear, guardTurn, gripAt);
     return true;
   }
 
@@ -1300,7 +1362,9 @@ export function spawnPiece(kit) {
     } else {
       // Fuera de la mano, la orientación de la lanza se fija respecto a la figura.
       if (spearPoseName() === 'body') followBody();
-      poseNow.rotateTowards(spearPose, POSE_TURN_SPEED * dt);
+      const alongArm = thrustingAlongArm();
+      if (alongArm) followArm();
+      poseNow.rotateTowards(spearPose, (alongArm ? ARM_TURN_SPEED : POSE_TURN_SPEED) * dt);
       model.getWorldQuaternion(modelQuaternion).multiply(poseNow);
       spear.parent.getWorldQuaternion(boneQuaternion).invert();
       posed.copy(boneQuaternion).multiply(modelQuaternion);
@@ -1314,10 +1378,12 @@ export function spawnPiece(kit) {
     // rival) y, si un extremo se hunde en la peana o en el tablero, resbala hacia arriba.
     const gripStep = GRIP_SPEED * dt;
     grip += Math.max(-gripStep, Math.min(gripStep, gripTarget - grip));
+    // En la estocada a lo largo del brazo, además, el puño sube por el palo (se coge más por en medio).
+    armGrip += Math.max(-gripStep, Math.min(gripStep, (thrustingAlongArm() ? armThrust.grip : 0) - armGrip));
     spear.position.copy(spearGripAt);
-    if (grip !== 0) {
+    if (grip + armGrip !== 0) {
       axis.set(0, 1, 0).applyQuaternion(spear.quaternion);
-      spear.position.addScaledVector(axis, -grip / spear.parent.getWorldScale(boneScale).x);
+      spear.position.addScaledVector(axis, -(grip + armGrip) / spear.parent.getWorldScale(boneScale).x);
     }
     spear.updateWorldMatrix(true, false);
     // Volteando, el báculo se sale del suelo media vuelta de cada vuelta: dejarlo resbalar para que
@@ -1534,6 +1600,9 @@ export function spawnPiece(kit) {
     set onStep(fn) {
       onStep = fn ?? null;
     },
+    get onPlay() {
+      return onPlay;
+    },
     set onPlay(fn) {
       onPlay = fn ?? null;
     },
@@ -1651,6 +1720,12 @@ export function spawnPiece(kit) {
       });
       shieldGuard = { from, to, arm, radius: options.radius ?? 0.13, points };
       return true;
+    },
+    // La estocada (`forward`) a lo largo del antebrazo y con la lanza cogida más por en medio: `grip` es lo
+    // que sube el puño por el palo. Con null, como antes.
+    thrustAlongArm(options) {
+      armThrust = options ? { grip: options.grip ?? 0 } : null;
+      applySpearPose();
     },
     guardSpear(options) {
       if (!options) {

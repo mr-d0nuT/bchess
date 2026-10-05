@@ -43,9 +43,13 @@ export function fightSpots(from, to, style) {
 }
 
 // Cuánto debe resbalar la lanza hacia el regatón para que la punta, que en la estocada llega
-// a `reach`, se quede en el pecho de un rival a `distance`.
+// a `reach`, se quede en el pecho de un rival a `distance`. Si no llega, resbala hacia la punta, pero poco
+// (`GRIP_EXTEND`): la lanza se coge por en medio y alargarla mucho la dejaría otra vez cogida por el
+// regatón; ni hacia atrás más de `GRIP_RETRACT`.
+export const GRIP_EXTEND = 0.3;
+export const GRIP_RETRACT = 0.6;
 export function gripSlideForReach({ reach, distance, torso = TORSO }) {
-  return Math.max(0, reach - (distance - torso));
+  return Math.min(GRIP_RETRACT, Math.max(-GRIP_EXTEND, reach - (distance - torso)));
 }
 
 // Muestra con el valor más alto de una lista de { t, value }, o null si está vacía.

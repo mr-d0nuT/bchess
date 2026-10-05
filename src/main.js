@@ -1610,14 +1610,7 @@ async function start() {
         piece.cape = QUEEN_CAPE;
         piece.frozenIdle = QUEEN_STILL;
       }
-      // El peón ataca con la lanza o con los pies, y el escudo se queda en guardia: en la patada, el brazo
-      // del escudo se iba hacia delante y abajo y lo dejaba plano a la altura de la rodilla, empujando.
-      if (kind === 'pawn' && piece.props.shield) piece.holdBones('attack', (bone) => SHIELD_ARM.test(bone));
-      // Y su lanza no le atraviesa el cuerpo: al atacar le cruzaba el pecho, y al celebrar con ella erguida,
-      // agachándose, le salía por la espalda (lo vio el usuario).
-      if (kind === 'pawn') piece.guardSpear({ from: 'Hip', to: 'Head', radius: 0.2, over: 0.35 });
-      // Ni el escudo, que en las patadas y al recibir se le metía en el tronco: el hombro aparta el brazo.
-      if (kind === 'pawn') piece.guardShield({ from: 'Hip', to: 'NeckTwist01', arm: 'L_Upperarm', radius: 0.13 });
+      if (kind === 'pawn') pawnTweaks(piece);
       // El alfil conjura con la mano libre y el báculo quieto: el clip de lanzar hechizos es para manos
       // vacías, y con el báculo en la derecha lo lanzaba hacia atrás y el fogonazo salía a su espalda.
       if (kind === 'bishop') piece.addStillBones('conjurar', 'attack', (bone) => STAFF_ARM.test(bone), { clip: 'cast_a_spell' });
@@ -1655,19 +1648,48 @@ async function start() {
     // La mano del rey se cierra sobre el báculo lo último: el puño se busca con los brazos ya
     // bajados y la pieza en su casilla, no sobre el modelo recién cargado.
     if (kind === 'king') entry.piece.closeHandOnSpear();
-    // Y la del peón, en un puño alrededor de la lanza (la llevaba pegada a la mano abierta), y en guardia: en
-    // reposo y andando, el antebrazo hacia delante y la lanza derecha, que con el brazo colgando el puño no
-    // la podía agarrar sin torcer la muñeca de forma imposible.
-    if (kind === 'pawn') {
-      entry.piece.spearStance({
-        upper: 'R_Upperarm', fore: 'R_Forearm', hand: 'R_Hand',
-        elbow: [-0.14, -0.97, 0.21], // el codo, abajo, algo adelantado y hacia fuera
-        wrist: [0.05, -0.25, 0.98], // el antebrazo, hacia delante y algo hacia abajo: así la muñeca queda casi recta (medido)
-      });
-      entry.piece.gripSpearFist();
-    }
+    // Y la del peón, en un puño alrededor de la lanza (`pawnGrip`).
+    if (kind === 'pawn') pawnGrip(entry.piece);
     return entry;
   }
+
+  // Lo que se le hace a cada peón al crearlo, también al que sirve para medir sus golpes
+  // (`measureStrikes`): así se miden los golpes de verdad. Sin esto, la estocada medida no se parecía a
+  // la del juego (en el juego la lanza va en el puño y apartada del cuerpo, que la empuja hacia delante),
+  // y la del peón contra el caballero pasaba de largo junto al escudo (lo vio el usuario).
+  function pawnTweaks(piece) {
+    // Ataca con la lanza o con los pies, y el escudo se queda en guardia: en la patada, el brazo del escudo
+    // se iba hacia delante y abajo y lo dejaba plano a la altura de la rodilla, empujando.
+    if (piece.props.shield) piece.holdBones('attack', (bone) => SHIELD_ARM.test(bone));
+    // Y su lanza no le atraviesa el cuerpo: al atacar le cruzaba el pecho, y al celebrar con ella erguida,
+    // agachándose, le salía por la espalda (lo vio el usuario).
+    piece.guardSpear({ from: 'Hip', to: 'Head', radius: 0.2, over: 0.35 });
+    // Ni el escudo, que en las patadas y al recibir se le metía en el tronco: el hombro aparta el brazo.
+    piece.guardShield({ from: 'Hip', to: 'NeckTwist01', arm: 'L_Upperarm', radius: 0.13 });
+    // Y la estocada, a lo largo del antebrazo y con la lanza cogida más por en medio (el puño, al 40 % del
+    // palo y no en el regatón): así la punta llega justo al rival y lo de atrás pasa por su costado.
+    piece.thrustAlongArm({ grip: 0.38 });
+    return piece;
+  }
+  // Y la mano, en un puño alrededor de la lanza (la llevaba pegada a la mano abierta), y en guardia: en
+  // reposo y andando, el antebrazo hacia delante y la lanza derecha, que con el brazo colgando el puño no la
+  // podía agarrar sin torcer la muñeca de forma imposible. Ya en su sitio: el puño se busca con su postura.
+  function pawnGrip(piece) {
+    piece.spearStance({
+      upper: 'R_Upperarm', fore: 'R_Forearm', hand: 'R_Hand',
+      elbow: [-0.14, -0.97, 0.21], // el codo, abajo, algo adelantado y hacia fuera
+      wrist: [0.05, -0.25, 0.98], // el antebrazo, hacia delante y algo hacia abajo: así la muñeca queda casi recta (medido)
+    });
+    piece.gripSpearFist();
+    return piece;
+  }
+  // El peón con el que se miden los golpes: como los de la partida.
+  const spawnPawnToMeasure = (kit) => {
+    const piece = pawnTweaks(spawnPiece(kit));
+    piece.placeAt({ x: 0, z: 0 });
+    piece.face(0);
+    return pawnGrip(piece);
+  };
 
   // Carga los modelos de un tipo de pieza (los dos bandos) y pone cada pieza en su casilla. Cada tipo
   // va aparte: si uno falla, el resto del tablero sigue.
@@ -1675,7 +1697,7 @@ async function start() {
     try {
       const sides = SIDES.filter((side) => manifest.pieces?.[side[kind]]);
       const loaded = await Promise.all(sides.map((side) => load(manifest.pieces[side[kind]], quality)));
-      if (strikes) for (const kit of loaded) kit.strikes = measureStrikes(kit, spawnPiece);
+      if (strikes) for (const kit of loaded) kit.strikes = measureStrikes(kit, kind === 'pawn' ? spawnPawnToMeasure : spawnPiece);
       kits[kind] = {};
       sides.forEach((side, i) => {
         kits[kind][side.color] = loaded[i];

@@ -8,6 +8,10 @@ import { FAN_SECTORS, FAN_STEP } from '../moves/room.js';
 // Son distancias desde el centro de la figura, que mira hacia +Z, en casillas.
 
 const FPS = 60;
+// La estocada: de los instantes en que la punta está a menos de esto de su alcance máximo, el impacto es el
+// de la punta más quieta. El máximo a secas caía a veces en mitad de un barrido (la punta, a 8 m/s), y el
+// golpe acababa medio metro al lado de donde se esperaba.
+const SPEAR_REACH_SLACK = 0.05;
 const LIMBS = ['L_Hand', 'R_Hand', 'L_ToeBase', 'R_ToeBase'];
 
 // Mallas con esqueleto de una pieza, con su postura de ahora: sin su zona de toque invisible, la
@@ -47,12 +51,17 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
   const point = new THREE.Vector3();
   const strikes = {};
   for (const attack of kit.moves.attack ?? []) {
+    // Como en los combates: la lanza ya en la postura del golpe antes de empezarlo (el duelo y el caballero
+    // que come peón la ponen y esperan a que gire). Si no, giraba mientras golpeaba y la punta medida no
+    // salía por donde sale en el juego (en la estocada a lo largo del brazo, un palmo de lado).
+    piece.setSpearPose?.(attack.spear ?? null);
     piece.play('idle', { fade: 0 });
     for (let i = 0; i < 20; i++) piece.update(1 / FPS);
     const action = piece.play('attack', { loop: false, fade: 0, clip: attack.key });
     if (!action) continue;
     const duration = action.getClip().duration;
     let spear = null;
+    const spearSamples = []; // { t, x, y, z, axis }: la punta en cada fotograma
     let blade = null;
     const bladePath = []; // por dónde pasa la punta de la espada ({ t, x, y, z }): el tajo busca el casco con ella
     let body = null;
@@ -64,10 +73,8 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
       const t = action.time;
       if (piece.props.spear && piece.spearEnds) {
         const tip = piece.props.spear.localToWorld(point.set(0, piece.spearEnds.top, 0));
-        if (!spear || tip.z > spear.reach) {
-          const axis = piece.props.spear.localToWorld(new THREE.Vector3(0, piece.spearEnds.bottom, 0)).sub(tip).negate().normalize();
-          spear = { t, reach: tip.z, side: tip.x, height: tip.y, axis: [axis.x, axis.y, axis.z] };
-        }
+        const axis = piece.props.spear.localToWorld(new THREE.Vector3(0, piece.spearEnds.bottom, 0)).sub(tip).negate().normalize();
+        spearSamples.push({ t, x: tip.x, y: tip.y, z: tip.z, axis: [axis.x, axis.y, axis.z] });
       }
       if (piece.props.sword && piece.swordEnds) {
         const tip = piece.props.sword.localToWorld(point.set(0, piece.swordEnds.top, 0));
@@ -94,9 +101,22 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
         return { dx, dy, face: hit ? limb.z + 1 - hit.distance : null };
       });
     }
+    if (spearSamples.length) {
+      const maxZ = Math.max(...spearSamples.map((sample) => sample.z));
+      let best = null;
+      spearSamples.forEach((sample, i) => {
+        if (sample.z < maxZ - SPEAR_REACH_SLACK) return;
+        const a = spearSamples[Math.max(0, i - 1)];
+        const b = spearSamples[Math.min(spearSamples.length - 1, i + 1)];
+        const speed = b.t > a.t ? Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) / (b.t - a.t) : 0;
+        if (!best || speed < best.speed) best = { ...sample, speed };
+      });
+      spear = { t: best.t, reach: best.z, side: best.x, height: best.y, axis: best.axis };
+    }
     if (blade) blade.path = bladePath;
     strikes[attack.key] = { duration, spear, blade, body, sideStep, overhead: highestHand(paths) };
   }
+  piece.setSpearPose?.(null);
   return strikes;
 }
 

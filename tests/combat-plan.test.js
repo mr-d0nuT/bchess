@@ -44,9 +44,12 @@ test('un estilo desconocido lanza error', () => {
   assert.throws(() => fightSpots({ x: 0, z: 0 }, { x: 1, z: 1 }, 'magia'), /Estilo no válido/);
 });
 
-test('gripSlideForReach deja la punta en el pecho y nunca desliza hacia la punta', () => {
-  assert.ok(close(gripSlideForReach({ reach: 2.18, distance: 1.71 }), 2.18 - (1.71 - 0.17)));
-  assert.equal(gripSlideForReach({ reach: 1, distance: 2 }), 0);
+test('gripSlideForReach deja la punta en el pecho, y para alargarla o acortarla resbala poco', () => {
+  assert.ok(close(gripSlideForReach({ reach: 2.0, distance: 1.71 }), 2.0 - (1.71 - 0.17)));
+  // Si no llega, la alarga, pero como mucho GRIP_EXTEND; y no la acorta más de GRIP_RETRACT.
+  assert.ok(close(gripSlideForReach({ reach: 1.4, distance: 1.71 }), 1.4 - (1.71 - 0.17)));
+  assert.equal(gripSlideForReach({ reach: 1, distance: 2 }), -0.3);
+  assert.equal(gripSlideForReach({ reach: 3, distance: 1 }), 0.6);
 });
 
 test('peak devuelve la muestra más alta', () => {

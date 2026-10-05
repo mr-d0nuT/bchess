@@ -217,3 +217,125 @@ export async function celebrate(entry, clock) {
     fighter.setGripSlide?.(0);
   }
 }
+
+// ---- El tajo, apuntado: lo comparten el duelo de caballeros y el caballero que come peón ----
+const STEP_SECONDS = 0.35; // el paso con el que se coloca para cada corte
+const WALK_FROM = 0.25; // a partir de esta distancia, el paso es andando; por debajo, se arrima
+
+// Dónde pasa la punta de la espada, bajando, por la altura `y`: { t, x, z } en el sistema de la figura
+// (mirando hacia +Z). Si la bajada no llega tan abajo, su punto más bajo.
+export function downswingAt(path, y) {
+  let top = 0;
+  for (let i = 1; i < path.length; i++) if (path[i].y > path[top].y) top = i;
+  let low = top;
+  for (let i = top + 1; i < path.length; i++) {
+    if (path[i].y < path[low].y) low = i;
+    else if (path[i].y > path[low].y + 0.05) break; // vuelve a subir: se acabó la bajada
+  }
+  for (let i = top + 1; i <= low; i++) {
+    const a = path[i - 1];
+    const b = path[i];
+    if (a.y >= y && b.y <= y) {
+      const k = (a.y - y) / Math.max(1e-6, a.y - b.y);
+      return { t: a.t + (b.t - a.t) * k, x: a.x + (b.x - a.x) * k, z: a.z + (b.z - a.z) * k };
+    }
+  }
+  return { t: path[low].t, x: path[low].x, z: path[low].z };
+}
+
+// Por dónde pasa DE VERDAD la punta de la espada de `fighter` durante `seconds` ({ t, x, y, z }, en su
+// sistema: desde sus pies y mirando hacia +Z). La medida de `strikes.js` se hace con una pieza de prueba,
+// sin lo que se le hace al jinete en la partida (el torso erguido), y los cortes fallaban por un palmo.
+// Ojo: el reloj mueve sus transiciones ANTES de que las piezas pongan la postura del fotograma, así que
+// lo que se ve en cada paso es la postura del momento anterior.
+export function recordTip(clock, fighter, seconds) {
+  const path = [];
+  const figure = fighter.figure;
+  const at = new THREE.Vector3();
+  let before = 0;
+  return clock.tween(seconds, (k) => {
+    const tip = swordTip(fighter);
+    figure.getWorldPosition(at);
+    const dx = tip.x - at.x;
+    const dz = tip.z - at.z;
+    const c = Math.cos(figure.rotation.y);
+    const sn = Math.sin(figure.rotation.y);
+    path.push({ t: before, x: dx * c - dz * sn, y: tip.y - at.y, z: dx * sn + dz * c });
+    before = k * seconds;
+  }).then(() => path);
+}
+
+// Espera a que la punta de la espada, bajando, pase por la altura `y` (del mundo), y como mucho `seconds`.
+// La bajada del tajo es tan rápida (unos 5 m/s) que un fotograma de más o de menos son un palmo: por eso
+// el corte no se fía del cronómetro, sino de dónde está la punta.
+export function tipBelow(clock, fighter, y, seconds) {
+  return new Promise((resolve) => {
+    let done = false;
+    clock.tween(seconds, (k) => {
+      if (done) return;
+      if (swordTip(fighter).y <= y || k >= 1) {
+        done = true;
+        resolve();
+      }
+    });
+  });
+}
+
+// Dónde ha de ponerse quien mira hacia `facing` para que la punta de su espada, en `tip` (en su sistema),
+// caiga en `target`.
+export function standFor(target, tip, facing) {
+  const c = Math.cos(facing);
+  const sn = Math.sin(facing);
+  return { x: target.x - (tip.x * c + tip.z * sn), z: target.z - (-tip.x * sn + tip.z * c) };
+}
+
+// Un paso hasta `to` ({x, z}) sin perder de vista al rival: si es corto, se arrima; si no, se gira, anda y
+// vuelve a encararlo.
+export async function stepTo(clock, fighter, to, facing) {
+  const figure = fighter.figure;
+  const from = { x: figure.position.x, z: figure.position.z };
+  const d = Math.hypot(to.x - from.x, to.z - from.z);
+  if (d < 0.02) return;
+  const walking = d > WALK_FROM;
+  if (walking) fighter.play('walk', { fade: 0.12 });
+  await clock.tween(STEP_SECONDS + (walking ? d * 0.6 : 0), (k) => {
+    const e = k * k * (3 - 2 * k);
+    figure.position.x = from.x + (to.x - from.x) * e;
+    figure.position.z = from.z + (to.z - from.z) * e;
+  });
+  figure.rotation.y = facing;
+  if (walking) fighter.play('idle', { fade: 0.15 });
+}
+
+// EL TAJO, ENSAYADO. Por dónde pasa de verdad la punta de la espada de `fighter` en el golpe `clip` ({ t, x,
+// y, z }, en su sistema: desde sus pies y mirando hacia +Z), ensayado sin que se vea ni se oiga: se juega
+// entero en la pieza de verdad entre dos fotogramas (sin pintar y sin su voz), se apunta la punta en cada
+// paso y se vuelve a como estaba. La medida de `strikes.js` es con una pieza de prueba y no coincide del
+// todo con la de la partida: en el casco del peón, el tajo caía un palmo corto.
+export function rehearseBlade(fighter, clip, { fade = 0.15, fps = 60 } = {}) {
+  const voz = fighter.onPlay;
+  fighter.onPlay = null;
+  try {
+    const action = fighter.play('attack', { loop: false, fade, clip });
+    if (!action) return null;
+    const at = fighter.figure.getWorldPosition(new THREE.Vector3());
+    const f = fighter.figure.rotation.y;
+    const c = Math.cos(f);
+    const sn = Math.sin(f);
+    const frames = Math.ceil(action.getClip().duration * fps);
+    const path = [];
+    for (let i = 0; i <= frames; i++) {
+      fighter.update(i ? 1 / fps : 0);
+      fighter.object.updateMatrixWorld(true);
+      const tip = swordTip(fighter);
+      const dx = tip.x - at.x;
+      const dz = tip.z - at.z;
+      path.push({ t: action.time, x: dx * c - dz * sn, y: tip.y - at.y, z: dx * sn + dz * c });
+    }
+    return path;
+  } finally {
+    fighter.play('idle', { fade: 0 });
+    fighter.update(0);
+    fighter.onPlay = voz;
+  }
+}
