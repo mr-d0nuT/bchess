@@ -36,6 +36,8 @@ import { createMenu, levelName, timeLabel } from './ui/menu.js';
 import { createMatchUi } from './ui/match-ui.js';
 import { createChessClockUi } from './ui/chess-clock.js';
 import { createHistoryUi } from './ui/history-ui.js';
+import { createRankingUi } from './ui/ranking-ui.js';
+import { cpuRating, createRatings, isProvisional } from './rating/ratings.js';
 import { createChessClock, findTimeControl } from './chess/timecontrol.js';
 import { SAVE_KEY, clockOnResume, packGame, readSavedGame } from './chess/saved-game.js';
 import { initLanguage, onLanguage, t } from './i18n.js';
@@ -348,6 +350,10 @@ async function start() {
     miNombre: '', // online, el mío
   };
   const cpu = createCpu();
+  // LA PUNTUACIÓN (el ranking, `rating/ratings.js`): la del jugador por ritmo, la de contra la CPU y la del
+  // ranking local del uno contra uno. El trofeo del menú la enseña y abre el panel.
+  const ratings = createRatings();
+  const ranking = createRankingUi({ ratings, button: document.getElementById('menu-ranking') });
   // Las partidas online (`net/online.js`): se conecta al buscar la primera. Online, `game.session` es la
   // partida con el rival; sus jugadas llegan a `game.remote` (número de jugada → jugada).
   const online = createOnline();
@@ -1587,7 +1593,10 @@ async function start() {
     game.session = null;
     pintaPartidas();
     ponEstado('menu');
-    const que = await ui.gameOver({ status, winner, mode: game.mode, human: game.human, flagged, nombres: game.nombres, escena: Boolean(escena) });
+    const puntos = puntua(winner);
+    const cartelFinal = ui.gameOver({ status, winner, mode: game.mode, human: game.human, flagged, nombres: game.nombres, escena: Boolean(escena) });
+    ui.showRating(puntos);
+    const que = await cartelFinal;
     // Fin de la fiesta: el rey, otra vez de pie, y la cámara, para el usuario.
     if (escena) {
       finale.undo();
@@ -1597,6 +1606,26 @@ async function start() {
     if (que === 'rematch' && eraOnline) await jugarOnline({ time: game.control?.key ?? 'libre:libre' });
     else if (que === 'rematch') await newGame({ mode: game.mode, level: game.level, color: game.color, time: game.control?.key ?? 'libre:libre', nombres: game.nombres });
     else await toMenu();
+  }
+
+  // LA PUNTUACIÓN al acabar (como en chess.com): contra la CPU cuenta en «Contra la CPU», según su nivel; en
+  // el uno contra uno con nombres, en el ranking local, para los dos. Las partidas casi sin jugar (menos de
+  // dos jugadas) no cuentan, como las que allí se anulan; ni las posiciones de prueba de la consola. Devuelve
+  // las líneas para el cartel: [{ label, from, to, delta, provisional }].
+  function puntua(winner) {
+    if (game.deConsola || game.moves.length < 2) return [];
+    const linea = (label, r) => ({ label, from: Math.round(r.before.r), to: Math.round(r.after.r), delta: r.delta, provisional: isProvisional(r.after) });
+    if (game.mode === 'cpu') {
+      const score = !winner ? 0.5 : winner === game.human ? 1 : 0;
+      const r = ratings.record({ category: 'cpu', opponent: cpuRating(game.level), score });
+      return r ? [linea(t('ranking.cat.cpu'), r)] : [];
+    }
+    if (game.mode === 'pvp') {
+      const { white, black } = game.nombres ?? {};
+      const r = ratings.local.record({ white, black, score: !winner ? 0.5 : winner === 'white' ? 1 : 0 });
+      return r ? [linea(white, r.white), linea(black, r.black)] : [];
+    }
+    return []; // online: con el protocolo nuevo, cada uno manda la suya al rival
   }
 
   // EL JAQUE MATE DE PELÍCULA (`scene/finale.js`): el rey de `winner` ha dado mate. Devuelve cuándo sacar el
@@ -2241,7 +2270,7 @@ async function start() {
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
     stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music, view,
-    finale, confetti, pacer,
+    finale, confetti, pacer, ratings, ranking,
     game, menu, ui, cpu, newGame, playMove, toMenu, setup, settleKnights, empezar,
     // La partida guardada, tal como se continuaría (o null).
     get guardada() {

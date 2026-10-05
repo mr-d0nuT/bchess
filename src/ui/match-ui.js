@@ -44,7 +44,10 @@ export function createMatchUi(root = document.getElementById('hud')) {
   revancha.type = 'button';
   menu.type = 'button';
   finalBotones.append(revancha, menu);
-  finalCaja.append(finalTitulo, finalTexto, finalBotones);
+  // La puntuación que cambia (el ranking): una línea por jugador, con la cifra que sube o baja contando.
+  const finalPuntos = el('div', 'final-puntos');
+  finalCaja.append(finalTitulo, finalTexto, finalPuntos, finalBotones);
+  let cuenta = 0; // la animación de la cifra en marcha
   final.append(finalCaja);
   document.body.append(final);
 
@@ -100,6 +103,33 @@ export function createMatchUi(root = document.getElementById('hud')) {
       cartelTimer = setTimeout(() => cartel.classList.remove('sale'), ms);
     },
 
+    // Cómo cambia la puntuación de cada uno, en el cartel del final (como en chess.com): `lineas` =
+    // [{ label, from, to, delta, provisional }]. La cifra va de `from` a `to` contando, cuando el cartel ya ha
+    // entrado.
+    showRating(lineas) {
+      cancelAnimationFrame(cuenta);
+      finalPuntos.replaceChildren();
+      const cifras = [];
+      for (const linea of lineas ?? []) {
+        const fila = el('div', 'final-punto');
+        const cifra = el('span', 'final-punto-cifra', String(linea.from));
+        const signo = linea.delta > 0 ? 'sube' : linea.delta < 0 ? 'baja' : 'igual';
+        const delta = el('span', `final-punto-delta ${signo}`, `${linea.delta > 0 ? '+' : linea.delta < 0 ? '−' : '±'}${Math.abs(linea.delta)}`);
+        fila.append(el('span', 'final-punto-nombre', linea.label), cifra, delta);
+        finalPuntos.append(fila);
+        cifras.push({ cifra, ...linea });
+      }
+      if (!cifras.length) return;
+      const empieza = performance.now() + 550;
+      const paso = (now) => {
+        const k = Math.max(0, Math.min(1, (now - empieza) / 1100));
+        const suave = 1 - (1 - k) ** 3;
+        for (const c of cifras) c.cifra.textContent = `${Math.round(c.from + (c.to - c.from) * suave)}${c.provisional ? '?' : ''}`;
+        if (k < 1) cuenta = requestAnimationFrame(paso);
+      };
+      cuenta = requestAnimationFrame(paso);
+    },
+
     // El final. `status`: el de `Position.status()` o 'time' (se le acabó el tiempo a `flagged`);
     // `winner`, el color que gana (o null si son tablas). Devuelve 'rematch' o 'menu'.
     // `escena`: detrás está la del jaque mate (el rey de rodillas, el confeti…): el cartel va abajo y deja verla.
@@ -129,6 +159,7 @@ export function createMatchUi(root = document.getElementById('hud')) {
       }
       finalTitulo.textContent = titulo;
       finalTexto.textContent = texto;
+      finalPuntos.replaceChildren();
       revancha.textContent = mode === 'online' ? t('final.otro') : t('final.revancha'); // online, otro rival
       menu.textContent = t('final.menu');
       final.dataset.tipo = tipo;

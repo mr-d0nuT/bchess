@@ -753,6 +753,16 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .final[data-tipo="pierde"] .final-titulo { color: #ff8a7a; text-shadow: 0 0 18px rgba(255, 60, 60, 0.7); }
 .final[data-tipo="tablas"] .final-titulo { color: #9fd8ff; text-shadow: 0 0 18px rgba(60, 160, 255, 0.7); }
 .final-texto { margin: 0 0 20px; opacity: 0.85; }
+/* La puntuación que cambia al acabar. */
+.final-puntos { display: flex; flex-direction: column; gap: 6px; margin: -8px 0 18px; }
+.final-puntos:empty { display: none; }
+.final-punto { display: grid; grid-template-columns: 1fr auto auto; align-items: baseline; gap: 10px; padding: 7px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.06); text-align: start; }
+.final-punto-nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; opacity: 0.8; }
+.final-punto-cifra { font: 900 22px/1 system-ui, sans-serif; color: #fff; font-variant-numeric: tabular-nums; }
+.final-punto-delta { min-width: 46px; font: 800 15px/1 system-ui, sans-serif; text-align: end; font-variant-numeric: tabular-nums; }
+.final-punto-delta.sube { color: #6be08a; }
+.final-punto-delta.baja { color: #ff8a7a; }
+.final-punto-delta.igual { color: #c9d4ee; }
 .final-botones { display: flex; gap: 10px; justify-content: center; }
 .final-boton, .ajustes-accion {
   padding: 12px 22px;
@@ -1190,3 +1200,61 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .reto.aviso .reto-textos b { color: #dcecff; white-space: normal; }
 .reto.aviso .reto-tiempo { background: linear-gradient(90deg, #37b6ff, #7a3cff); }
 .sala-partida .sala-avatar::after { display: none; } /* el punto de estado es de los jugadores, no de las partidas */
+
+/* EL RANKING: el botón del menú (trofeo y puntuación, junto al idioma) y su panel. */
+.menu-idioma { display: flex; align-items: center; gap: 8px; }
+.ranking-boton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 11px 0 9px;
+  border: 1px solid rgba(255, 214, 140, 0.35);
+  border-radius: 999px;
+  background: rgba(8, 10, 20, 0.6);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #ffd66b;
+  font: 800 14px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.ranking-boton svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ranking-boton:hover { border-color: #ffc451; box-shadow: 0 0 12px rgba(255, 160, 40, 0.4); }
+.ranking-caja { width: min(560px, 100%); max-height: min(720px, 100%); overflow: hidden; }
+.rk-intro { margin: -4px 0 0; font-size: 13px; line-height: 1.4; opacity: 0.75; }
+.rk-cuerpo { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
+.rk-tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.rk-carta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+  box-shadow: inset 0 0 0 1px rgba(255, 214, 140, 0.16);
+}
+.rk-cabeza { display: flex; align-items: center; gap: 6px; font: 700 13px/1.2 system-ui, sans-serif; color: #e9dcc0; }
+.rk-cabeza svg { width: 17px; height: 17px; fill: none; stroke: #ffc451; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.rk-puntos { font: 900 30px/1.05 system-ui, sans-serif; color: #fff; letter-spacing: 0.01em; }
+.rk-prov { margin-inline-start: 2px; font-size: 20px; color: #ffc451; opacity: 0.85; cursor: help; }
+.rk-datos { font-size: 11.5px; line-height: 1.35; opacity: 0.7; }
+.rk-mejor { font-size: 11.5px; color: #ffd66b; opacity: 0.85; }
+.rk-grafica { width: 100%; height: 30px; margin-top: 2px; }
+.rk-grafica polyline { fill: none; stroke: #6fb6ff; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.rk-seccion { display: flex; flex-direction: column; gap: 6px; }
+.rk-subtitulo { margin: 0; font: 800 12px/1.2 system-ui, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: #ffd66b; opacity: 0.9; }
+.rk-vacio { margin: 0; font-size: 13px; opacity: 0.65; }
+.rk-tabla { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.rk-fila { display: grid; grid-template-columns: 28px 1fr auto auto; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.04); font-size: 14px; }
+.rk-fila:first-child .rk-pos { color: #ffd66b; }
+.rk-fila.yo { box-shadow: inset 0 0 0 1px rgba(255, 196, 81, 0.6); background: rgba(255, 196, 81, 0.1); }
+.rk-pos { font-weight: 900; opacity: 0.8; text-align: end; }
+.rk-quien { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.rk-r { font-weight: 900; color: #fff; }
+.rk-n { font-size: 12px; opacity: 0.6; }
+.rk-pestanas { display: flex; flex-wrap: wrap; gap: 6px; }
+.rk-pestana { padding: 5px 11px; border: 1px solid rgba(255, 214, 140, 0.25); border-radius: 999px; background: transparent; color: #e9dcc0; font: 700 12px/1 system-ui, sans-serif; cursor: pointer; }
+.rk-pestana.activa { border-color: #ffc451; background: rgba(255, 196, 81, 0.16); color: #ffd66b; }
+.rk-cuenta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 14px; background: rgba(0, 120, 255, 0.08); box-shadow: inset 0 0 0 1px rgba(90, 170, 255, 0.3); }
+.rk-cuenta[hidden] { display: none; }
+#menu.entra .menu-idioma .ranking-boton { animation: aparece 0.6s ease 1.2s both; }
