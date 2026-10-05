@@ -31,6 +31,27 @@ const FIST_BITE = 0.03; // lo que se hunde en el rival la cara del puño
 const FIST_REACH = 1; // hasta dónde se busca, por debajo del hueso de la mano, la cara de abajo del puño
 const SQUASH = 0.55; // lo que queda de alto el peón al que machaca un puñetazo de arriba abajo
 const OVERHEAD_CHANCE = 0.5; // cada cuánto, contra alguien bajito, machaca el cráneo en vez de pegar de frente
+// EL MARTILLAZO (lo pidió el usuario: «otra animación de golpe del gigante, cojonuda»). El gigante no tiene
+// clip para esto: junta los dos puños por encima de la cabeza echándose atrás, ruge y tiembla un instante, y
+// los descarga juntos sobre el casco del rival doblándose por la cintura; los puños siguen hasta el tablero
+// y el rival queda aplastado como una torta. Retumba todo: onda por el tablero, polvo, piedrecitas de los
+// puños y temblor. Las manos, con `reachArms` (un IK de dos huesos); la espalda, con `turnBone`.
+const HAMMER_CHANCE = 0.4; // contra un rival más bajo que él, de cada diez golpes, cuatro son martillazos
+const HAMMER_RISE = 0.6; // segundos subiendo los puños
+const HAMMER_HOLD = 0.45; // arriba, temblando de rabia
+const HAMMER_DROP = 0.22; // la bajada, de golpe (a cámara lenta)
+const HAMMER_PRESS = 0.12; // del casco al tablero, aplastándolo
+const HAMMER_RECOVER = 0.7; // y vuelta a erguirse
+const HAMMER_SLOW = 0.4; // la cámara lenta de la bajada
+const HAMMER_FLOOR = 0.32; // hasta dónde bajan las muñecas al aplastarlo (del suelo)
+const HAMMER_GAP = 0.06; // media separación entre los dos puños juntos
+const HAMMER_SHAKE = 0.016; // lo que tiemblan los puños arriba
+const FIST_DEPTH = 0.1; // de la muñeca a la cara de abajo del puño, en un gigante de 1,9 (se escala con él)
+const LEAN_BACK = -14; // grados que se echa atrás la cintura al tomar impulso (Spine01; positivo, adelante)
+const LEAN_MIN = 18; // y lo que se dobla adelante, como poco, al descargar
+const LEAN_MAX = 42;
+const PANCAKE = 0.2; // lo que queda de alto el aplastado
+const PANCAKE_WIDE = 1.45; // y lo ancho
 // A partir de esta parte de su propia altura, el rival es «de su tamaño» y el puñetazo de frente deja
 // de servir: para que el puño le llegue al pecho, los dos cuerpos acaban pegados y el gigante se
 // agacha a abrazarlo. Contra esos va siempre el golpe de arriba abajo, que cae sobre la coronilla
@@ -52,6 +73,9 @@ const CROWN_PHASES = 4; // momentos del reposo del rival en los que se mira su c
 // Cruz de rayos alrededor del hueso de la cabeza: la corona del gigante es almenada y por el centro
 // está hundida, así que el puño tiene que pararse encima de lo más alto, no entre las almenas.
 const CROWN_RAYS = [[0, 0], [0.12, 0], [-0.12, 0], [0, 0.12], [0, -0.12]];
+
+// Para las pruebas (`autotest`): con `hammer` a true o false, el martillazo sale siempre o nunca.
+export const smashTesting = { hammer: null };
 
 const giantOf = (entry) => (entry.kind === 'rook' ? entry.piece.giant : null);
 const collapseOf = (giant) => (giant.has('defeat') ? 'defeat' : 'hit');
@@ -181,6 +205,149 @@ function squash(clock, figure) {
   });
 }
 
+// El aplastado por el martillazo: una torta, en lo que dura bajar del casco al tablero.
+function pancake(clock, figure, seconds) {
+  return clock.tween(seconds, (t) => {
+    const k = t * t;
+    const wide = 1 + (PANCAKE_WIDE - 1) * k;
+    figure.scale.set(wide, 1 - (1 - PANCAKE) * k, wide);
+  });
+}
+
+// Un punto en el sistema de la figura del gigante (+X a su izquierda, +Y arriba, +Z delante) en el mundo.
+function inFigure(figure, x, y, z, out = new THREE.Vector3()) {
+  const at = figure.getWorldPosition(new THREE.Vector3());
+  const r = figure.rotation.y;
+  const c = Math.cos(r);
+  const sn = Math.sin(r);
+  return out.set(at.x + x * c + z * sn, at.y + y, at.z - x * sn + z * c);
+}
+
+// Cuánto ha de doblarse por la cintura para que las dos muñecas lleguen a `targets` (en el mundo): el doblez
+// más pequeño, desde LEAN_MIN, con el que los dos brazos llegan; LEAN_MAX si no basta ninguno. Se mira sin
+// que se vea (entre dos fotogramas) y se deja como estaba.
+function leanToReach(giant, targets) {
+  let elegido = LEAN_MAX;
+  for (let lean = LEAN_MIN; lean <= LEAN_MAX; lean += 4) {
+    giant.turnBone('Spine01', { x: lean });
+    giant.turnBone('Spine02', { x: lean * 0.4 });
+    giant.update(0);
+    giant.object.updateMatrixWorld(true);
+    const pts = giant.armPoints();
+    const llega = ['left', 'right'].every((lado) => !pts[lado] || pts[lado].shoulder.distanceTo(targets[lado]) <= pts[lado].length * 0.97);
+    if (llega) {
+      elegido = lean;
+      break;
+    }
+  }
+  giant.turnBone('Spine01', null);
+  giant.turnBone('Spine02', null);
+  giant.update(0);
+  return elegido;
+}
+
+// EL MARTILLAZO, de punta a punta: sube los puños, tiembla, los descarga y aplasta a `victim`. Devuelve
+// cuando ya está aplastado, con el gigante aún doblado sobre él (y se endereza solo después).
+async function hammerBlow({ attacker, giant, victim, stone, clock, fx, cinema, hud, dust, rubble, ux, uz }) {
+  const fig = giant.figure;
+  const escala = (giant.height ?? 1.9) / 1.9;
+  const puno = FIST_DEPTH * escala;
+  const pts = giant.armPoints();
+  if (!pts.left || !pts.right) return false;
+  // Arriba: los dos puños juntos por encima de la cabeza, algo por detrás de ella.
+  const at = fig.getWorldPosition(new THREE.Vector3());
+  const hombro = (pts.left.shoulder.y + pts.right.shoulder.y) / 2 - at.y;
+  const largo = Math.min(pts.left.length, pts.right.length);
+  const arriba = {
+    left: inFigure(fig, HAMMER_GAP, hombro + largo * 0.95, -0.06),
+    right: inFigure(fig, -HAMMER_GAP, hombro + largo * 0.95, -0.06),
+  };
+  // Abajo: las muñecas encima del casco del rival (la cara de abajo del puño, en el casco), a los lados.
+  const cabeza = (findBone(victim.object, 'Head') ?? victim.figure).getWorldPosition(new THREE.Vector3());
+  const casco = cabeza.clone();
+  casco.y += 0.12 * ((victim.height ?? 1.6) / 1.6);
+  const lado = new THREE.Vector3(Math.cos(fig.rotation.y), 0, -Math.sin(fig.rotation.y)); // +X de la figura
+  const abajo = {
+    left: casco.clone().addScaledVector(lado, HAMMER_GAP).add(new THREE.Vector3(-ux * 0.04, puno, -uz * 0.04)),
+    right: casco.clone().addScaledVector(lado, -HAMMER_GAP).add(new THREE.Vector3(-ux * 0.04, puno, -uz * 0.04)),
+  };
+  const suelo = {
+    left: abajo.left.clone().setY(HAMMER_FLOOR * escala + puno * 0.3),
+    right: abajo.right.clone().setY(HAMMER_FLOOR * escala + puno * 0.3),
+  };
+  const doblez = leanToReach(giant, abajo);
+  // Los codos: hacia fuera (y un poco delante) con los puños arriba; hacia fuera y arriba al descargar.
+  const polos = (k) => ({
+    left: new THREE.Vector3(1, 0.6 * k, 0.25 * (1 - k)),
+    right: new THREE.Vector3(-1, 0.6 * k, 0.25 * (1 - k)),
+  });
+  const pon = (targets, w, lean, k) => {
+    const p = polos(k);
+    giant.reachArms({ left: { target: targets.left, pole: p.left }, right: { target: targets.right, pole: p.right } }, w);
+    giant.turnBone('Spine01', { x: lean });
+    giant.turnBone('Spine02', { x: lean * 0.4 });
+  };
+  const desde = { left: pts.left.hand.clone(), right: pts.right.hand.clone() };
+  const mezcla = (a, b, t) => ({ left: a.left.clone().lerp(b.left, t), right: a.right.clone().lerp(b.right, t) });
+  const suave = (t) => t * t * (3 - 2 * t);
+
+  // 1. Sube los puños y se echa atrás, rugiendo.
+  grita(attacker, 'grito');
+  await clock.tween(HAMMER_RISE, (t) => {
+    const k = suave(t);
+    pon(mezcla(desde, arriba, k), k, LEAN_BACK * k, 0);
+  });
+  // 2. Arriba, temblando de rabia.
+  await clock.tween(HAMMER_HOLD, (t) => {
+    const tiembla = HAMMER_SHAKE * Math.sin(t * HAMMER_HOLD * 2 * Math.PI * 18) * escala;
+    const sitio = {
+      left: arriba.left.clone().add(new THREE.Vector3(tiembla, Math.abs(tiembla), 0)),
+      right: arriba.right.clone().add(new THREE.Vector3(-tiembla, Math.abs(tiembla), 0)),
+    };
+    pon(sitio, 1, LEAN_BACK - 3 * t, 0);
+  });
+  // 3. Los descarga: en arco hacia delante y abajo, cada vez más deprisa, a cámara lenta.
+  clock.timeScale = HAMMER_SLOW;
+  const arco = {
+    left: arriba.left.clone().lerp(abajo.left, 0.5).add(new THREE.Vector3(ux * 0.35, 0.35 * escala, uz * 0.35)),
+    right: arriba.right.clone().lerp(abajo.right, 0.5).add(new THREE.Vector3(ux * 0.35, 0.35 * escala, uz * 0.35)),
+  };
+  const bezier = (a, c, b, t) => a.clone().multiplyScalar((1 - t) * (1 - t)).addScaledVector(c, 2 * t * (1 - t)).addScaledVector(b, t * t);
+  await clock.tween(HAMMER_DROP, (t) => {
+    const k = t * t; // acelerando
+    pon({ left: bezier(arriba.left, arco.left, abajo.left, k), right: bezier(arriba.right, arco.right, abajo.right, k) }, 1, LEAN_BACK + (doblez - LEAN_BACK) * k, k);
+  });
+  // 4. ¡PUM! En el casco: retumba todo y los puños siguen hasta el tablero, aplastándolo.
+  const golpe = casco.clone();
+  sfx.play('martillazo');
+  sfx.play('punetazo', { rate: 0.5, volume: 0.8 });
+  fx.burst(golpe, { size: 1.6, sparks: 40 });
+  fx.shockwave?.(new THREE.Vector3(golpe.x, 0.02, golpe.z), { radius: 2.6, seconds: 0.6, color: '#f1dfb4' });
+  dust?.puff(new THREE.Vector3(golpe.x, 0.05, golpe.z), { count: 22, radius: 1.2, duration: 0.8, color: '#cdbb98' });
+  rubble?.explode(new THREE.Vector3(golpe.x, 0.05, golpe.z), { color: stone ?? '#d8ccb4', count: 9, height: 0.6, force: 0.7 });
+  hud.flash();
+  cinema.shake(0.5);
+  victim.throwSpear?.({ x: ux, z: uz });
+  victim.playOnce?.('hit', { fade: 0.05 });
+  grita(attacker, 'ataque');
+  await clock.hold(0.12);
+  const torta = pancake(clock, victim.figure, HAMMER_PRESS);
+  await clock.tween(HAMMER_PRESS, (t) => pon(mezcla(abajo, suelo, t), 1, doblez + 4 * t, 1));
+  await torta;
+  clock.timeScale = 1;
+  // 5. Se endereza despacio (sin esperar: el combate sigue con el aplastado).
+  clock.tween(HAMMER_RECOVER, (t) => {
+    const k = suave(t);
+    const sube = mezcla(suelo, arriba, 0.25 * k);
+    pon(sube, 1 - k, (doblez + 4) * (1 - k), 1 - k);
+  }).then(() => {
+    giant.reachArms(null);
+    giant.turnBone('Spine01', null);
+    giant.turnBone('Spine02', null);
+  });
+  return true;
+}
+
 // Derrumbe del gigante vencido: el que deja más hueco y, a igual hueco, el que menos se echa encima
 // del arma del rival, que tiene delante.
 function chooseCollapse(post, { overlap, random }) {
@@ -226,7 +393,7 @@ async function stepBack(giant, distance, clock) {
 }
 
 // La torre se come a un peón o a otra torre.
-async function giantSmash({ attacker, defender, home, center, target, clock, fx, cinema, hud, crowd, stances, obstacles, random }) {
+async function giantSmash({ attacker, defender, home, center, target, clock, fx, cinema, hud, crowd, stances, obstacles, random, dust, rubble }) {
   const rook = attacker.piece;
   const giant = rook.giant;
   const rival = giantOf(defender);
@@ -245,10 +412,13 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   const grande = (d.height ?? 0) >= giant.height * TALL_SHARE;
   // Contra otro gigante, nada de mazazos de arriba abajo: con dos cuerpos tan anchos, el que llega a la
   // coronilla es el que menos alcanza, y se le volcaba encima.
-  const quiere = overheads.length && !rival && (grande || random() < OVERHEAD_CHANCE);
+  // El martillazo, contra un rival más bajo que él (con dos puños juntos por encima de un gigante no llega).
+  const martillazo = !rival && !grande && defender.kind !== 'knight' && typeof giant.reachArms === 'function'
+    && (smashTesting.hammer ?? random() < HAMMER_CHANCE);
+  const quiere = !martillazo && overheads.length && !rival && (grande || random() < OVERHEAD_CHANCE);
   const pick = quiere ? overheads[Math.floor(random() * overheads.length)].key : null;
   const down = pick ? planOverhead({ strike: giant.strikes[pick], from: home, center, target: d, closest, rest, fighter: giant, key: pick }) : null;
-  const plan = down ? { key: pick, distance: down.distance } : (rival && spacedPunch({ giant, home, center, rival, torso: defender.piece.body.torso, closest })) || planPunch({
+  const plan = martillazo ? { key: giant.attacks[0].key, distance: closest } : down ? { key: pick, distance: down.distance } : (rival && spacedPunch({ giant, home, center, rival, torso: defender.piece.body.torso, closest })) || planPunch({
     attacks: giant.attacks, strikes: giant.strikes, from: home, center, target: d, rest,
     torso: rival ? defender.piece.body.torso : TORSO,
     closest,
@@ -326,7 +496,24 @@ async function giantSmash({ attacker, defender, home, center, target, clock, fx,
   }
 
   // 3. Golpe a cámara lenta, con destello, chispas y temblor. Un gigante vencido se tambalea y, poco
-  //    después, se deshace en rocas; a un peón machacado desde arriba se le aplasta el cuerpo.
+  //    después, se deshace en rocas; a un peón machacado desde arriba se le aplasta el cuerpo. O el
+  //    martillazo, que lo deja como una torta.
+  if (martillazo) {
+    const ux = Math.sin(spots.attackerFacing);
+    const uz = Math.cos(spots.attackerFacing);
+    await hammerBlow({ attacker, giant, victim: d, stone: rook.stone, clock, fx, cinema, hud, dust, rubble, ux, uz });
+    await afterImpact(clock);
+    await clock.wait(0.5);
+    sfx.play('mareo');
+    fx.koStars(findBone(d.object, 'Head') ?? d.figure, { seconds: KO_SECONDS });
+    await clock.wait(KO_SECONDS);
+    await defender.mover.vanish();
+    giant.play('idle', { fade: 0.3 });
+    grita(attacker, 'victoria');
+    stances.delete(attacker);
+    await Promise.all([cinema.restore(clock), attacker.mover.walkOnto(target)]);
+    return;
+  }
   const attack = giant.playOnce('attack', { clip: key, fade: 0.15 });
   await slowToImpact(clock, impact.t);
   sfx.play('punetazo', { rate: 0.6 }); // un puño de piedra
@@ -436,10 +623,10 @@ async function pawnFellsGiant({ attacker, defender, home, center, target, clock,
 }
 
 // `obstacles` son los centros {x, z} de las demás piezas, para que la cámara no quede tapada.
-export async function runSmash({ attacker, defender, board, clock, fx, cinema, hud, crowd, obstacles = [], random = Math.random }) {
+export async function runSmash({ attacker, defender, board, clock, fx, cinema, hud, crowd, obstacles = [], random = Math.random, dust = null, rubble = null }) {
   const stances = new Map(); // gigante → abanico de lo que hará en su puesto (`stanceOf`)
   const fight = {
-    attacker, defender, clock, fx, cinema, hud, crowd, stances, obstacles, random,
+    attacker, defender, clock, fx, cinema, hud, crowd, stances, obstacles, random, dust, rubble,
     target: defender.mover.square,
     home: board.squareToWorld(attacker.mover.square),
     center: board.squareToWorld(defender.mover.square),

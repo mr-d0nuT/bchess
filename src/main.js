@@ -707,7 +707,7 @@ async function start() {
         });
       }
       if (!candidatos.length && attacker.kind !== 'knight' && defender.kind !== 'knight' && canSmash(attacker, defender)) {
-        candidatos.push({ clave: `gigante:${attacker.kind}>${defender.kind}`, peso: 1, jugar: () => runSmash({ attacker, defender, board, clock, fx, cinema, hud, crowd, obstacles }) });
+        candidatos.push({ clave: `gigante:${attacker.kind}>${defender.kind}`, peso: 1, jugar: () => runSmash({ attacker, defender, board, clock, fx, cinema, hud, crowd, obstacles, dust, rubble }) });
       }
       const combate = elegirCombate(candidatos);
       if (combate) {

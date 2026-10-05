@@ -1323,6 +1323,7 @@ export function spawnPiece(kit) {
     restoreBones();
     restoreFist();
     restoreStance();
+    restoreReach();
     mixer.update(dt);
     if (dt > 0) {
       // Lo andado en este fotograma, que es de donde sale tanto la velocidad como el vuelo de la
@@ -1337,6 +1338,7 @@ export function spawnPiece(kit) {
     if (heldRoot) heldRoot.bone.position.copy(heldRoot.position);
     applyBones();
     applyStance(dt);
+    applyReach();
     for (const cut of [...cuts]) {
       if (cut.action.time < cut.at && cut.action === current) continue;
       cuts.splice(cuts.indexOf(cut), 1);
@@ -1474,6 +1476,55 @@ export function spawnPiece(kit) {
     stance.fore.getWorldPosition(stanceE);
     const muneca = stanceE.clone().addScaledVector(stance.wrist.clone().applyQuaternion(stanceFig), antebrazo);
     aimStance(stance.fore, stance.hand, muneca, stance.w);
+  }
+
+  // LAS MANOS A UN PUNTO (`reachArms`). El combate dice dónde quiere cada mano (en el mundo) y hacia dónde
+  // ha de quedar el codo, y aquí se colocan el brazo y el antebrazo para llegar: un IK de dos huesos (con
+  // los largos de la postura de ahora), encima de la animación y con un peso `w`. Lo usa el martillazo del
+  // gigante, que no tiene clip: sube los dos puños juntos por encima de la cabeza y los descarga.
+  let reach = null; // { w, arms: [{ upper, fore, hand, target, pole, baseUpper, baseFore }], applied }
+  const reachS = new THREE.Vector3();
+  const reachE = new THREE.Vector3();
+  const reachW = new THREE.Vector3();
+  const reachDir = new THREE.Vector3();
+  const reachPerp = new THREE.Vector3();
+  const reachTo = new THREE.Vector3();
+  function restoreReach() {
+    if (!reach?.applied) return;
+    for (const arm of reach.arms) {
+      arm.upper.quaternion.copy(arm.baseUpper);
+      arm.fore.quaternion.copy(arm.baseFore);
+    }
+    reach.applied = false;
+  }
+  function applyReach() {
+    if (!reach || reach.w <= 0.001) return;
+    figure.getWorldQuaternion(stanceFig);
+    for (const arm of reach.arms) {
+      if (!arm.target) continue;
+      arm.baseUpper.copy(arm.upper.quaternion);
+      arm.baseFore.copy(arm.fore.quaternion);
+      arm.upper.getWorldPosition(reachS);
+      arm.fore.getWorldPosition(reachE);
+      arm.hand.getWorldPosition(reachW);
+      const l1 = reachE.distanceTo(reachS);
+      const l2 = reachW.distanceTo(reachE);
+      reachTo.copy(arm.target).sub(reachS);
+      let d = reachTo.length();
+      if (d < 1e-6 || l1 < 1e-6 || l2 < 1e-6) continue;
+      d = THREE.MathUtils.clamp(d, Math.abs(l1 - l2) + 1e-3, (l1 + l2) * 0.999);
+      reachDir.copy(reachTo).normalize();
+      // El codo: en el plano de la dirección y del `pole`, donde dicen los largos (ley del coseno).
+      reachPerp.copy(arm.pole).applyQuaternion(stanceFig);
+      reachPerp.addScaledVector(reachDir, -reachPerp.dot(reachDir));
+      if (reachPerp.lengthSq() < 1e-8) reachPerp.set(0, -1, 0).addScaledVector(reachDir, reachDir.y);
+      reachPerp.normalize();
+      const cos = THREE.MathUtils.clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1);
+      const codo = reachS.clone().addScaledVector(reachDir, l1 * cos).addScaledVector(reachPerp, l1 * Math.sqrt(1 - cos * cos));
+      aimStance(arm.upper, arm.fore, codo, reach.w);
+      aimStance(arm.fore, arm.hand, reachS.clone().addScaledVector(reachDir, d), reach.w);
+    }
+    reach.applied = true;
   }
 
   // EL PUÑO SIGUE AL PALO (`gripSpearFist`). El guante ya está cerrado en un puño; cada fotograma se le gira
@@ -1747,6 +1798,45 @@ export function spawnPiece(kit) {
     // En guardia, con la lanza derecha (ver `applyStance`): el brazo de la lanza (`upper`, `fore`, `hand`) con
     // el codo hacia `elbow` y la muñeca hacia `wrist` (direcciones en el sistema de la figura: +X a su
     // izquierda, +Y arriba, +Z delante). Con null, nada.
+    // Las manos a un punto (ver `applyReach`): `arms` = { left: { target, pole }, right: { target, pole } }
+    // (`target`, un Vector3 en el mundo, o null para dejar ese brazo; `pole`, hacia dónde queda el codo en el
+    // sistema de la figura: +X a su izquierda, +Y arriba, +Z delante), y `w`, de 0 (la animación) a 1. Con
+    // null, nada.
+    reachArms(arms, w = 1) {
+      if (!arms) {
+        restoreReach();
+        reach = null;
+        return false;
+      }
+      if (!reach) {
+        const brazos = [];
+        for (const [lado, prefijo] of [['left', 'L_'], ['right', 'R_']]) {
+          const upper = findBone(model, `${prefijo}Upperarm`);
+          const fore = findBone(model, `${prefijo}Forearm`);
+          const hand = findBone(model, `${prefijo}Hand`);
+          if (upper && fore && hand) brazos.push({ lado, upper, fore, hand, target: null, pole: new THREE.Vector3(0, -1, 0), baseUpper: new THREE.Quaternion(), baseFore: new THREE.Quaternion() });
+        }
+        reach = { w: 0, arms: brazos, applied: false };
+      }
+      reach.w = THREE.MathUtils.clamp(w, 0, 1);
+      for (const arm of reach.arms) {
+        const pide = arms[arm.lado];
+        arm.target = pide?.target ?? null;
+        if (pide?.pole) arm.pole.copy(pide.pole).normalize();
+      }
+      return reach.arms.length > 0;
+    },
+    // Dónde están ahora los hombros, codos y manos (para que el combate sepa cuánto llegan los brazos).
+    armPoints() {
+      const out = {};
+      for (const [lado, prefijo] of [['left', 'L_'], ['right', 'R_']]) {
+        const bones = ['Upperarm', 'Forearm', 'Hand'].map((n) => findBone(model, `${prefijo}${n}`));
+        if (bones.some((b) => !b)) continue;
+        const [shoulder, elbow, hand] = bones.map((b) => b.getWorldPosition(new THREE.Vector3()));
+        out[lado] = { shoulder, elbow, hand, length: shoulder.distanceTo(elbow) + elbow.distanceTo(hand) };
+      }
+      return out;
+    },
     spearStance(options) {
       if (!options) {
         restoreStance();

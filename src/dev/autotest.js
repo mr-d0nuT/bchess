@@ -8,6 +8,7 @@
 
 import { battleName, battlesFor, testing } from '../combat/battles.js';
 import { pawnThrowsBomb } from '../combat/pawn-bomb.js';
+import { smashTesting } from '../combat/smash.js';
 import { FROM, TO, fenFor, pairs } from './pairs.js';
 
 const LIMIT = 150; // segundos de juego: un combate que dura más, se ha colgado
@@ -50,6 +51,10 @@ export async function runAutotest(b, { only = null, onProgress = () => {} } = {}
       if (pair.attacker === 'pawn' && pair.defender === 'pawn') {
         runs.push({ ...pair, fen, from, to, label: `${label} (duelo)`, gag: null, bomb: 0 });
         runs.push({ ...pair, fen, from, to, label: `${label} (bomba)`, gag: null, bomb: 1 });
+      } else if (pair.attacker === 'rook' && !options.length && (pair.defender === 'pawn' || pair.defender === 'bishop')) {
+        // El gigante contra uno más bajo: los golpes de siempre y el martillazo, cada uno en su prueba.
+        runs.push({ ...pair, fen, from, to, label: `${label} (golpe)`, gag: null, bomb: 0, hammer: false });
+        runs.push({ ...pair, fen, from, to, label: `${label} (martillazo)`, gag: null, bomb: 0, hammer: true });
       } else if (options.length) {
         for (const gag of options) runs.push({ ...pair, fen, from, to, label: `${label} (${battleName(gag)})`, gag, bomb: 0 });
       } else {
@@ -64,6 +69,7 @@ export async function runAutotest(b, { only = null, onProgress = () => {} } = {}
   } finally {
     testing.only = null;
     testing.active = false;
+    smashTesting.hammer = null;
     pawnThrowsBomb.chance = bombChance;
     b.gesture.at = gestureAt;
     b.combates = modo;
@@ -84,6 +90,7 @@ async function setUp(b, fen) {
 async function playOne(b, run, logged) {
   testing.only = run.gag;
   pawnThrowsBomb.chance = run.bomb;
+  smashTesting.hammer = run.hammer ?? null;
   await setUp(b, run.fen);
   const started = logged.length; // lo que avisa `setup` al recolocar el tablero no cuenta
   const problems = [];
