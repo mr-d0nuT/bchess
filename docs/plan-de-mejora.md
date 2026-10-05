@@ -139,11 +139,19 @@ jugadas.
 **Qué:** en los niveles bajos, fallos creíbles (no jugadas al azar), y aperturas variadas para que
 no empiece siempre igual.
 
-### 17. Calidad automática · M
+### 17. Calidad automática · M · ✔ hecho
+**Hecho (5/10/2026):** si el aparato baja de 45 fotogramas por segundo un par de segundos seguidos, baja un
+escalón (primero la resolución, luego el detalle de las sombras); si va a 56 o más durante 8 s, sube uno, sin
+pasar nunca de la calidad de partida. Tras bajar tarda en volver a subir, para no estar subiendo y bajando
+en cada combate.
 **Qué:** si el móvil va justo, el juego baja solo sombras, resolución o efectos para ir fluido; si va
 sobrado, los sube.
 
-### 18. Ahorro de batería · S
+### 18. Ahorro de batería · S · ✔ hecho
+**Hecho (5/10/2026):** cuando no pasa nada (en el menú o esperando jugada, sin tocar la pantalla desde hace
+segundo y medio y sin nada moviéndose), a 30 fotogramas por segundo; en cuanto algo se mueve o se toca, a
+60. Y nunca más de 60, aunque la pantalla sea de 120 Hz (los iPhone Pro y los Mac nuevos pintaban el doble
+para nada).
 **Qué:** menos fotogramas por segundo cuando no pasa nada (en el menú o esperando tu jugada), para
 que el móvil no se caliente.
 

@@ -51,6 +51,7 @@ import { createFade } from './scene/fade.js';
 import { createFocus } from './scene/focus.js';
 import { createFinale } from './scene/finale.js';
 import { createCoronation } from './scene/coronation.js';
+import { createPacer, qualitySteps } from './scene/pacer.js';
 import { STYLES, pickStyle } from './combat/plan.js';
 import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
@@ -650,7 +651,33 @@ async function start() {
 
   let previous = performance.now();
   let manual = false; // mientras `advance` mueve el juego a mano
+  // El ritmo de los fotogramas (`scene/pacer.js`): a 30 cuando no pasa nada, a 60 como mucho, y la calidad
+  // que baja sola si el aparato va justo. «No pasa nada»: nadie toca la pantalla desde hace un rato y no se
+  // mueve ninguna pieza ni la cámara.
+  const CALMA_TRAS = 1500; // ms sin tocar nada
+  let tocadoEn = performance.now();
+  const toca = () => {
+    tocadoEn = performance.now();
+  };
+  for (const tipo of ['pointerdown', 'pointermove', 'wheel', 'keydown']) window.addEventListener(tipo, toca, { passive: true });
+  const enCalma = (now) => now - tocadoEn > CALMA_TRAS && !game.animating && !state.fighting && !cinema.active
+    && !view.moving && !finale.playing && !confetti.active && salto.velocidad === 1 && !salto.saltando;
+  const pacer = createPacer({
+    steps: qualitySteps({ devicePixelRatio: window.devicePixelRatio, ...quality }),
+    apply: (step) => {
+      stage.renderer.setPixelRatio(step.pixelRatio);
+      // Las sombras, con menos detalle: el mapa se rehace solo con el tamaño nuevo.
+      stage.scene.traverse((o) => {
+        if (!o.isDirectionalLight || !o.castShadow || o.shadow.mapSize.x === step.shadowMapSize) return;
+        o.shadow.mapSize.set(step.shadowMapSize, step.shadowMapSize);
+        o.shadow.map?.dispose();
+        o.shadow.map = null;
+      });
+    },
+  });
   stage.renderer.setAnimationLoop((now) => {
+    const calma = enCalma(now);
+    if (!manual && pacer.skip(now, calma)) return;
     const dt = Math.min((now - previous) / 1000, 0.1);
     previous = now;
     // Acelerando un combate, varios fotogramas de juego por cada uno de pantalla: pasos de tiempo
@@ -658,6 +685,7 @@ async function start() {
     if (!manual) for (let i = 0; i < salto.velocidad; i++) frame(now, dt);
     if (!salto.saltando) focus.render(dt); // saltando, la pantalla está en negro
     hud.tickFps(now);
+    if (!manual) pacer.rendered(now, calma);
   });
 
   // Para comprobar por código: avanza `seconds` de juego a `fps` fotogramas por segundo sin
@@ -2155,7 +2183,7 @@ async function start() {
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
     stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music, view,
-    finale, confetti,
+    finale, confetti, pacer,
     game, menu, ui, cpu, newGame, playMove, toMenu, setup, settleKnights, empezar,
     // La partida guardada, tal como se continuaría (o null).
     get guardada() {
