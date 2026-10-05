@@ -117,7 +117,9 @@ ofrecer tablas.
 **Qué:** la CPU te sugiere una jugada y la marca en el tablero, con un número limitado de pistas por
 partida.
 
-### 14. Última jugada, discreta · S
+### 14. Última jugada, discreta · S · ✔ hecho
+**Hecho (5/10/2026):** una flecha fina y tenue, de color marfil, de la casilla de salida a la de llegada de
+la última jugada, que se queda hasta la siguiente. Sin teñir ninguna casilla.
 **Qué:** una marca suave para ver qué se movió (por ejemplo, un rastro tenue entre las dos casillas),
 nada parecido al tinte amarillo que se quitó.
 

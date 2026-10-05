@@ -199,6 +199,13 @@ const TRAIL_SHAFT = 0.14; // ancho del palo de la flecha, en casillas
 const TRAIL_HEAD = { width: 0.42, length: 0.36 };
 const TRAIL_CLEAR = 0.4; // lo que se aparta de los centros: debajo están las peanas
 const TRAIL_LIFT = 0.008;
+// LA ÚLTIMA JUGADA (punto 14): la misma flecha, más fina, tenue y quieta, hasta la jugada siguiente. Que
+// se vea qué se movió sin que pinte el tablero (el tinte amarillo de las casillas se quitó por eso).
+const LAST_OPACITY = 0.3;
+const LAST_COLOR = '#fff0c8';
+const LAST_SHAFT = 0.09;
+const LAST_HEAD = { width: 0.3, length: 0.26 };
+const LAST_IN = 0.5; // segundos en encenderse
 
 export function createHighlights(scene, board) {
   const ringMaterial = new THREE.MeshBasicMaterial({
@@ -373,40 +380,50 @@ export function createHighlights(scene, board) {
     hoverMaterial.opacity = (HOVER_LOW + (HOVER_HIGH - HOVER_LOW) * latido) * hoverAge;
   }
 
-  // La flecha de una jugada (`trail`): el palo se estira con lo larga que sea; la punta, siempre igual.
-  const trailMaterial = new THREE.MeshBasicMaterial({ color: TRAIL_COLOR, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
-  const trailShaft = new THREE.Mesh(new THREE.PlaneGeometry(TRAIL_SHAFT, 1).translate(0, 0.5, 0), trailMaterial);
-  const headShape = new THREE.Shape();
-  headShape.moveTo(-TRAIL_HEAD.width / 2, 0);
-  headShape.lineTo(TRAIL_HEAD.width / 2, 0);
-  headShape.lineTo(0, TRAIL_HEAD.length);
-  headShape.closePath();
-  const trailHead = new THREE.Mesh(new THREE.ShapeGeometry(headShape), trailMaterial);
-  const trail = new THREE.Group();
-  for (const part of [trailShaft, trailHead]) {
-    part.rotation.x = -Math.PI / 2; // tumbadas en el tablero, apuntando hacia +z del grupo
-    part.renderOrder = 1;
-    trail.add(part);
+  // Una flecha tumbada en el tablero, de una casilla a otra: el palo se estira con lo larga que sea la
+  // jugada; la punta, siempre igual.
+  function arrow(material, shaftWidth, headSize) {
+    const shaft = new THREE.Mesh(new THREE.PlaneGeometry(shaftWidth, 1).translate(0, 0.5, 0), material);
+    const shape = new THREE.Shape();
+    shape.moveTo(-headSize.width / 2, 0);
+    shape.lineTo(headSize.width / 2, 0);
+    shape.lineTo(0, headSize.length);
+    shape.closePath();
+    const head = new THREE.Mesh(new THREE.ShapeGeometry(shape), material);
+    const group = new THREE.Group();
+    for (const part of [shaft, head]) {
+      // Tumbadas, y de vuelta: tumbado, el «arriba» del plano (+y) queda hacia -z, y la flecha ha de
+      // apuntar hacia +z del grupo.
+      part.rotation.set(-Math.PI / 2, 0, Math.PI);
+      part.renderOrder = 1;
+      group.add(part);
+    }
+    group.visible = false;
+    scene.add(group);
+    return {
+      group,
+      aim(from, to) {
+        const a = board.squareToWorld(from);
+        const b = board.squareToWorld(to);
+        const largo = Math.hypot(b.x - a.x, b.z - a.z);
+        const palo = Math.max(0.05, largo - TRAIL_CLEAR * 2 - headSize.length);
+        group.position.set(a.x, TRAIL_LIFT, a.z);
+        group.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
+        shaft.scale.set(1, palo, 1);
+        shaft.position.z = TRAIL_CLEAR;
+        head.position.z = TRAIL_CLEAR + palo;
+        group.visible = true;
+      },
+    };
   }
-  trail.visible = false;
-  scene.add(trail);
+
+  // La jugada que se toca en el historial (`trail`): se enciende, se queda un rato y se apaga.
+  const trailMaterial = new THREE.MeshBasicMaterial({ color: TRAIL_COLOR, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+  const trail = arrow(trailMaterial, TRAIL_SHAFT, TRAIL_HEAD);
   let trailAge = -1;
 
-  // Señala la jugada de `from` a `to` (casillas), unos segundos.
   function showTrail(from, to) {
-    const a = board.squareToWorld(from);
-    const b = board.squareToWorld(to);
-    const largo = Math.hypot(b.x - a.x, b.z - a.z);
-    const palo = Math.max(0.05, largo - TRAIL_CLEAR * 2 - TRAIL_HEAD.length);
-    trail.position.set(a.x, TRAIL_LIFT, a.z);
-    trail.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
-    // Tumbado, el «arriba» del plano (+y) queda hacia -z: se le da la vuelta para que apunte a +z.
-    trailShaft.rotation.z = Math.PI;
-    trailHead.rotation.z = Math.PI;
-    trailShaft.scale.set(1, palo, 1);
-    trailShaft.position.z = TRAIL_CLEAR;
-    trailHead.position.z = TRAIL_CLEAR + palo;
-    trail.visible = true;
+    trail.aim(from, to);
     trailAge = 0;
   }
 
@@ -419,8 +436,28 @@ export function createHighlights(scene, board) {
     trailMaterial.opacity = TRAIL_OPACITY * k;
     if (trailAge >= TRAIL_SECONDS) {
       trailAge = -1;
-      trail.visible = false;
+      trail.group.visible = false;
     }
+  }
+
+  // La última jugada (`lastMove`): tenue y quieta hasta la siguiente; con null, ninguna.
+  const lastMaterial = new THREE.MeshBasicMaterial({ color: LAST_COLOR, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+  const last = arrow(lastMaterial, LAST_SHAFT, LAST_HEAD);
+  let lastKey = null;
+  function lastMove(from, to) {
+    const key = from && to ? from + to : null;
+    if (key === lastKey) return;
+    lastKey = key;
+    if (!key) {
+      last.group.visible = false;
+      return;
+    }
+    last.aim(from, to);
+    lastMaterial.opacity = 0;
+  }
+  function stepLast(dt) {
+    if (!last.group.visible || lastMaterial.opacity >= LAST_OPACITY) return;
+    lastMaterial.opacity = Math.min(LAST_OPACITY, lastMaterial.opacity + (dt / LAST_IN) * LAST_OPACITY);
   }
 
   function clear() {
@@ -436,10 +473,12 @@ export function createHighlights(scene, board) {
     hover,
     pulse(seconds, dt = 0) {
       stepTrail(dt);
+      stepLast(dt);
       pulse(seconds, dt);
     },
     clear,
     check,
     trail: showTrail,
+    lastMove,
   };
 }

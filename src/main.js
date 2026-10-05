@@ -1531,6 +1531,9 @@ async function start() {
 
   function paintTurn() {
     historial.set(game.start, game.moves);
+    // La última jugada, con una flecha tenue (punto 14).
+    const ultima = game.moves.at(-1);
+    highlights.lastMove(ultima?.slice(0, 2) ?? null, ultima?.slice(2, 4) ?? null);
     ui.turn({ side: game.position.side, mode: game.mode, human: game.human, thinking: game.thinking, hidden: state.phase !== 'playing', press: game.press, nombres: game.nombres });
   }
 
