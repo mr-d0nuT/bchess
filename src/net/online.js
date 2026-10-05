@@ -74,15 +74,56 @@ const RETRY_MAX = 60000; // lo más que se espera para volver a probar un broker
 
 export const randomId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
+const SANO_MS = 15000; // un broker vivo contesta al latido cada 10 s: si en esto no ha dicho nada, algo pasa
+const SONDEO_MS = 3000; // al volver al primer plano, lo que se le da a cada broker para contestar
+const GUARDA_MS = 30000; // lo publicado hace menos de esto se reenvía al broker que (re)conecta
+// Lo que se repite solo (y lo que solo contesta a eso): no hace falta reenviarlo.
+const PERIODICOS = new Set(['here', 'seek', 'ping', 'want', 'sync']);
+
 // ---- El bus: varios brokers como si fueran uno ----
-export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, connect = connectMqtt, retry = 2500 } = {}) {
+// Además de publicar y suscribirse:
+// - `whenReady(ms)`: resuelve en cuanto hay un broker (ya, si lo hay); la rechaza si en `ms` no hay ninguno.
+//   Antes era una sola promesa que se rechazaba una vez para siempre: si el juego se abría sin red, «Buscar
+//   rival» decía «No hay conexión» hasta recargar, aunque la red hubiera vuelto.
+// - `onEstado(fn)`: fn('conectado', url) cada vez que un broker (re)conecta, ya suscrito a todo y con lo
+//   reciente reenviado; fn('desconectado') al quedarse sin ninguno; fn('revive') al volver al primer plano.
+// - `sano`: algún broker ha dicho algo hace poco. Con la conexión callada (o el móvil recién despertado) no
+//   se sabe si el rival calla o si el que no tiene red soy yo.
+// - `revive()`: al volver al primer plano o al volver la red: pregunta a cada broker si sigue vivo (y el que
+//   no contesta en 3 s, fuera y a conectar de nuevo) y despierta a los que esperaban para volver a probar.
+// - Lo que se publica sin conexión (o justo antes de un corte) no se pierde: se guarda medio minuto y se
+//   reenvía al broker que conecta (quien ya lo tenía lo descarta por su `mid`). Una rendición o una jugada
+//   hechas en un túnel salen al volver la cobertura.
+// - `corta(s)`, `zombi(s)`, `estado()`: para probar a mano (`bchess.red` en la consola).
+export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, connect = connectMqtt, retry = 2500, now = Date.now, timers = TIMERS } = {}) {
   const temas = new Set();
   const oyentes = new Set();
+  const estados = new Set();
   const vistos = new Set();
   const orden = [];
   const clientes = new Map(); // url → cliente conectado
+  const recientes = []; // lo publicado hace poco (sin lo periódico): { topic, texto, at }
+  const despertadores = new Set(); // las esperas de `engancha` que `revive` puede acortar
   let seq = 0;
   let cerrado = false;
+  let cortadaHasta = 0; // `corta`: hasta entonces no se vuelve a conectar
+
+  const cambia = (estado, url) => {
+    for (const fn of [...estados]) fn(estado, url);
+  };
+  function alEstado(fn) {
+    estados.add(fn);
+    return () => estados.delete(fn);
+  }
+  function sano() {
+    const ahora = now();
+    for (const c of clientes.values()) if (c.oido === undefined || ahora - c.oido < SANO_MS) return true;
+    return false;
+  }
+  function olvidaViejos() {
+    const ahora = now();
+    while (recientes.length && (ahora - recientes[0].at > GUARDA_MS || recientes.length > 200)) recientes.shift();
+  }
 
   function recibe(topic, texto) {
     let msg;
@@ -102,72 +143,144 @@ export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, c
     for (const fn of oyentes) fn(topic, msg);
   }
 
+  // Una espera que `revive` puede acortar (resuelve true si la ha despertado él).
+  function duerme(ms) {
+    return new Promise((resolve) => {
+      const fin = (despertada) => {
+        timers.clear(plazo);
+        despertadores.delete(fin);
+        resolve(despertada);
+      };
+      const plazo = timers.set(() => fin(false), ms);
+      despertadores.add(fin);
+    });
+  }
+
+  // Un broker recién conectado: se suscribe a todo, se le reenvía lo reciente y se avisa. Resuelve al
+  // cerrarse, con el motivo.
+  async function usa(url, c) {
+    clientes.set(url, c);
+    const cerrada = new Promise((resolve) => c.onClose(resolve));
+    c.onMessage(recibe);
+    for (const t of temas) c.subscribe(t);
+    olvidaViejos();
+    for (const r of recientes) c.publish(r.topic, r.texto);
+    cambia('conectado', url);
+    const motivo = await cerrada;
+    clientes.delete(url);
+    if (!clientes.size) cambia('desconectado', url);
+    return motivo;
+  }
+
   // Si no contesta, se vuelve a probar, cada vez esperando el doble (hasta un minuto): hay redes que cierran
-  // los puertos de algunos brokers, y probar cada dos segundos para siempre solo gasta batería.
-  async function engancha(broker) {
+  // los puertos de algunos brokers, y probar cada dos segundos para siempre solo gasta batería. Pero al volver
+  // al primer plano (o la red) se prueba ya: antes se esperaba lo que tocara, hasta un minuto.
+  async function engancha(broker, i) {
     const { url, username = null, password = null } = typeof broker === 'string' ? { url: broker } : broker;
     let espera = retry;
     while (!cerrado) {
+      const cortada = cortadaHasta - now();
+      if (cortada > 0) {
+        await duerme(cortada);
+        continue;
+      }
+      let ya = false;
       try {
-        const c = await connect(url, { clientId: `${clientId}-${urls.indexOf(broker)}`, username, password });
+        const c = await connect(url, { clientId: `${clientId}-${i}`, username, password });
         if (cerrado) {
           c.close();
           return;
         }
         espera = retry;
-        clientes.set(url, c);
-        c.onMessage(recibe);
-        for (const t of temas) c.subscribe(t);
-        await new Promise((resolve) => c.onClose(resolve));
-        clientes.delete(url);
+        const motivo = await usa(url, c);
+        // La hemos dado por muerta nosotros (callada, o sin contestar al volver): otra, enseguida.
+        ya = motivo === 'callado' || motivo === 'sondeo' || motivo === 'corta';
       } catch {
         // no contesta: se vuelve a probar, más tarde
       }
-      if (!cerrado) await new Promise((resolve) => setTimeout(resolve, espera));
-      espera = Math.min(espera * 2, RETRY_MAX);
+      if (cerrado || ya) continue;
+      espera = (await duerme(espera)) ? retry : Math.min(espera * 2, RETRY_MAX);
     }
   }
-
-  // Resuelve cuando hay al menos un broker; la rechaza si ninguno contesta en `timeout`.
-  const listo = new Promise((resolve, reject) => {
-    const plazo = setTimeout(() => {
-      if (!clientes.size) reject(new Error('Sin conexión con ningún broker'));
-    }, 9000);
-    const mira = setInterval(() => {
-      if (clientes.size) {
-        clearInterval(mira);
-        clearTimeout(plazo);
-        resolve();
-      } else if (cerrado) {
-        clearInterval(mira);
-        clearTimeout(plazo);
-      }
-    }, 50);
-  });
-  for (const broker of urls) engancha(broker);
+  urls.forEach((broker, i) => engancha(broker, i));
 
   return {
-    ready: listo,
     get connected() {
       return clientes.size > 0;
     },
+    get sano() {
+      return sano();
+    },
+    whenReady(ms = 9000) {
+      if (clientes.size) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const quita = alEstado((estado) => {
+          if (estado !== 'conectado') return;
+          timers.clear(plazo);
+          quita();
+          resolve();
+        });
+        const plazo = timers.set(() => {
+          quita();
+          reject(new Error('Sin conexión con ningún broker'));
+        }, ms);
+      });
+    },
+    onEstado: alEstado,
     subscribe(topic) {
       temas.add(topic);
       for (const c of clientes.values()) c.subscribe(topic);
+    },
+    // Ya no interesa (una partida acabada): ni llega ni se vuelve a pedir al reconectar.
+    unsubscribe(topic) {
+      if (!temas.delete(topic)) return;
+      for (const c of clientes.values()) c.unsubscribe?.(topic);
     },
     publish(topic, msg) {
       seq += 1;
       const texto = JSON.stringify({ ...msg, mid: `${clientId}:${seq}` });
       for (const c of clientes.values()) c.publish(topic, texto);
+      if (!PERIODICOS.has(msg.k)) {
+        recientes.push({ topic, texto, at: now() });
+        olvidaViejos();
+      }
     },
     onMessage(fn) {
       oyentes.add(fn);
       return () => oyentes.delete(fn);
     },
+    revive() {
+      if (cerrado) return;
+      for (const despierta of [...despertadores]) despierta(true);
+      for (const c of [...clientes.values()]) c.probe?.(SONDEO_MS);
+      cambia('revive');
+    },
+    // Para probar a mano. `corta(s)`: fuera todas las conexiones, y sin volver a conectar en `s` segundos.
+    corta(s = 15) {
+      cortadaHasta = now() + s * 1000;
+      for (const c of [...clientes.values()]) c.matar?.('corta');
+    },
+    // `zombi(s)`: las conexiones siguen abiertas pero durante `s` segundos no pasa nada por ellas (lo que
+    // deja el iPhone al despertar). Se tienen que dar por muertas solas, o al volver al primer plano.
+    zombi(s = 60) {
+      for (const c of clientes.values()) c.zombi?.(s * 1000);
+    },
+    estado() {
+      const ahora = now();
+      return {
+        conectados: [...clientes.keys()],
+        sano: sano(),
+        oido: Object.fromEntries([...clientes].map(([url, c]) => [url, c.oido === undefined ? null : `hace ${Math.round((ahora - c.oido) / 1000)} s`])),
+        cortada: Math.max(0, Math.ceil((cortadaHasta - ahora) / 1000)),
+        temas: [...temas],
+        guardados: recientes.length,
+      };
+    },
     close() {
       cerrado = true;
       for (const c of clientes.values()) c.close();
       clientes.clear();
+      for (const despierta of [...despertadores]) despierta(true);
     },
   };
 }
@@ -224,6 +337,7 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
     timers.clear(plazo);
     timers.stop(anuncio);
     off();
+    offEstado?.();
     bus.publish(LOBBY, { k: 'leave', from: me });
     resolveFound(info);
   }
@@ -309,6 +423,8 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
     tick();
   };
   const anuncio = timers.every(anuncia, SEEK_EVERY);
+  // Al volver la conexión, se anuncia ya (el bus que no lo tenga, como el de las pruebas, no avisa).
+  const offEstado = bus.onEstado?.((estado) => estado === 'conectado' && anuncia());
   anuncia();
 
   return {
@@ -328,6 +444,7 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
       timers.clear(plazo);
       timers.stop(anuncio);
       off();
+      offEstado?.();
       bus.publish(LOBBY, { k: 'leave', from: me });
       resolveFound(null);
     },
@@ -471,6 +588,8 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
   bus.subscribe(LOBBY);
   bus.subscribe(inbox(me));
   const latido = timers.every(anuncia, PRESENCE_EVERY);
+  // Al volver la conexión, se dice ya que sigo aquí (sin esperar al latido).
+  const offEstado = bus.onEstado?.((estado) => estado === 'conectado' && anuncia());
   anuncia();
 
   return {
@@ -557,6 +676,7 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
       cerrada = true;
       timers.stop(latido);
       off();
+      offEstado?.();
     },
   };
 }
@@ -643,12 +763,18 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     }
   }, PING_EVERY);
   send('ping', { n: moves().length });
+  // Al volver la conexión, un latido ya: si algo se perdió mientras tanto, se pide en el momento.
+  const offEstado = bus.onEstado?.((estado) => estado === 'conectado' && send('ping', { n: moves().length }));
 
+  // Se acabó del todo: ni latidos, ni oídos, ni su tema (antes se seguía suscrito a todas las partidas
+  // jugadas, y al reconectar se volvían a pedir todas).
   function cerrar() {
     if (cerrada) return;
     cerrada = true;
     timers.stop(latido);
     off();
+    offEstado?.();
+    bus.unsubscribe?.(topic);
   }
 
   return {
@@ -685,6 +811,7 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
 export function createOnline({ urls = BROKERS } = {}) {
   let bus = null;
   let busca = null;
+  let busquedas = 0; // cada búsqueda (y cada cancelación) cambia el número: lo que llegue tarde no cuenta
   const me = randomId();
 
   function getBus() {
@@ -700,19 +827,20 @@ export function createOnline({ urls = BROKERS } = {}) {
       if (!sala) sala = createLobby({ bus: getBus(), me });
       return sala;
     },
-    get connected() {
-      return Boolean(bus?.connected);
-    },
     async find({ time, name = '', onStatus = () => {} }) {
       busca?.stop();
+      const turno = ++busquedas;
       onStatus({ phase: 'connecting', seekers: 0 });
       const b = getBus();
       try {
-        await b.ready;
+        await b.whenReady();
       } catch {
-        onStatus({ phase: 'error', seekers: 0 });
+        if (turno === busquedas) onStatus({ phase: 'error', seekers: 0 });
         return null;
       }
+      // Cancelada mientras conectaba: sin esto, la búsqueda empezaba igual por detrás, y quien se
+      // emparejara con ella se quedaba esperando una partida que aquí nadie iba a jugar.
+      if (turno !== busquedas) return null;
       const mm = createMatchmaker({ bus: b, me, time, name: cleanName(name) });
       busca = mm;
       const cuenta = setInterval(() => onStatus({ phase: 'searching', seekers: mm.seekers() }), 1000);
@@ -728,8 +856,20 @@ export function createOnline({ urls = BROKERS } = {}) {
       return createSession({ bus: getBus(), me, game: info.game, opponent: info.opponent, white: info.white, moves });
     },
     cancel() {
+      busquedas += 1;
       busca?.stop();
       busca = null;
+    },
+    // Al volver al primer plano o al volver la red: los brokers se comprueban ya (`createBus`).
+    revive() {
+      bus?.revive();
+    },
+    // Para probar a mano desde la consola (`bchess.red`): `corta(s)` deja sin red `s` segundos, `zombi(s)`
+    // deja las conexiones abiertas pero mudas (como al despertar el iPhone) y `estado()` dice cómo están.
+    red: {
+      corta: (s) => getBus().corta(s),
+      zombi: (s) => getBus().zombi(s),
+      estado: () => getBus().estado(),
     },
   };
 }

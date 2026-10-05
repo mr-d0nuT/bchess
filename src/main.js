@@ -394,6 +394,14 @@ async function start() {
   // LA SALA (`net/online.js`, `ui/lobby-ui.js`): se conecta al arrancar, para ver quién hay online (y que los
   // demás vean que estoy), retar a uno en concreto y recibir sus retos, estés donde estés.
   const sala = online.lobby();
+  // Al volver al primer plano (el iPhone suspende la página y deja sus conexiones muertas sin avisar) o al
+  // volver la red: se comprueba ya, sin esperar al latido ni a que toque volver a probar (hasta un minuto).
+  const aviva = () => {
+    if (document.visibilityState === 'visible') online.revive();
+  };
+  document.addEventListener('visibilitychange', aviva);
+  window.addEventListener('pageshow', aviva);
+  window.addEventListener('online', () => online.revive());
   const salaUi = createLobbyUi({
     lobby: sala,
     time: () => menu.choice.time,
@@ -1966,25 +1974,34 @@ async function start() {
     state.phase = 'searching';
     ponEstado('seeking');
     paintTurn();
-    let pulsado = null;
-    const boton = new Promise((resolve) => {
-      pulsado = resolve;
-    });
-    let fase = 'connecting';
-    onlineUi.show(() => pulsado());
-    const busca = online.find({
-      time,
-      name: game.miNombre,
-      onStatus: (s) => {
-        fase = s.phase;
-        onlineUi.status(s);
-      },
-    });
-    const r = await Promise.race([busca, boton.then(() => null)]);
-    if (state.phase !== 'searching') return; // se ha ido al menú por los ajustes: ya está allí
-    if (!r || yaEsta(r.info)) {
+    let r = null;
+    // Sin conexión, la pantalla lo dice y espera a un botón: «Reintentar» vuelve a probar ya (los brokers,
+    // sin esperar a que toque) sin salir de aquí; el otro vuelve atrás.
+    for (let intento = 0; ; intento++) {
+      let pulsado = null;
+      const boton = new Promise((resolve) => {
+        pulsado = resolve;
+      });
+      let fase = 'connecting';
+      onlineUi.show((que) => pulsado(que));
+      if (intento) online.revive();
+      const busca = online.find({
+        time,
+        name: game.miNombre,
+        onStatus: (s) => {
+          fase = s.phase;
+          onlineUi.status(s);
+        },
+      });
+      r = await Promise.race([busca, boton.then(() => null)]);
+      if (state.phase !== 'searching') return; // se ha ido al menú por los ajustes: ya está allí
+      if (r && !yaEsta(r.info)) break;
+      r = null;
       online.cancel();
-      if (fase === 'error') await boton; // sin conexión: lo dice y espera al botón
+      if (fase !== 'error' || (await boton) !== 'reintentar') break;
+      if (state.phase !== 'searching') return;
+    }
+    if (!r) {
       onlineUi.hide();
       if (volver?.partida && partidas.includes(volver.partida)) {
         game.partida = null; // para que `activarPartida` la vuelva a poner
@@ -2367,6 +2384,8 @@ async function start() {
     stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music, view,
     finale, confetti, pacer, ratings, ranking, cloud,
     game, menu, ui, cpu, newGame, playMove, toMenu, setup, settleKnights, empezar,
+    // La red online, para probar cortes a mano: `red.corta(s)`, `red.zombi(s)` y `red.estado()`.
+    red: online.red,
     // La partida guardada, tal como se continuaría (o null).
     get guardada() {
       return partidaGuardada();

@@ -376,3 +376,28 @@ test('los nombres que llegan de la red no traen caracteres invisibles que den la
   assert.equal(cleanName('\uFEFFEva\u200B Luz'), 'Eva Luz');
   assert.equal(cleanName('مرحبا'), 'مرحبا', 'el árabe se queda como está');
 });
+
+test('al volver la conexión, la partida da un latido y la sala dice que sigue ahí, sin esperar a su turno', () => {
+  const enviados = [];
+  const estados = new Set();
+  const bus = {
+    subscribe: () => {},
+    unsubscribe: () => {},
+    publish: (topic, msg) => enviados.push(msg.k),
+    onMessage: () => () => {},
+    onEstado: (fn) => {
+      estados.add(fn);
+      return () => estados.delete(fn);
+    },
+  };
+  const quieto = { set: () => 0, clear: () => {}, every: () => 0, stop: () => {} };
+  const sesion = createSession({ bus, me: 'b2', game: 'a1-b2-x', opponent: 'a1', white: 'a1', moves: () => [], timers: quieto });
+  const sala = createLobby({ bus, me: 'b2', timers: quieto });
+  enviados.length = 0;
+  for (const fn of estados) fn('conectado', 'wss://uno');
+  assert.deepEqual(enviados.sort(), ['here', 'ping']);
+  // Y la partida que se acaba, y la sala que se cierra, dejan de escuchar.
+  sesion.leave();
+  sala.close();
+  assert.equal(estados.size, 0);
+});
