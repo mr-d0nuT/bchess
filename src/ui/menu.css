@@ -1258,3 +1258,29 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .rk-cuenta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 14px; background: rgba(0, 120, 255, 0.08); box-shadow: inset 0 0 0 1px rgba(90, 170, 255, 0.3); }
 .rk-cuenta[hidden] { display: none; }
 #menu.entra .menu-idioma .ranking-boton { animation: aparece 0.6s ease 1.2s both; }
+
+/* LA CUENTA: su zona en el panel del ranking y la ventana de entrar (encima del ranking). */
+.sala.cuenta { z-index: 980; }
+.cuenta-caja { width: min(380px, 100%); gap: 12px; }
+.cuenta-google { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 12px 16px; border: 0; border-radius: 999px; background: #fff; color: #1f1f1f; font: 700 16px/1 system-ui, sans-serif; cursor: pointer; }
+.cuenta-google svg { width: 20px; height: 20px; flex: none; }
+.cuenta-google:disabled, .cuenta-enviar:disabled { opacity: 0.6; cursor: default; }
+.cuenta-o { display: flex; align-items: center; gap: 10px; font-size: 12px; opacity: 0.6; }
+.cuenta-o::before, .cuenta-o::after { content: ''; flex: 1; height: 1px; background: rgba(255, 255, 255, 0.2); }
+.cuenta-form { display: flex; flex-direction: column; gap: 8px; }
+.cuenta-campo { padding: 11px 14px; border: 1px solid rgba(255, 214, 140, 0.25); border-radius: 12px; background: rgba(8, 10, 20, 0.75); color: #fff; font: 600 16px/1.2 system-ui, sans-serif; outline: none; }
+.cuenta-campo:focus { border-color: #ffc451; box-shadow: 0 0 12px rgba(255, 160, 40, 0.35); }
+.cuenta-campo::placeholder { color: rgba(233, 220, 192, 0.5); }
+.cuenta-campo[hidden] { display: none; }
+.cuenta-enviar { width: 100%; margin-top: 4px; }
+.cuenta-enlace { align-self: center; padding: 4px; border: 0; background: none; color: #9fd0ff; font: 600 13px/1.3 system-ui, sans-serif; text-decoration: underline; cursor: pointer; }
+.cuenta-enlace[hidden] { display: none; }
+.cuenta-mensaje { min-height: 1.3em; margin: 0; font-size: 13px; text-align: center; color: #ffd66b; }
+.cuenta-inicial { display: grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(180deg, #fff1bf, #f8c451 45%, #e08a1c); color: #2a1400; font: 900 18px/1 system-ui, sans-serif; }
+.cuenta-textos { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.cuenta-quien { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.cuenta-texto { flex: 1; margin: 0; font-size: 13px; line-height: 1.35; opacity: 0.8; }
+.cuenta-boton { padding: 8px 14px; border: 0; border-radius: 999px; background: linear-gradient(180deg, #fff1bf, #f8c451 40%, #e08a1c); color: #2a1400; font: 800 13px/1 system-ui, sans-serif; cursor: pointer; }
+.cuenta-boton.secundario { background: rgba(255, 255, 255, 0.08); color: #dfe8ff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2); }
+.cuenta-acciones { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+.cuenta-alerta { align-self: center; font-size: 12px; color: #ffd66b; }

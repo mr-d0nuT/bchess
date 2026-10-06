@@ -49,7 +49,8 @@ export function mainCategory(all) {
   return mejor;
 }
 
-export function createRankingUi({ ratings, button }) {
+// `world`: si hay ranking mundial (si hay nube); si no, ni se menciona.
+export function createRankingUi({ ratings, button, world = false }) {
   const fondo = el('div', 'sala ranking');
   fondo.hidden = true;
   const caja = el('div', 'sala-caja ranking-caja');
@@ -69,8 +70,8 @@ export function createRankingUi({ ratings, button }) {
   caja.append(cabecera, cuenta, intro, cuerpo);
   fondo.append(caja);
   document.body.append(fondo);
-  let mundial = null; // [{ name, r, rd, games }] o null (sin cuenta)
-  let mundialCategoria = 'blitz';
+  let mundial = null; // [{ name, r, rd, games, uid }] o null (aún no ha llegado)
+  let mundialCategoria = 'cpu';
 
   function tarjeta(categoria, entry) {
     const carta = el('div', 'rk-carta');
@@ -99,7 +100,7 @@ export function createRankingUi({ ratings, button }) {
   function tabla(filas, { yo = null } = {}) {
     const lista = el('ol', 'rk-tabla');
     filas.forEach((fila, i) => {
-      const li = el('li', fila.name === yo ? 'rk-fila yo' : 'rk-fila');
+      const li = el('li', yo && fila.uid === yo ? 'rk-fila yo' : 'rk-fila');
       li.append(
         el('span', 'rk-pos', `${i + 1}`),
         el('span', 'rk-quien', fila.name),
@@ -124,10 +125,10 @@ export function createRankingUi({ ratings, button }) {
     seccionLocal.append(el('h3', 'rk-subtitulo', t('ranking.local')));
     seccionLocal.append(local.length ? tabla(local) : el('p', 'rk-vacio', t('ranking.local.vacio')));
     const seccionMundial = el('section', 'rk-seccion');
+    seccionMundial.hidden = !world;
     seccionMundial.append(el('h3', 'rk-subtitulo', t('ranking.mundial')));
-    if (!mundial) {
-      seccionMundial.append(el('p', 'rk-vacio', t('ranking.mundial.entra')));
-    } else {
+    if (!api.meUid) seccionMundial.append(el('p', 'rk-vacio', t('ranking.mundial.entra')));
+    {
       const pestanas = el('div', 'rk-pestanas');
       for (const c of CATEGORIES) {
         const b = el('button', c === mundialCategoria ? 'rk-pestana activa' : 'rk-pestana', nombre(c));
@@ -139,7 +140,8 @@ export function createRankingUi({ ratings, button }) {
         });
         pestanas.append(b);
       }
-      seccionMundial.append(pestanas, mundial.length ? tabla(mundial, { yo: api.me }) : el('p', 'rk-vacio', t('ranking.mundial.vacio')));
+      seccionMundial.append(pestanas);
+      if (mundial) seccionMundial.append(mundial.length ? tabla(mundial, { yo: api.meUid }) : el('p', 'rk-vacio', t('ranking.mundial.vacio')));
     }
     cuerpo.replaceChildren(tarjetas, seccionLocal, seccionMundial);
     pintaBoton();
@@ -188,13 +190,17 @@ export function createRankingUi({ ratings, button }) {
     refresh: () => (fondo.hidden ? pintaBoton() : pinta()),
     // La zona de la cuenta, para `auth-ui.js`.
     accountArea: cuenta,
-    // El ranking mundial (null: sin cuenta) y quién soy en él.
+    // El ranking mundial de una categoría ([{ name, r, rd, games, uid }]) y quién soy en él (`meUid`; null,
+    // sin cuenta).
     setWorld(lista, categoria = mundialCategoria) {
       mundial = lista;
       mundialCategoria = categoria;
       if (!fondo.hidden) pinta();
     },
-    me: null,
+    get worldCategory() {
+      return mundialCategoria;
+    },
+    meUid: null,
     onWorld: null, // (categoría) => pide el ranking mundial de esa categoría
     onOpen: null,
   };

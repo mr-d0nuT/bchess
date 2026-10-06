@@ -38,6 +38,8 @@ import { createChessClockUi } from './ui/chess-clock.js';
 import { createHistoryUi } from './ui/history-ui.js';
 import { createRankingUi } from './ui/ranking-ui.js';
 import { cpuRating, createRatings, isProvisional } from './rating/ratings.js';
+import { createCloud } from './net/cloud.js';
+import { createAuthUi } from './ui/auth-ui.js';
 import { createChessClock, findTimeControl } from './chess/timecontrol.js';
 import { SAVE_KEY, clockOnResume, packGame, readSavedGame } from './chess/saved-game.js';
 import { initLanguage, onLanguage, t } from './i18n.js';
@@ -353,7 +355,31 @@ async function start() {
   // LA PUNTUACIÓN (el ranking, `rating/ratings.js`): la del jugador por ritmo, la de contra la CPU y la del
   // ranking local del uno contra uno. El trofeo del menú la enseña y abre el panel.
   const ratings = createRatings();
-  const ranking = createRankingUi({ ratings, button: document.getElementById('menu-ranking') });
+  // Y LA CUENTA (`net/cloud.js`, Firebase en su plan gratuito): con ella, la puntuación se guarda en la nube
+  // (la misma en todos los aparatos) y se sale en el ranking mundial. Sin configurar Firebase, no aparece.
+  const cloud = createCloud();
+  const ranking = createRankingUi({ ratings, button: document.getElementById('menu-ranking'), world: cloud.available });
+  createAuthUi({ cloud, area: ranking.accountArea });
+  // El nombre en el ranking: el que se ha puesto para jugar online; si no, el nombre de pila de la cuenta.
+  const nombreEnRanking = (user) => cleanName(game.miNombre || (user?.name ?? '').split(' ')[0]) || 'Jugador';
+  if (cloud.available) {
+    // Al entrar: lo de la nube y lo del aparato se juntan (de cada ritmo, lo más reciente) y se guarda.
+    cloud.onUser(async (user) => {
+      ranking.meUid = user?.uid ?? null;
+      ranking.refresh();
+      if (!user?.verified) return;
+      const remoto = await cloud.load();
+      if (remoto) ratings.import(remoto);
+      cloud.save({ name: nombreEnRanking(user), data: ratings.export() });
+    });
+    // Y al acabar cada partida, a la nube (una escritura; si hay varias seguidas, se juntan).
+    ratings.onChange(() => {
+      if (cloud.user?.verified) cloud.save({ name: nombreEnRanking(cloud.user), data: ratings.export() });
+    });
+    const pideMundial = async (categoria) => ranking.setWorld(await cloud.leaderboard(categoria), categoria);
+    ranking.onOpen = () => pideMundial(ranking.worldCategory);
+    ranking.onWorld = pideMundial;
+  }
   // Las partidas online (`net/online.js`): se conecta al buscar la primera. Online, `game.session` es la
   // partida con el rival; sus jugadas llegan a `game.remote` (número de jugada → jugada).
   const online = createOnline();
@@ -2270,7 +2296,7 @@ async function start() {
   // Acceso para depurar desde la consola; `tap` simula un toque ({ owner, square }).
   window.bchess = {
     stage, board, quality, pieces, state, gesture, clock, highlights, fx, cinema, focus, hud, advance, tap: handleTap, capture, crowd, rubble, debris, bubbles, music, view,
-    finale, confetti, pacer, ratings, ranking,
+    finale, confetti, pacer, ratings, ranking, cloud,
     game, menu, ui, cpu, newGame, playMove, toMenu, setup, settleKnights, empezar,
     // La partida guardada, tal como se continuaría (o null).
     get guardada() {

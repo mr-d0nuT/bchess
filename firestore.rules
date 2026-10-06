@@ -1,0 +1,56 @@
+rules_version = '2';
+
+// LAS REGLAS DE LA NUBE DE BCHESS (Firestore). Lo que protege los datos: la configuración de la web es pública
+// a propósito, y quien quiera puede llamar a la base de datos; solo puede hacer lo que esto deja.
+// - Cada jugador tiene un documento, `users/{su id}`, con su nombre en el ranking y sus puntuaciones. Nada
+//   personal (ni el correo). Lo privado (el ranking local, con nombres de la familia) va aparte, en
+//   `users/{su id}/privado/datos`, y solo lo ve él.
+// - Cualquiera puede leerlos (es el ranking mundial).
+// - Solo cada uno puede escribir el suyo, y solo con la cuenta confirmada (Google ya lo está; con correo, al
+//   abrir el enlace del correo de confirmación).
+// - Lo que se escribe ha de tener la forma de siempre y valores con sentido: si no, no entra.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if true;
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.email_verified == true
+        && perfilValido(request.resource.data);
+      allow delete: if request.auth != null && request.auth.uid == uid;
+
+      // Lo privado (el ranking local, con los nombres de los que juegan en casa): solo su dueño lo ve.
+      match /privado/datos {
+        allow read, delete: if request.auth != null && request.auth.uid == uid;
+        allow create, update: if request.auth != null
+          && request.auth.uid == uid
+          && request.auth.token.email_verified == true
+          && request.resource.data.keys().hasOnly(['local', 'updated'])
+          && request.resource.data.local is map
+          && request.resource.data.updated == request.time;
+      }
+    }
+
+    function puntuacion(x) {
+      return x is number && x >= 100 && x <= 3500;
+    }
+
+    function tablero(b) {
+      return b is map
+        && b.keys().hasOnly(['bala', 'blitz', 'rapida', 'diaria', 'cpu'])
+        && (!('bala' in b) || puntuacion(b.bala))
+        && (!('blitz' in b) || puntuacion(b.blitz))
+        && (!('rapida' in b) || puntuacion(b.rapida))
+        && (!('diaria' in b) || puntuacion(b.diaria))
+        && (!('cpu' in b) || puntuacion(b.cpu));
+    }
+
+    function perfilValido(d) {
+      return d.keys().hasOnly(['name', 'ratings', 'board', 'updated'])
+        && d.name is string && d.name.size() >= 1 && d.name.size() <= 16
+        && d.ratings is map && d.ratings.keys().hasOnly(['bala', 'blitz', 'rapida', 'diaria', 'cpu'])
+        && tablero(d.board)
+        && d.updated == request.time;
+    }
+  }
+}
