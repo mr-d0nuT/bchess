@@ -272,7 +272,7 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .menu-nivel { width: 100%; }
 .menu-fila { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; width: 100%; }
 .menu-etiqueta { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; white-space: nowrap; }
-.piezas { display: flex; gap: 6px; }
+.piezas { display: flex; flex-wrap: wrap; gap: 6px; }
 .pieza-op {
   display: flex;
   align-items: center;
@@ -291,6 +291,7 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .pieza-op[aria-checked="true"] { border-color: #ffc451; color: #fff; box-shadow: 0 0 14px rgba(255, 160, 40, 0.5); }
 .pieza-ico { font-size: 17px; line-height: 1; }
 .pieza-op[data-color="black"] .pieza-ico { color: #111; text-shadow: 0 0 1px #fff, 0 0 5px rgba(255, 255, 255, 0.7); }
+.pieza-ico.mirar { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
 .pieza-ico.azar { width: 15px; height: 15px; border-radius: 50%; background: linear-gradient(90deg, #f4ead7 50%, #111 50%); box-shadow: 0 0 0 1.5px #cfe0ff; }
 
 /* Los nombres: en 1 contra 1, los dos; online, el mío. Se despliegan como lo de la CPU. A 16 px, que el

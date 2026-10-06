@@ -558,7 +558,7 @@ async function start() {
       pista.partida = game.id; // partida nueva: otra vez tres
       pista.quedan = PISTAS;
     }
-    const visible = state.phase === 'playing' && game.mode !== 'online';
+    const visible = state.phase === 'playing' && game.mode !== 'online' && !(game.mode === 'cpu' && !game.human);
     if (pistaBoton.hidden !== !visible) pistaBoton.hidden = !visible;
     const puede = puedePista();
     if (pistaBoton.disabled !== !puede) pistaBoton.disabled = !puede;
@@ -587,7 +587,9 @@ async function start() {
     const enLinea = game.mode === 'online' && jugando;
     if (undoButton && undoButton.hidden !== enLinea) undoButton.hidden = enLinea;
     if (resignButton) {
-      if (resignButton.hidden !== !jugando) resignButton.hidden = !jugando;
+      // Mirando (CPU contra CPU) no hay quien se rinda.
+      const rinde = jugando && !(game.mode === 'cpu' && !game.human);
+      if (resignButton.hidden !== !rinde) resignButton.hidden = !rinde;
       const puede = jugando && !state.fighting && !game.animating;
       if (resignButton.disabled !== !puede) resignButton.disabled = !puede;
       if (!jugando) resignButton.classList.remove('confirma');
@@ -1606,7 +1608,7 @@ async function start() {
     const cartel = status === 'checkmate' ? t('cartel.mate') : status === 'time' ? t('cartel.tiempo') : t('cartel.tablas');
     // Y suena el final: fanfarria para quien gana; contra la CPU, si gana ella, trombón triste; tablas, trompetas.
     // En el mate, cuando empieza la fiesta (`escenaMate`).
-    const fanfarria = !winner ? 'tablas' : (game.mode === 'cpu' || game.mode === 'online') && winner !== game.human ? 'derrota' : 'victoria';
+    const fanfarria = !winner ? 'tablas' : (game.mode === 'cpu' || game.mode === 'online') && game.human && winner !== game.human ? 'derrota' : 'victoria';
     const escena = status === 'checkmate' ? escenaMate(winner, fanfarria) : null;
     if (!escena) sfx.play(fanfarria);
     if (!['abandon', 'rivalResigned', 'resign'].includes(status)) {
@@ -1645,6 +1647,7 @@ async function start() {
     if (game.deConsola || game.moves.length < 2) return [];
     const linea = (label, r) => ({ label, from: Math.round(r.before.r), to: Math.round(r.after.r), delta: r.delta, provisional: isProvisional(r.after) });
     if (game.mode === 'cpu') {
+      if (!game.human) return []; // mirando, no cuenta
       const score = !winner ? 0.5 : winner === game.human ? 1 : 0;
       const r = ratings.record({ category: 'cpu', opponent: cpuRating(game.level), score });
       return r ? [linea(t('ranking.cat.cpu'), r)] : [];
@@ -1872,7 +1875,8 @@ async function start() {
     ui.closeAll();
     select(null);
     highlights.check(null);
-    if (!guardada && mode !== 'online') borrarPartida(); // se ha elegido empezar otra: la de antes ya no se continúa
+    // Se ha elegido empezar otra: la de antes ya no se continúa. Salvo si solo se va a mirar una (CPU contra CPU).
+    if (!guardada && mode !== 'online' && color !== 'mirar') borrarPartida();
     if (guardada) resetPieces(guardada.position);
     else if (game.moves.length || pieces.length !== 32) resetPieces(); // al empezar, el tablero ya está puesto
     // Con todas quietas en su casilla, cada clase de pieza deja medida su forma y los caballos se apartan
@@ -1888,7 +1892,8 @@ async function start() {
     game.color = color;
     // Contra la CPU, el jugador lleva las piezas que ha elegido (o las que le toquen a suertes).
     // Online, el que le ha tocado en el emparejamiento.
-    game.human = guardada?.human ?? (mode === 'cpu' ? (color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color) : mode === 'online' ? color : 'white');
+    // Mirando (CPU contra CPU), nadie: `human` null, y la CPU mueve por los dos.
+    game.human = guardada?.human ?? (mode === 'cpu' ? (color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color === 'mirar' ? null : color) : mode === 'online' ? color : 'white');
     game.thinking = false;
     game.press = null;
     // Los nombres: en 1 contra 1, los del menú (o los de la partida guardada); online, el mío y el del
@@ -1999,7 +2004,8 @@ async function start() {
   // otra, se borra. La red de seguridad y las posiciones puestas desde la consola no la tocan.
   let guardadaEn = -Infinity;
   function guardarPartida() {
-    if (testing.active || game.deConsola || state.phase !== 'playing' || game.mode === 'online') return;
+    // Ni la online ni la que solo se mira (CPU contra CPU): esa no pisa la partida de verdad que hubiera.
+    if (testing.active || game.deConsola || state.phase !== 'playing' || game.mode === 'online' || !game.human) return;
     const moves = game.enCurso ? [...game.moves, game.enCurso] : game.moves;
     if (!moves.length) {
       borrarPartida();

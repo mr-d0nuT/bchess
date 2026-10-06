@@ -128,7 +128,10 @@ la última jugada, que se queda hasta la siguiente. Sin teñir ninguna casilla.
 **Qué:** una marca suave para ver qué se movió (por ejemplo, un rastro tenue entre las dos casillas),
 nada parecido al tinte amarillo que se quitó.
 
-### 15. CPU contra CPU · S
+### 15. CPU contra CPU · S · ✔ hecho
+**Hecho (6/10/2026):** en «1 contra CPU», una cuarta opción en «Tus piezas»: «Mirar». La CPU juega con las
+dos, al nivel elegido, y se ven todos los combates. Sin rendirse ni pistas, no cuenta para la puntuación y no
+pisa la partida guardada que hubiera.
 **Qué:** un modo para ver una partida entera de combates sin jugar (estaba en las decisiones del
 principio).
 

@@ -66,7 +66,7 @@ function leer() {
       return {
         mode: g.mode,
         level: Math.max(1, Math.min(100, Math.round(g.level ?? 30))),
-        color: ['white', 'black', 'random'].includes(g.color) ? g.color : 'white',
+        color: ['white', 'black', 'random', 'mirar'].includes(g.color) ? g.color : 'white',
         time: typeof g.time === 'string' ? g.time : POR_DEFECTO.time,
         // Los nombres: los de 1 contra 1 (blancas y negras) y el mío para online.
         nombres: { white: cleanName(g.nombres?.white), black: cleanName(g.nombres?.black), yo: cleanName(g.nombres?.yo) },

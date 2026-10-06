@@ -81,7 +81,7 @@ export function createMatchUi(root = document.getElementById('hud')) {
       turnoPieza.textContent = PIEZA[lado];
       // Con nombre, el suyo: «Mueve Ana»; online, «Turno de Bruno».
       let texto = nombres[side] ? t('turno.de', { nombre: nombres[side] }) : t(`turno.${side}`);
-      if (mode === 'cpu') texto = side === human ? t('turno.tuyo') : t('turno.cpu');
+      if (mode === 'cpu' && human) texto = side === human ? t('turno.tuyo') : t('turno.cpu'); // mirando (sin `human`), de quién es
       if (mode === 'online') texto = side === human ? t('turno.tuyo') : nombres[side] ? t('turno.rivalDe', { nombre: nombres[side] }) : t('turno.rival');
       if (press) texto = t('turno.pulsa');
       turno.classList.toggle('piensa', (mode === 'cpu' || mode === 'online') && side !== human && thinking && !press);
@@ -166,7 +166,8 @@ export function createMatchUi(root = document.getElementById('hud')) {
       // Me he rendido (uno contra uno, el que movía: el que no gana).
       if (status === 'resign') titulo = mode === 'pvp' && winner ? t(`final.rinde.${winner === 'white' ? 'black' : 'white'}`) : t('final.rendido');
       if (winner) {
-        if (mode === 'cpu') texto = winner === human ? t('final.ganaste') : t('final.perdiste');
+        if (mode === 'cpu' && !human) texto = t(`final.gana.${winner}`); // mirando: CPU contra CPU
+        else if (mode === 'cpu') texto = winner === human ? t('final.ganaste') : t('final.perdiste');
         else if (mode === 'online' && status === 'abandon') texto = t('final.abandono');
         else if (mode === 'online' && status === 'rivalResigned') texto = t('final.serinde');
         else if (mode === 'online') texto = winner === human ? t('final.ganas') : nombres[winner] ? t('final.ganaNombre', { nombre: nombres[winner] }) : t('final.pierdes');
@@ -175,7 +176,7 @@ export function createMatchUi(root = document.getElementById('hud')) {
           const gana = nombres[winner] ? t('final.ganaNombre', { nombre: nombres[winner] }) : t(`final.gana.${winner}`);
           texto = status === 'time' ? `${t(`final.sintiempo.${flagged}`)}. ${gana}` : gana;
         }
-        tipo = (mode === 'cpu' || mode === 'online') && winner !== human ? 'pierde' : 'gana';
+        tipo = (mode === 'cpu' || mode === 'online') && human && winner !== human ? 'pierde' : 'gana';
       }
       finalTitulo.textContent = titulo;
       finalTexto.textContent = texto;
