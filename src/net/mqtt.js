@@ -71,9 +71,11 @@ export function unsubscribePacket(id, topic) {
   return packet((UNSUBSCRIBE << 4) | 0x02, [id >> 8, id & 255, ...str(topic)]);
 }
 
-export function publishPacket(topic, payload) {
+// `retain`: el broker se lo guarda y se lo da a quien se suscriba después (el final de una partida, para el rival
+// que ahora no tiene conexión). Uno vacío y con `retain` borra el que hubiera.
+export function publishPacket(topic, payload, { retain = false } = {}) {
   const datos = typeof payload === 'string' ? enc.encode(payload) : payload;
-  return packet(PUBLISH << 4, [...str(topic), ...datos]);
+  return packet((PUBLISH << 4) | (retain ? 1 : 0), [...str(topic), ...datos]);
 }
 
 export const pingPacket = () => new Uint8Array([PINGREQ << 4, 0]);
@@ -115,7 +117,7 @@ export function readPublish({ flags, body }) {
 }
 
 // Se conecta a `url` (wss://…). Devuelve una promesa con el cliente, o la rechaza si no conecta en
-// `timeout` ms. El cliente: subscribe(topic), unsubscribe(topic), publish(topic, texto),
+// `timeout` ms. El cliente: subscribe(topic), unsubscribe(topic), publish(topic, texto, { retain }),
 // onMessage(fn(topic, texto)), onClose(fn(motivo)), probe(ms), oido, close().
 //
 // UNA CONEXIÓN MUERTA NO SIEMPRE AVISA. Al despertar el iPhone, al pasar de wifi a datos o cuando el router
@@ -196,8 +198,8 @@ export function connectMqtt(url, { clientId, keepalive = 20, timeout = 6000, use
       unsubscribe(topic) {
         send(unsubscribePacket(nuevoId(), topic));
       },
-      publish(topic, payload) {
-        send(publishPacket(topic, payload));
+      publish(topic, payload, opciones) {
+        send(publishPacket(topic, payload, opciones));
       },
       onMessage(fn) {
         mensajes.add(fn);

@@ -129,10 +129,92 @@ export function createPartidaOnline({ info, yo, miNombre = '', now = 0 }) {
         return p.position.hasMatingMaterial(otro) ? otro : null;
       }
       if (status === 'abandon' || status === 'rivalResigned') return p.color;
-      if (status === 'resign') return p.rival;
+      if (status === 'resign' || status === 'abandonada') return p.rival;
       return null;
     },
   };
   p.clock?.start('white', now);
   return p;
+}
+
+// ---- El final, el mismo en los dos lados ----
+const DE_REGLAS = new Set(['checkmate', 'stalemate', 'fifty', 'repetition', 'material']);
+
+// Cómo se llama aquí un final que llega de la red, que es el mismo para los dos (`status` de todos y `winner`):
+// 'resign' es que se rinde el que no gana, y 'abandon', que se fue el que no gana. Y al revés, `finDeTodos`.
+export function estadoLocal(status, winner, miColor) {
+  if (status === 'resign') return winner === miColor ? 'rivalResigned' : 'resign';
+  if (status === 'abandon') return winner === miColor ? 'abandon' : 'abandonada';
+  return status;
+}
+export function finDeTodos(status) {
+  if (status === 'rivalResigned') return 'resign';
+  if (status === 'abandonada') return 'abandon';
+  return status;
+}
+
+// De dos finales que se cruzan (los dos acaban a la vez, cada uno a su manera: se rinden los dos a la vez, o uno
+// gana por tiempo mientras el otro da mate), cuál manda: el de menos jugadas; si empatan, el de las blancas. Los
+// dos lados eligen el mismo. `mio`/`suyo`: { jugadas, de }.
+export function mandaElSuyo(mio, suyo) {
+  if (suyo.jugadas !== mio.jugadas) return suyo.jugadas < mio.jugadas;
+  return suyo.de === 'white';
+}
+
+// Llega el final del rival ({ status, winner, flagged, moves }). Qué hacer aquí:
+// - 'esperar': es de reglas (mate, tablas…): las mías lo verán solas al jugar sus jugadas (que ya trae).
+// - 'acabar' ({ status, flagged }): se acaba así (se rindió, se le acabó el tiempo, se anuló…).
+// - 'cambiar' ({ status, winner, flagged }): ya estaba acabada aquí de otra manera, y manda la suya.
+// - 'nada': ya estaba acabada así (o manda la mía).
+export function decideFin(p, fin) {
+  const status = estadoLocal(fin.status, fin.winner, p.color);
+  if (p.acabada) {
+    const yo = p.acabada.fin ?? { status: finDeTodos(p.acabada.status), winner: p.acabada.winner };
+    if (yo.status === fin.status && yo.winner === fin.winner) return { accion: 'nada' };
+    const suyo = { jugadas: fin.moves.length, de: p.rival };
+    const mio = { jugadas: p.acabada.jugadas ?? p.moves.length, de: p.acabada.de ?? p.color };
+    return mandaElSuyo(mio, suyo) ? { accion: 'cambiar', status, winner: fin.winner, flagged: fin.flagged } : { accion: 'nada' };
+  }
+  if (DE_REGLAS.has(fin.status)) return { accion: 'esperar' };
+  return { accion: 'acabar', status, flagged: fin.flagged };
+}
+
+// EL TIEMPO, online. Cada aparato manda en el reloj de su jugador: el suyo lo decide su aparato, que es donde de
+// verdad corre (aquí corre con lo que tardan sus jugadas en llegar y las animaciones de cada lado, y antes los
+// dos podían ganar por tiempo a la vez). Si mi reloj llega a cero aquí, pierdo ('perder'). Si llega a cero el suyo,
+// se espera un poco (`gracia`) a que llegue su jugada, y luego se le reclama ('reclamar', con las jugadas que
+// llevo): su aparato dirá si de verdad se le ha acabado. Solo si no contesta en `espera` (con mi conexión sana:
+// sin ella, el plazo vuelve a empezar) gano sin más ('ganar'). Si no, 'esperar' (o null, con tiempo los dos).
+export function decideBandera(p, ahora, { gracia = 3000, espera = 20000, enlaceBien = true, enCurso = null } = {}) {
+  const sin = p.clock?.flagged(ahora);
+  if (!sin) {
+    p.reclamo = null;
+    return null;
+  }
+  if (sin === p.color) return { accion: 'perder' };
+  p.reclamo ??= { desde: ahora, enviado: 0 };
+  if (!enlaceBien) {
+    p.reclamo.desde = ahora;
+    if (p.reclamo.enviado) p.reclamo.enviado = ahora;
+    return { accion: 'esperar' };
+  }
+  if (!p.reclamo.enviado && ahora - p.reclamo.desde >= gracia) {
+    p.reclamo.enviado = ahora;
+    return { accion: 'reclamar', n: p.jugadas(enCurso).length };
+  }
+  if (p.reclamo.enviado && ahora - p.reclamo.enviado >= espera) return { accion: 'ganar' };
+  return { accion: 'esperar' };
+}
+
+// El rival dice que a él le marca cero mi reloj, tras `n` jugadas. Si ya he movido (la jugada va de camino), nada:
+// con ella le llega mi tiempo. Si me toca y de verdad me queda un segundo o menos, he perdido ('perder'). Si no
+// (me queda tiempo, o aún no he visto su última jugada, que aquí se está animando o no ha llegado), le digo lo que
+// marca de verdad mi reloj ('corregir', con `reloj`).
+export function decideReclamo(p, { n }, ahora, enCurso = null) {
+  if (!p.clock || p.acabada) return { accion: 'ignorar' };
+  const llevo = p.jugadas(enCurso).length;
+  if (llevo > n) return { accion: 'ignorar' };
+  const reloj = { white: p.clock.remaining('white', ahora), black: p.clock.remaining('black', ahora) };
+  if (llevo === n && p.position.side === p.color && !enCurso && reloj[p.color] <= 1000) return { accion: 'perder' };
+  return { accion: 'corregir', reloj };
 }

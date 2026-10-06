@@ -29,7 +29,7 @@ import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
 import { createCpu } from './chess/cpu.js';
 import { createOnline } from './net/online.js';
-import { MAX_MALAS, createPartidaOnline } from './net/partida.js';
+import { MAX_MALAS, createPartidaOnline, decideBandera, decideFin, decideReclamo, finDeTodos, mandaElSuyo } from './net/partida.js';
 import { createOnlineUi } from './ui/online-ui.js';
 import { createLobbyUi } from './ui/lobby-ui.js';
 import { cleanName } from './names.js';
@@ -601,7 +601,7 @@ async function start() {
       // Mirando (CPU contra CPU) no hay quien se rinda.
       const rinde = jugando && !(game.mode === 'cpu' && !game.human);
       if (resignButton.hidden !== !rinde) resignButton.hidden = !rinde;
-      const puede = jugando && !state.fighting && !game.animating;
+      const puede = jugando && !state.fighting && !game.animating && !game.moviendo;
       if (resignButton.disabled !== !puede) resignButton.disabled = !puede;
       if (!jugando) resignButton.classList.remove('confirma');
     }
@@ -1027,7 +1027,11 @@ async function start() {
   async function playHuman(jugadas) {
     let m = jugadas[0];
     if (jugadas.length > 1) {
+      const id = game.id;
       const kind = await ui.promotion(game.position.side);
+      // Mientras se elegía, la partida se ha acabado (sin tiempo, se ha rendido el rival…) o es otra: ya no se
+      // juega. Antes elegir jugaba igual, en una partida acabada.
+      if (!kind || id !== game.id || state.phase !== 'playing') return;
       m = jugadas.find((j) => describeMove(game.position, j).promotion === kind) ?? m;
     }
     await playMove(m);
@@ -1042,6 +1046,7 @@ async function start() {
       console.error('[BChess] No hay pieza en', plan.from);
       return;
     }
+    const id = game.id;
     game.animating = true;
     game.moviendo = true; // hasta que la jugada tenga hechas sus cuentas (`afterMove`)
     // Se guarda ya, antes del combate: si se cierra la app a media animación, al volver la jugada está
@@ -1072,6 +1077,12 @@ async function start() {
       cinema.reset(); // la cámara, al usuario ya: si no, se quedaba sin poder moverla
     } finally {
       game.animating = false;
+    }
+    // Mientras se animaba, la partida del tablero se ha acabado o es otra: esta jugada ya no es de las suyas (antes
+    // se hacía igual, en la posición que hubiera, y seguía con sus cuentas en otra partida).
+    if (id !== game.id) {
+      game.moviendo = false;
+      return;
     }
     game.position.make(m);
     game.moves.push(plan.uci);
@@ -1264,13 +1275,37 @@ async function start() {
     } finally {
       game.moviendo = false;
     }
+    if (state.phase === 'over') return; // mientras se apartaban, se acabó (sin tiempo): no se acaba dos veces
     const status = game.position.status();
     const side = game.position.side;
     const movio = side === 'white' ? 'black' : 'white';
     const enJaque = status === 'check' || status === 'checkmate';
     highlights.check(enJaque ? squareName(game.position.kings[game.position.turn >> 3]) : null);
-    if (status !== 'playing' && status !== 'check') {
+    const final = status !== 'playing' && status !== 'check';
+    // Online, lo que acabó la partida mientras se animaba esta jugada (el rival se rindió, se le acabó el tiempo…)
+    // manda ahora y no a media animación (antes salía el final en mitad del combate, y al acabar este la partida
+    // seguía: se pulsaba el reloj o salía otro final). Salvo que esta jugada también la acabe y mande la suya: de
+    // dos finales que se cruzan, el de menos jugadas (`mandaElSuyo`), como hará el rival.
+    const p = game.mode === 'online' ? game.partida : null;
+    const pendiente = p?.finPendiente;
+    if (pendiente) {
+      p.finPendiente = null;
+      const suyo = pendiente.fin && { jugadas: pendiente.fin.moves.length, de: p.rival };
+      if (!final || (suyo && mandaElSuyo({ jugadas: game.moves.length, de: p.color }, suyo))) {
+        sueltaEspera();
+        game.id += 1;
+        await gameOver(pendiente.como, pendiente.flagged, { fin: pendiente.fin });
+        return;
+      }
+    }
+    if (final) {
       await gameOver(status);
+      return;
+    }
+    // Su final era de reglas (mate, tablas…) y ya tengo todas sus jugadas: si mis reglas no dicen lo mismo, la
+    // partida ya no es la misma en los dos lados.
+    if (p?.finRival && game.moves.length >= p.finRival.moves.length) {
+      anula(p);
       return;
     }
     if (status === 'check') {
@@ -1291,7 +1326,7 @@ async function start() {
         game.press = null;
         if (pulsado === false || id !== game.id || state.phase !== 'playing') return;
       }
-      game.clock.press(movio, performance.now());
+      game.clock.press(movio, relojAhora());
       if (game.mode === 'online') relojOnline(movio);
     }
     paintTurn();
@@ -1330,14 +1365,11 @@ async function start() {
     await playMove(m);
   }
 
-  // Me rindo. Online se le dice al rival (gana él); contra la CPU gana ella; uno contra uno, se rinde el que
-  // mueve. Y se acaba la partida.
+  // Me rindo. Online se le dice al rival (gana él: su «fin» sale desde `gameOver`); contra la CPU gana ella; uno
+  // contra uno, se rinde el que mueve. Y se acaba la partida.
   async function rendirse() {
-    if (state.phase !== 'playing' || game.animating || state.fighting) return;
-    if (game.mode === 'online') {
-      if (!sesion()) return;
-      sesion().leave('resign');
-    }
+    if (state.phase !== 'playing' || game.animating || game.moviendo || state.fighting) return;
+    if (game.mode === 'online' && !sesion()) return;
     sueltaEspera();
     cpu.cancel();
     game.id += 1;
@@ -1363,7 +1395,7 @@ async function start() {
   function relojOnline(movio) {
     const p = game.partida;
     if (!p) return;
-    const ahora = performance.now();
+    const ahora = Date.now();
     if (movio === game.human) {
       p.session.press(movio, { white: game.clock.remaining('white', ahora), black: game.clock.remaining('black', ahora) }, game.moves.length);
     } else {
@@ -1405,23 +1437,21 @@ async function start() {
       game.clock = null;
       game.remote = null;
     }
-    p.clock?.resume(performance.now());
+    p.clock?.resume(Date.now());
     avanzaEnEspera(p);
   }
 
   // La partida ya no es la misma en los dos lados (o el rival manda jugadas que aquí no valen): se anula, sin
-  // ganador, y se le dice. Antes se quedaba quieta para siempre sin que nadie dijera nada.
+  // ganador, y se le dice (su «fin» sale al acabarla). Antes se quedaba quieta para siempre sin que nadie dijera nada.
   function anula(p) {
-    if (p.acabada) return;
-    p.session.anula();
-    seVa(p, 'anulada');
+    if (!p.acabada) seVa(p, 'anulada');
   }
 
   // El registro de la partida con el rival de `info` y, después (que el primer latido ya cuente con él), su sesión.
   // `origen`: 'azar' (emparejamiento) o 'reto'; `anterior`: la partida online que había en el tablero, a la que
   // se vuelve si esta no llega a empezar.
   function crearPartida(info, { origen = 'azar', anterior = null } = {}) {
-    const p = createPartidaOnline({ info, yo: online.me, miNombre: game.miNombre, now: performance.now() });
+    const p = createPartidaOnline({ info, yo: online.me, miNombre: game.miNombre, now: Date.now() });
     const session = online.session(info, () => p.conocidas(enCursoDe(p)));
     p.session = session;
     p.origen = origen;
@@ -1434,17 +1464,42 @@ async function start() {
     session.on('sync', ({ moves }) => {
       if (p.sincroniza(moves, enCursoDe(p))) llegaAlgo(p);
     });
-    session.on('press', (msg) => p.pulsa(msg, performance.now()));
+    session.on('press', (msg) => p.pulsa(msg, Date.now()));
     session.on('lost', () => {
       if (activa(p) && state.phase === 'playing') ui.banner(t('online.perdido'), { tipo: 'tablas', ms: 4000 });
     });
     session.on('back', () => {
       if (activa(p) && state.phase === 'playing') ui.banner(t('online.vuelve'), { tipo: 'tablas', ms: 2000 });
     });
-    session.on('resign', () => seVa(p, 'rivalResigned'));
-    session.on('bye', () => seVa(p, 'abandon'));
+    // Dos minutos callado con mi conexión sana: se ha ido. Gano, y mi final le llegará si vuelve.
     session.on('gone', () => seVa(p, 'abandon'));
     session.on('desync', () => anula(p));
+    // Su final (`decideFin`). Primero, las jugadas que trae: si es de reglas (mate, tablas), son las que lo deciden
+    // aquí, al jugarlas (antes llegaba su «bye» y, si aún se animaba la última, salía «Tu rival ha abandonado»).
+    session.on('fin', (fin) => {
+      if (!p.acabada && p.sincroniza(fin.moves, enCursoDe(p))) llegaAlgo(p);
+      const d = decideFin(p, fin);
+      if (d.accion === 'esperar') {
+        p.finRival = fin;
+        compruebaFinRival(p);
+      } else if (d.accion === 'acabar') {
+        seVa(p, d.status, d.flagged, fin);
+      } else if (d.accion === 'cambiar') {
+        cambiaFinal(p, d, fin);
+      }
+    });
+    // A él le marca cero mi reloj (`decideReclamo`): si de verdad se me ha acabado, pierdo; si no, le digo lo que marca.
+    session.on('reclamo', ({ n }) => {
+      const d = decideReclamo(p, { n }, Date.now(), enCursoDe(p));
+      if (d.accion === 'perder') acabaPorTiempo(p, p.color);
+      else if (d.accion === 'corregir') session.reloj({ n, ...d.reloj });
+    });
+    // No acepta mi reclamo: lo que marca de verdad su reloj (si sigue siendo su turno de entonces), y a contar de nuevo.
+    session.on('reloj', ({ n, white, black }) => {
+      if (p.acabada || n !== p.jugadas(enCursoDe(p)).length) return;
+      p.aplicaTiempo({ side: p.rival, white, black }, Date.now());
+      p.reclamo = null;
+    });
     // El rival no llegó a empezarla (se había emparejado con otro, o se perdió su confirmación): fuera, aunque yo
     // ya hubiera movido, y se dice. Si estaba en el tablero: si buscaba al azar, a buscar otro; si era un reto, de
     // vuelta a la partida de antes (o al menú). Antes, con una jugada hecha se quedaba esperando a un rival que
@@ -1479,11 +1534,13 @@ async function start() {
 
   // Una partida en espera: lo que ha llegado de su rival se juega en sus reglas, sin animar, y se avisa.
   function avanzaEnEspera(p) {
-    const { movio, mala, status } = p.avanza(performance.now());
+    const { movio, mala, status } = p.avanza(Date.now());
     if (movio && status !== 'playing' && status !== 'check') {
       acabaEnEspera(p, status);
       return;
     }
+    compruebaFinRival(p);
+    if (p.acabada) return;
     // Una suya que aquí no vale: se le piden otra vez sus jugadas (a la tercera, se anula).
     if (mala) {
       if (p.malas >= MAX_MALAS) {
@@ -1500,32 +1557,95 @@ async function start() {
 
   const nombreRival = (p) => p.nombres[p.rival] || t('sala.anonimo');
 
-  // El rival se rinde, se va o desaparece: en el tablero, el final de siempre; en espera, se acaba ahí y se avisa.
-  function seVa(p, como) {
+  // La partida `p` se acaba sin que lo digan las reglas del tablero (se rinde, se va, sin tiempo, anulada): en el
+  // tablero, el final de siempre; en espera, se acaba ahí y se avisa. `fin`: el del rival, si viene de él (si no, lo
+  // he decidido yo y se le dice). Con una jugada a medias en el tablero, espera a que acabe (`afterMove`): antes
+  // salía el final en mitad del combate, y al acabar este la partida seguía.
+  function seVa(p, como, flagged = null, fin = null) {
     if (p.acabada) return;
-    if (activa(p)) {
-      if (state.phase !== 'playing') return;
-      sueltaEspera();
-      game.id += 1;
-      gameOver(como);
+    if (activa(p) && (game.animating || game.moviendo || state.fighting)) {
+      p.finPendiente = { como, flagged, fin };
       return;
     }
-    acabaEnEspera(p, como);
+    if (activa(p) && state.phase === 'playing') {
+      sueltaEspera();
+      game.id += 1;
+      gameOver(como, flagged, { fin });
+      return;
+    }
+    acabaEnEspera(p, como, flagged, { fin });
   }
 
-  function acabaEnEspera(p, status, flagged = null) {
-    const winner = p.ganador(status, flagged);
-    p.acabada = { status, winner, flagged };
-    p.session.leave();
-    const nombre = nombreRival(p);
-    const texto = status === 'rivalResigned' ? t('aviso.rinde', { nombre })
-      : status === 'abandon' ? t('aviso.seva', { nombre })
-        : status === 'anulada' ? t('aviso.anulada', { nombre })
-          : !winner ? t('aviso.tablas', { nombre })
-            : winner === p.color ? t('aviso.gana', { nombre }) : t('aviso.pierde', { nombre });
-    salaUi.notify({ texto, boton: t('aviso.ver'), accion: () => irAPartida(p) });
+  function acabaEnEspera(p, status, flagged = null, { fin = null } = {}) {
+    if (p.acabada) return;
+    cierraPartida(p, status, p.ganador(status, flagged), flagged, fin);
+    salaUi.notify({ texto: avisoFinal(p), boton: t('aviso.ver'), accion: () => irAPartida(p) });
     pintaPartidas();
     ponEstado(state.phase === 'searching' ? 'seeking' : 'menu');
+  }
+
+  // La partida `p` se acaba así. Queda apuntado (para la lista, y para comparar si se cruza con el final del rival),
+  // su reloj se para y, si lo he decidido yo (sin `fin` del rival), se le dice al rival en el momento (`terminar`):
+  // sin esperar a la escena del mate, que dura sus segundos.
+  function cierraPartida(p, status, winner, flagged, fin = null) {
+    const deTodos = { status: finDeTodos(status), winner, flagged };
+    p.acabada = { status, winner, flagged, fin: deTodos, jugadas: fin ? fin.moves.length : p.moves.length, de: fin ? p.rival : p.color };
+    p.finPendiente = null;
+    p.clock?.pause(Date.now());
+    if (!fin) p.session.terminar({ ...deTodos, moves: p.moves });
+  }
+
+  // Los dos han acabado la partida a la vez, cada uno a su manera, y manda la suya (`decideFin`): se cambia aquí.
+  function cambiaFinal(p, { status, winner, flagged }, fin) {
+    p.acabada = { status, winner, flagged, fin: { status: fin.status, winner: fin.winner, flagged: fin.flagged }, jugadas: fin.moves.length, de: p.rival };
+    if (activa(p)) ui.cambiaFinal(finalDe(p));
+    else salaUi.notify({ texto: avisoFinal(p), boton: t('aviso.ver'), accion: () => irAPartida(p) });
+    pintaPartidas();
+  }
+
+  // Lo que dice el cartel del final de una partida online acabada.
+  const finalDe = (p) => ({ status: p.acabada.status, winner: p.acabada.winner, mode: 'online', human: p.color, flagged: p.acabada.flagged, nombres: p.nombres });
+  // Y el aviso, si se acaba esperando.
+  function avisoFinal(p) {
+    const { status, winner } = p.acabada;
+    const nombre = nombreRival(p);
+    if (status === 'rivalResigned') return t('aviso.rinde', { nombre });
+    if (status === 'abandon') return t('aviso.seva', { nombre });
+    if (status === 'abandonada') return t('aviso.abandonaste', { nombre });
+    if (status === 'anulada') return t('aviso.anulada', { nombre });
+    if (!winner) return t('aviso.tablas', { nombre });
+    return winner === p.color ? t('aviso.gana', { nombre }) : t('aviso.pierde', { nombre });
+  }
+
+  // Llegó su final de reglas (mate, tablas…) y ya tengo todas sus jugadas jugadas: si mis reglas no dicen lo mismo,
+  // la partida ya no es la misma en los dos lados. (En el tablero, lo mira `afterMove` al acabar la última.)
+  function compruebaFinRival(p) {
+    const fin = p.finRival;
+    if (!fin || p.acabada || p.moves.length < fin.moves.length) return;
+    if (activa(p) && !tableroQuieto()) return;
+    const status = p.position.status();
+    if (status === 'playing' || status === 'check') anula(p);
+  }
+
+  // EL TIEMPO, online (`decideBandera`): cada aparato manda en el reloj de su jugador. Si el mío llega a cero, pierdo;
+  // si llega a cero el suyo, se le reclama, y solo si no contesta, gano. Antes cada uno decidía por los dos con lo
+  // que veía, y los dos podían ganar por tiempo a la vez.
+  function banderaOnline(p, ahora) {
+    if (p.acabada) return;
+    const d = decideBandera(p, ahora, { enlaceBien: online.sano, enCurso: enCursoDe(p) });
+    if (d?.accion === 'perder') acabaPorTiempo(p, p.color);
+    else if (d?.accion === 'ganar') acabaPorTiempo(p, p.rival);
+    else if (d?.accion === 'reclamar') p.session.reclama(d.n);
+  }
+  function acabaPorTiempo(p, flagged) {
+    if (p.acabada) return;
+    if (activa(p) && state.phase === 'playing') {
+      game.id += 1; // lo que estuviera en marcha ya no cuenta
+      sueltaEspera();
+      gameOver('time', flagged);
+      return;
+    }
+    acabaEnEspera(p, 'time', flagged);
   }
 
   function quitaPartida(p) {
@@ -1535,23 +1655,21 @@ async function start() {
     pintaPartidas();
   }
 
-  // En espera, los relojes siguen: si a alguien se le acaba el tiempo, esa partida se acaba (una vez por
-  // segundo basta).
-  let revisadas = 0;
-  function revisaPartidasEnEspera(ahora) {
-    if (ahora - revisadas < 1000) return;
-    revisadas = ahora;
+  // En espera, los relojes siguen: una vez por segundo, quién se ha quedado sin tiempo (`banderaOnline`), en ellas y en
+  // la del tablero, y la lista con sus relojes. En un `setInterval` y no en el bucle de dibujo: con la pestaña de
+  // fondo el dibujo se para, pero esto sigue (frenado, pero sigue).
+  function revisaRelojes() {
+    const ahora = Date.now();
     for (const p of partidasVivas()) {
-      if (activa(p) || !p.clock) continue;
-      const sinTiempo = p.clock.flagged(ahora);
-      if (sinTiempo) acabaEnEspera(p, 'time', sinTiempo);
+      if (p.clock && (!activa(p) || relojVivo())) banderaOnline(p, ahora);
     }
     pintaPartidas();
   }
+  setInterval(revisaRelojes, 1000);
 
   // Lo que se enseña de cada una (la sala y el botón «Tus partidas»).
   function pintaPartidas() {
-    const ahora = performance.now();
+    const ahora = Date.now();
     salaUi.setGames(partidas.map((p) => ({
       id: p.id,
       rival: nombreRival(p),
@@ -1669,16 +1787,25 @@ async function start() {
   }
 
   // Se acabó. `status`: el de las reglas, o 'time' si al que mueve (`flagged`) se le acabó el tiempo:
-  // pierde, salvo que al otro no le quede con qué dar mate, que entonces son tablas.
-  async function gameOver(status, flagged = null) {
+  // pierde, salvo que al otro no le quede con qué dar mate, que entonces son tablas. Online, también los suyos
+  // ('rivalResigned', 'abandon', 'abandonada', 'anulada'); `fin`: el del rival, si el final viene de él.
+  async function gameOver(status, flagged = null, { fin = null } = {}) {
     if (game.mode !== 'online') borrarPartida(); // la online no se guarda: la que hubiera, se queda
     sueltaEspera();
     state.phase = 'over';
     game.press = null;
     clockUi.cancel();
-    game.clock?.pause(performance.now());
+    ui.cancelPromotion(); // si se estaba eligiendo en qué corona, ya no: antes elegir jugaba en la partida acabada
+    game.clock?.pause(relojAhora());
     select(null);
     paintTurn();
+    const id = game.id;
+    // Online, la partida con ese rival se acaba aquí, y su final sale ya hacia él (`cierraPartida`), sin esperar a la
+    // escena del mate ni al cartel: antes salía al cerrarlo, y mientras tanto el rival seguía jugando.
+    const eraOnline = game.mode === 'online';
+    const partida = eraOnline ? game.partida : null;
+    if (partida && !partida.acabada) cierraPartida(partida, status, partida.ganador(status, flagged), flagged, fin);
+    if (partida) pintaPartidas();
     let winner = status === 'checkmate' ? (game.position.side === 'white' ? 'black' : 'white') : null;
     if (status === 'time') {
       const otro = flagged === 'white' ? 'black' : 'white';
@@ -1687,34 +1814,46 @@ async function start() {
     if (status === 'abandon' || status === 'rivalResigned') winner = game.human; // online: el rival se ha ido o se ha rendido
     // Me he rendido (uno contra uno, el que mueve): gana el otro.
     if (status === 'resign') winner = (game.mode === 'pvp' ? game.position.side : game.human) === 'white' ? 'black' : 'white';
+    if (partida) winner = partida.acabada.winner;
     const cartel = status === 'checkmate' ? t('cartel.mate') : status === 'time' ? t('cartel.tiempo') : t('cartel.tablas');
     // Y suena el final: fanfarria para quien gana; contra la CPU, si gana ella, trombón triste; tablas, trompetas.
     // En el mate, cuando empieza la fiesta (`escenaMate`).
     const fanfarria = !winner ? 'tablas' : (game.mode === 'cpu' || game.mode === 'online') && game.human && winner !== game.human ? 'derrota' : 'victoria';
     const escena = status === 'checkmate' ? escenaMate(winner, fanfarria) : null;
     if (!escena) sfx.play(fanfarria);
-    if (!['abandon', 'rivalResigned', 'resign', 'anulada'].includes(status)) {
+    if (!['abandon', 'abandonada', 'rivalResigned', 'resign', 'anulada'].includes(status)) {
       ui.banner(cartel, { tipo: winner ? 'jaque' : 'tablas', ms: 1700 });
       await (escena ?? new Promise((resolve) => setTimeout(resolve, 1700)));
     }
-    // Online, la partida con ese rival se acaba aquí (y la revancha es buscar otro).
-    const eraOnline = game.mode === 'online';
-    const partida = eraOnline ? game.partida : null;
-    if (partida) partida.acabada = { status, winner, flagged };
-    partida?.session.leave();
-    pintaPartidas();
+    // Mientras tanto, otra partida ha ocupado el tablero (un aviso tocado, un reto aceptado): el cartel de esta ya
+    // no sale encima de aquella (en la lista queda como acabada). Fuera la fiesta, y la cámara, para el usuario.
+    if (id !== game.id) {
+      if (escena) {
+        finale.undo();
+        cinema.reset();
+      }
+      return;
+    }
     ponEstado('menu');
+    // El cartel, con el final que mande ahora (online, si los dos han acabado a la vez, puede haber cambiado; y la
+    // revancha, online, es buscar otro rival).
+    const datos = partida ? finalDe(partida) : { status, winner, mode: game.mode, human: game.human, flagged, nombres: game.nombres };
     const puntos = puntua(winner);
-    const cartelFinal = ui.gameOver({ status, winner, mode: game.mode, human: game.human, flagged, nombres: game.nombres, escena: Boolean(escena) });
+    const cartelFinal = ui.gameOver({ ...datos, escena: Boolean(escena) });
     ui.showRating(puntos);
     ui.showSummary(resumenPartida());
     const que = await cartelFinal;
-    // Fin de la fiesta: el rey, otra vez de pie, y la cámara, para el usuario.
+    // Fin de la fiesta: el rey, otra vez de pie, y la cámara, para el usuario (ya, si otra pantalla ha cerrado el
+    // cartel: la cámara la mueve ella).
     if (escena) {
       finale.undo();
-      await cinema.restore(clock);
+      if (que === 'cerrado') cinema.reset();
+      else await cinema.restore(clock);
     }
     if (partida) quitaPartida(partida);
+    // Cerrado por otra pantalla (se ha puesto otra partida, se ha aceptado un reto): ya manda ella. Antes el cartel
+    // se escondía sin contestar, esto se quedaba esperando para siempre y la partida no salía nunca de la lista.
+    if (que === 'cerrado') return;
     if (que === 'rematch' && eraOnline) await jugarOnline({ time: game.control?.key ?? 'libre:libre' });
     else if (que === 'rematch') await newGame({ mode: game.mode, level: game.level, color: game.color, time: game.control?.key ?? 'libre:libre', nombres: game.nombres });
     else await toMenu();
@@ -1799,21 +1938,36 @@ async function start() {
   // El reloj en cada fotograma: corre solo mientras el que mueve puede mover (las animaciones y los
   // combates no cuentan), se pinta, y si a alguien se le acaba el tiempo, se acabó la partida.
   function tickClock() {
-    revisaPartidasEnEspera(performance.now());
     const reloj = game.clock;
     if (!reloj) return;
-    const ahora = performance.now();
-    const vivo = state.phase === 'playing' && !game.animating && !state.fighting && !view.moving;
+    const ahora = relojAhora();
+    const vivo = relojVivo();
     if (vivo) reloj.resume(ahora);
     else reloj.pause(ahora);
     clockUi.render({ white: reloj.remaining('white', ahora), black: reloj.remaining('black', ahora), running: reloj.running, paused: reloj.paused });
-    if (vivo && ahora - guardadaEn > GUARDA_RELOJ_MS) guardarPartida(); // por si se va la app sin avisar
-    const sinTiempo = state.phase === 'playing' ? reloj.flagged(ahora) : null;
+    if (vivo && performance.now() - guardadaEn > GUARDA_RELOJ_MS) guardarPartida(); // por si se va la app sin avisar
+    if (state.phase !== 'playing') return;
+    // Online, el tiempo lo decide cada aparato por su jugador (`banderaOnline`), y solo con el tablero quieto.
+    if (game.mode === 'online') {
+      if (vivo && game.partida) banderaOnline(game.partida, ahora);
+      return;
+    }
+    const sinTiempo = reloj.flagged(ahora);
     if (sinTiempo) {
       game.id += 1; // lo que estuviera en marcha (la CPU pensando) ya no cuenta
       cpu.cancel();
       gameOver('time', sinTiempo);
     }
+  }
+  // ¿Corre el reloj del tablero? Solo mientras el que mueve puede mover (las animaciones y los combates no cuentan).
+  function relojVivo() {
+    return state.phase === 'playing' && !game.animating && !state.fighting && !view.moving;
+  }
+  // La hora de los relojes: online, la de verdad (`Date.now()`), que sigue corriendo con el móvil dormido (con la
+  // del navegador, en el iPhone bloqueado mi reloj se paraba aquí y seguía en el del rival); en las partidas de
+  // aquí, la del navegador, que se para con él (mejor para jugar contra la CPU o con un amigo).
+  function relojAhora() {
+    return game.mode === 'online' ? Date.now() : performance.now();
   }
 
   // DESHACER. Uno contra uno, la última jugada; contra la CPU, hasta que vuelva a tocarle al jugador
@@ -2077,7 +2231,7 @@ async function start() {
     await new Promise((resolve) => setTimeout(resolve, 1700));
     const partida = crearPartida(info, { origen, anterior });
     if (state.phase !== 'starting') {
-      partida.session.leave('resign'); // se fue justo ahora: que el rival no se quede esperando
+      cierraPartida(partida, 'resign', partida.rival, null); // se fue justo ahora: que el rival no se quede esperando
       quitaPartida(partida);
       return;
     }

@@ -67,6 +67,44 @@ export function createMatchUi(root = document.getElementById('hud')) {
 
   let cartelTimer = 0;
   let ultimoTurno = null;
+  // Las respuestas pendientes del final y de la coronación: se dan también si otra cosa cierra el cartel (`closeAll`,
+  // `cancelPromotion`). Antes se cerraban sin contestar y quien esperaba se quedaba esperando para siempre.
+  let cierraFinal = null;
+  let cierraCorona = null;
+
+  // Lo que dice el cartel del final (al sacarlo, y si cambia con él a la vista).
+  function pintaFinal({ status, winner, mode, human, flagged = null, nombres = {} }) {
+    let titulo = t('final.tablas');
+    let texto = t(`tablas.${status}`);
+    let tipo = 'tablas';
+    if (status === 'time') {
+      titulo = t('final.tiempo');
+      texto = winner ? t(`final.sintiempo.${flagged}`) : t('tablas.time');
+    }
+    if (status === 'checkmate') titulo = t('final.mate');
+    if (status === 'anulada') titulo = t('final.anulada'); // online: ya no era la misma partida en los dos lados
+    if (status === 'abandon' || status === 'rivalResigned') titulo = t('final.ganas'); // online: el rival se ha ido o se ha rendido
+    if (status === 'abandonada') titulo = t('final.pierdes'); // online: el que se fue (y no volvió a tiempo) soy yo
+    // Me he rendido (uno contra uno, el que movía: el que no gana).
+    if (status === 'resign') titulo = mode === 'pvp' && winner ? t(`final.rinde.${winner === 'white' ? 'black' : 'white'}`) : t('final.rendido');
+    if (winner) {
+      if (mode === 'cpu' && !human) texto = t(`final.gana.${winner}`); // mirando: CPU contra CPU
+      else if (mode === 'cpu') texto = winner === human ? t('final.ganaste') : t('final.perdiste');
+      else if (mode === 'online' && status === 'abandon') texto = t('final.abandono');
+      else if (mode === 'online' && status === 'abandonada') texto = t('final.abandonaste');
+      else if (mode === 'online' && status === 'rivalResigned') texto = t('final.serinde');
+      else if (mode === 'online') texto = winner === human ? t('final.ganas') : nombres[winner] ? t('final.ganaNombre', { nombre: nombres[winner] }) : t('final.pierdes');
+      else {
+        // 1 contra 1: «¡Gana Ana!», o «Ganan las blancas» si no hay nombre.
+        const gana = nombres[winner] ? t('final.ganaNombre', { nombre: nombres[winner] }) : t(`final.gana.${winner}`);
+        texto = status === 'time' ? `${t(`final.sintiempo.${flagged}`)}. ${gana}` : gana;
+      }
+      tipo = (mode === 'cpu' || mode === 'online') && human && winner !== human ? 'pierde' : 'gana';
+    }
+    finalTitulo.textContent = titulo;
+    finalTexto.textContent = texto;
+    final.dataset.tipo = tipo;
+  }
 
   const api = {
     // De quién es el turno. `mode` 'pvp' o 'cpu'; `human`, el color del jugador contra la CPU;
@@ -151,41 +189,16 @@ export function createMatchUi(root = document.getElementById('hud')) {
     },
 
     // El final. `status`: el de `Position.status()` o 'time' (se le acabó el tiempo a `flagged`);
-    // `winner`, el color que gana (o null si son tablas). Devuelve 'rematch' o 'menu'.
+    // `winner`, el color que gana (o null si son tablas). Devuelve 'rematch', 'menu' o, si otra cosa lo cierra
+    // (`closeAll`: se ha puesto otra partida, se ha aceptado un reto), 'cerrado'.
     // `escena`: detrás está la del jaque mate (el rey de rodillas, el confeti…): el cartel va abajo y deja verla.
     gameOver({ status, winner, mode, human, flagged = null, nombres = {}, escena = false }) {
-      let titulo = t('final.tablas');
-      let texto = t(`tablas.${status}`);
-      let tipo = 'tablas';
-      if (status === 'time') {
-        titulo = t('final.tiempo');
-        texto = winner ? t(`final.sintiempo.${flagged}`) : t('tablas.time');
-      }
-      if (status === 'checkmate') titulo = t('final.mate');
-      if (status === 'anulada') titulo = t('final.anulada'); // online: ya no era la misma partida en los dos lados
-      if (status === 'abandon' || status === 'rivalResigned') titulo = t('final.ganas'); // online: el rival se ha ido o se ha rendido
-      // Me he rendido (uno contra uno, el que movía: el que no gana).
-      if (status === 'resign') titulo = mode === 'pvp' && winner ? t(`final.rinde.${winner === 'white' ? 'black' : 'white'}`) : t('final.rendido');
-      if (winner) {
-        if (mode === 'cpu' && !human) texto = t(`final.gana.${winner}`); // mirando: CPU contra CPU
-        else if (mode === 'cpu') texto = winner === human ? t('final.ganaste') : t('final.perdiste');
-        else if (mode === 'online' && status === 'abandon') texto = t('final.abandono');
-        else if (mode === 'online' && status === 'rivalResigned') texto = t('final.serinde');
-        else if (mode === 'online') texto = winner === human ? t('final.ganas') : nombres[winner] ? t('final.ganaNombre', { nombre: nombres[winner] }) : t('final.pierdes');
-        else {
-          // 1 contra 1: «¡Gana Ana!», o «Ganan las blancas» si no hay nombre.
-          const gana = nombres[winner] ? t('final.ganaNombre', { nombre: nombres[winner] }) : t(`final.gana.${winner}`);
-          texto = status === 'time' ? `${t(`final.sintiempo.${flagged}`)}. ${gana}` : gana;
-        }
-        tipo = (mode === 'cpu' || mode === 'online') && human && winner !== human ? 'pierde' : 'gana';
-      }
-      finalTitulo.textContent = titulo;
-      finalTexto.textContent = texto;
+      cierraFinal?.('cerrado');
+      pintaFinal({ status, winner, mode, human, flagged, nombres });
       finalPuntos.replaceChildren();
       finalResumen.replaceChildren();
       revancha.textContent = mode === 'online' ? t('final.otro') : t('final.revancha'); // online, otro rival
       menu.textContent = t('final.menu');
-      final.dataset.tipo = tipo;
       final.classList.toggle('con-escena', escena);
       final.hidden = false;
       final.classList.remove('entra');
@@ -194,36 +207,55 @@ export function createMatchUi(root = document.getElementById('hud')) {
       setTimeout(() => revancha.focus({ preventScroll: true }), 400);
       return new Promise((resolve) => {
         const cerrar = (que) => {
+          if (cierraFinal !== cerrar) return;
+          cierraFinal = null;
           final.hidden = true;
           revancha.onclick = null;
           menu.onclick = null;
           resolve(que);
         };
+        cierraFinal = cerrar;
         revancha.onclick = () => cerrar('rematch');
         menu.onclick = () => cerrar('menu');
       });
     },
 
-    // Pregunta a qué se corona. Devuelve 'queen' | 'rook' | 'bishop' | 'knight'.
+    // El final ha cambiado con el cartel a la vista (online, dos finales que se cruzan: manda el del rival).
+    cambiaFinal(datos) {
+      if (cierraFinal) pintaFinal(datos);
+    },
+
+    // Pregunta a qué se corona. Devuelve 'queen' | 'rook' | 'bishop' | 'knight', o null si se cierra sin elegir.
     promotion(color) {
+      cierraCorona?.(null);
       coronaTitulo.textContent = t('corona.titulo');
       corona.setAttribute('aria-label', t('corona.aria'));
       coronaBotones.textContent = '';
       corona.dataset.lado = color;
       corona.hidden = false;
       return new Promise((resolve) => {
+        const elige = (kind) => {
+          if (cierraCorona !== elige) return;
+          cierraCorona = null;
+          corona.hidden = true;
+          resolve(kind);
+        };
+        cierraCorona = elige;
         for (const [kind, simbolo] of CORONAS) {
           const boton = el('button', 'corona-boton');
           boton.type = 'button';
           boton.append(el('span', 'corona-simbolo', simbolo), el('span', 'corona-nombre', t(`pieza.${kind}`)));
-          boton.addEventListener('click', () => {
-            corona.hidden = true;
-            resolve(kind);
-          });
+          boton.addEventListener('click', () => elige(kind));
           coronaBotones.append(boton);
         }
         setTimeout(() => coronaBotones.firstChild?.focus({ preventScroll: true }), 50);
       });
+    },
+
+    // La partida se ha acabado mientras se elegía la coronación (sin tiempo, el rival se ha rendido…): fuera la
+    // pregunta. Antes seguía ahí, y elegir jugaba en una partida acabada.
+    cancelPromotion() {
+      cierraCorona?.(null);
     },
 
     // Vuelve a escribir lo que se ve (al cambiar de idioma).
@@ -232,6 +264,8 @@ export function createMatchUi(root = document.getElementById('hud')) {
     },
 
     closeAll() {
+      cierraFinal?.('cerrado');
+      cierraCorona?.(null);
       final.hidden = true;
       corona.hidden = true;
       turno.hidden = true;

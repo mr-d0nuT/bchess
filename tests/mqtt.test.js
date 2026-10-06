@@ -54,6 +54,12 @@ test('el UNSUBSCRIBE lleva su número y el tema, con los bits que pide MQTT', ()
   assert.deepEqual([...unsubscribePacket(1, 'a/b')], [0xa2, 7, 0, 1, 0, 3, 97, 47, 98]);
 });
 
+test('un PUBLISH con `retain` lleva el bit 0 encendido; uno vacío y con `retain` es el que borra lo guardado', () => {
+  assert.equal(publishPacket('a', 'x')[0], 0x30);
+  assert.equal(publishPacket('a', 'x', { retain: true })[0], 0x31);
+  assert.deepEqual([...publishPacket('a', '', { retain: true })], [0x31, 3, 0, 1, 97]);
+});
+
 test('si el broker calla vez y media el latido, la conexión se da por muerta y se avisa (aunque el socket diga OPEN)', async (t) => {
   const { ws, cierres } = await conecta(t);
   pasa(t, 30000);

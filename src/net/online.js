@@ -28,9 +28,14 @@ import { cleanName } from '../names.js';
 //   · «ping» {n, h}: cada cuatro segundos, cuántas jugadas conoce (las hechas, la que anima y las del rival que
 //     ya le han llegado) y su huella. Quien tiene más le manda la lista entera («sync»); quien tiene menos la
 //     pide («want»). Así se recupera lo que se pierde en un corte. Si las huellas no casan, se anula.
-//   · «resign»: se rinde; «bye»: se va al acabar (con `anulada`, se anula). Y en mi buzón, «cancel»: el rival
-//     no llegó a empezarla.
-//   Sin noticias del rival en un rato, se avisa de que se ha perdido la conexión; en más, se da por ido.
+//   · «reclamo» {n, que: 'time'}: a mí su reloj me marca cero (cada uno manda en el reloj de su jugador); él
+//     contesta con «reloj» {n, white, black} (lo que de verdad marca el suyo) o, si de verdad se le acabó,
+//     acabándola.
+//   · «fin» {status, winner, flagged, moves}: quien acaba la partida dice cómo (el mismo final para los dos:
+//     'resign' es que se rinde quien no gana) y lo deja guardado en `…/g/<partida>/fin/<id>` para el rival que
+//     ahora no tenga red; «fin-ok», que se ha enterado (y lo guardado se borra).
+//   Y en mi buzón, «cancel» (o «invite-cancel»): el rival no llegó a empezarla. Sin noticias del rival en un
+//   rato, se avisa de que se ha perdido la conexión; en más (con mi conexión sana), se da por ido.
 
 // Usuario y contraseña de shiftr.io: los públicos de su instancia de pruebas, que son de su documentación.
 export const BROKERS = [
@@ -38,10 +43,15 @@ export const BROKERS = [
   { url: 'wss://broker.emqx.io:8084/mqtt' },
   { url: 'wss://broker.hivemq.com:8884/mqtt' },
 ];
-const PREFIX = 'mrdonut-bchess/v1';
+// v2: el final de la partida cambió («fin» en vez de «bye»). Con otro prefijo, los aparatos que aún tengan
+// guardada la versión de antes no se cruzan con los nuevos (no se verán en la sala hasta que actualicen).
+const PREFIX = 'mrdonut-bchess/v2';
+const PV = 2; // la versión del protocolo, en lo que se anuncia: para poder entenderse con las siguientes
 export const LOBBY = `${PREFIX}/lobby`;
 export const inbox = (id) => `${PREFIX}/p/${id}`;
 export const gameTopic = (game) => `${PREFIX}/g/${game}`;
+// Donde cada uno deja guardado su final de la partida (`retain`), para el rival que ahora no tiene conexión.
+export const finTopic = (game, id) => `${gameTopic(game)}/fin/${id}`;
 
 // LO QUE LLEGA DE LA RED NO SE CREE A CIEGAS: el código es público y cualquiera puede publicar en estos temas.
 // Los identificadores acaban dentro de temas MQTT (`…/p/<id>`, `…/g/<partida>`), y con un «#» o un «+» ahí
@@ -113,7 +123,7 @@ export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, c
   const vistos = new Set();
   const orden = [];
   const clientes = new Map(); // url → cliente conectado
-  const recientes = []; // lo publicado hace poco (sin lo periódico): { topic, texto, at }
+  const recientes = []; // lo publicado hace poco (sin lo periódico): { topic, texto, retain, at }
   const despertadores = new Set(); // las esperas de `engancha` que `revive` puede acortar
   let seq = 0;
   let cerrado = false;
@@ -134,6 +144,10 @@ export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, c
   function olvidaViejos() {
     const ahora = now();
     while (recientes.length && (ahora - recientes[0].at > GUARDA_MS || recientes.length > 200)) recientes.shift();
+  }
+  function guarda(topic, texto, retain) {
+    recientes.push({ topic, texto, retain, at: now() });
+    olvidaViejos();
   }
 
   function recibe(topic, texto) {
@@ -175,7 +189,7 @@ export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, c
     c.onMessage(recibe);
     for (const t of temas) c.subscribe(t);
     olvidaViejos();
-    for (const r of recientes) c.publish(r.topic, r.texto);
+    for (const r of recientes) c.publish(r.topic, r.texto, { retain: r.retain });
     cambia('conectado', url);
     const motivo = await cerrada;
     clientes.delete(url);
@@ -247,14 +261,17 @@ export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, c
       if (!temas.delete(topic)) return;
       for (const c of clientes.values()) c.unsubscribe?.(topic);
     },
-    publish(topic, msg) {
+    // `retain`: que el broker lo guarde para quien se suscriba después (`finTopic`).
+    publish(topic, msg, { retain = false } = {}) {
       seq += 1;
       const texto = JSON.stringify({ ...msg, mid: `${clientId}:${seq}` });
-      for (const c of clientes.values()) c.publish(topic, texto);
-      if (!PERIODICOS.has(msg.k)) {
-        recientes.push({ topic, texto, at: now() });
-        olvidaViejos();
-      }
+      for (const c of clientes.values()) c.publish(topic, texto, { retain });
+      if (!PERIODICOS.has(msg.k)) guarda(topic, texto, retain);
+    },
+    // Borra lo que se dejó guardado en `topic` (un mensaje vacío con `retain`; a quien lo recibe no le dice nada).
+    limpia(topic) {
+      for (const c of clientes.values()) c.publish(topic, '', { retain: true });
+      guarda(topic, '', true);
     },
     onMessage(fn) {
       oyentes.add(fn);
@@ -332,7 +349,7 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
     const reloj = s.since < since ? s.time : time;
     pending = { to: id, game, white, time: reloj };
     state = 'offering';
-    to(id, { k: 'offer', game, white, time: reloj, name });
+    to(id, { k: 'offer', pv: PV, game, white, time: reloj, name });
     espera(() => {
       if (state === 'offering' && pending?.game === game) {
         tried.set(id, now());
@@ -435,7 +452,7 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
   bus.subscribe(LOBBY);
   bus.subscribe(inbox(me));
   const anuncia = () => {
-    if (state === 'seeking' || state === 'offering') bus.publish(LOBBY, { k: 'seek', from: me, since, time, name });
+    if (state === 'seeking' || state === 'offering') bus.publish(LOBBY, { k: 'seek', pv: PV, from: me, since, time, name });
     tick();
   };
   const anuncio = timers.every(anuncia, SEEK_EVERY);
@@ -594,7 +611,7 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
 
   function anuncia() {
     if (cerrada) return;
-    bus.publish(LOBBY, { k: 'here', from: me, name: yo.name, status: yo.status, games: yo.games });
+    bus.publish(LOBBY, { k: 'here', pv: PV, from: me, name: yo.name, status: yo.status, games: yo.games });
     let cambio = false;
     for (const [id, p] of players) {
       if (now() - p.seen >= PRESENT_FOR) {
@@ -643,7 +660,7 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
         resolver({ expired: true });
       }, INVITE_FOR);
       enviados.set(game, { to: id, white, time, name: players.get(id)?.name ?? '', resolve: resolver, plazo });
-      to(id, { k: 'invite', game, white, time, name: yo.name });
+      to(id, { k: 'invite', pv: PV, game, white, time, name: yo.name });
       return {
         game,
         promise,
@@ -713,19 +730,33 @@ export function huella(moves) {
   return h.toString(36);
 }
 
+// Cómo se puede acabar una partida: por las reglas (los dos lados lo ven solos al jugar las mismas jugadas) o por
+// lo que decide uno (sin tiempo, se rinde, se va o se anula).
+export const FINES_DE_REGLAS = ['checkmate', 'stalemate', 'fifty', 'repetition', 'material'];
+const FINES = new Set([...FINES_DE_REGLAS, 'time', 'resign', 'abandon', 'anulada']);
+const esColor = (c) => c === 'white' || c === 'black';
+export const TERMINADA_MS = 10 * 60 * 1000; // acabada, lo que se espera a que el rival diga que se ha enterado
+
 // ---- La partida ----
 // `moves()`: las jugadas que conozco (`partida.js`, `conocidas`): las que cuento en el latido y las que mando
 // para poner al día al rival. Eventos (`on`), solo con lo que el rival dice con sentido: 'move' ({ n, uci }),
-// 'press' ({ side, n, white, black }), 'sync' ({ moves }), 'resign', 'bye', 'lost' (calla), 'back' (vuelve),
-// 'gone' (calla demasiado), 'cancel' (no llegó a empezar: se había emparejado con otro) y 'desync' (la partida
-// ya no es la misma en los dos lados: se anula).
+// 'press' ({ side, n, white, black }), 'sync' ({ moves }), 'fin' ({ status, winner, flagged, moves }: cómo ha
+// acabado para él), 'reclamo' ({ n }: a él le marca cero mi reloj), 'reloj' ({ n, white, black }: lo que marca el
+// suyo, que no acepta mi reclamo), 'lost' (calla), 'back' (vuelve), 'gone' (calla demasiado), 'cancel' (no llegó
+// a empezar) y 'desync' (la partida ya no es la misma en los dos lados: se anula).
+//
+// EL FINAL, EL MISMO EN LOS DOS LADOS (v2). Antes cada aparato decidía solo, con lo que sabía, y al acabar mandaba
+// un «bye» que el rival, si aún estaba viendo el último combate, leía como un abandono: el que recibía el mate veía
+// «Tu rival ha abandonado: ¡ganas!». Ahora quien acaba la partida (`terminar`) manda su «fin» con cómo ha acabado y
+// sus jugadas, y además lo deja guardado en el broker (`finTopic`, con `retain`) para el rival que ahora no tenga
+// red: le llegará en cuanto vuelva. La sesión se queda un rato contestando a sus latidos con ese «fin», hasta que
+// él diga que se ha enterado («fin-ok», y lo guardado se borra) o pasen diez minutos.
 //
 // DESINCRONIZADA. Antes, si las dos listas de jugadas llegaban a ser distintas, los dos se mandaban la lista
 // cada cuatro segundos para siempre, la partida se quedaba quieta y nadie decía nada. Ahora cada latido lleva
 // la huella de las jugadas que cuenta (`h`): si dos seguidos no casan con las mías (o llega una lista que no
-// empieza como la mía), se anula, y se le dice al rival (un «bye» con `anulada`, que los de antes leen como
-// un adiós). Sin arreglos: haría falta deshacer jugadas en los dos tableros, y con lo que se comprueba ya
-// todo lo que llega, no debería pasar nunca.
+// empieza como la mía), se anula, y se le dice al rival (un «fin» anulado). Sin arreglos: haría falta deshacer
+// jugadas en los dos tableros, y con lo que se comprueba ya todo lo que llega, no debería pasar nunca.
 //
 // EL QUE NO TIENE RED PUEDO SER YO. Con el móvil en el bolsillo dos minutos (o al pasar de wifi a datos), al
 // volver mi aparato veía al rival callado todo ese rato y lo daba por ido: «¡ganas!»; y él, que me había visto
@@ -737,15 +768,21 @@ export function huella(moves) {
 // mismo si me lo dice él en mi buzón («cancel» o «invite-cancel»: su confirmación no llegó).
 export function createSession({ bus, me, game, opponent, white, moves, now = Date.now, timers = TIMERS, enlaceBien = () => true }) {
   const topic = gameTopic(game);
+  const suFin = finTopic(game, opponent); // donde me deja guardado su final
+  const miFin = finTopic(game, me);
+  const mio = white === me ? 'white' : 'black';
+  const suyo = mio === 'white' ? 'black' : 'white'; // el color del rival
   const oyentes = new Map();
-  const suyo = white === opponent ? 'white' : 'black'; // el color del rival
   let visto = now();
   let empezada = now(); // para saber si el rival no llega a empezarla
   let latidoEn = -Infinity; // cuándo salió mi último latido
   let perdido = false;
+  let ido = false; // ya se avisó de que se ha ido
   let cerrada = false;
   let supoAlgo = false; // el rival ya ha dicho algo en la partida
   let distintas = 0; // latidos seguidos con una huella que no casa con mis jugadas
+  let terminada = null; // mi final, ya mandado: { fin, desde }
+  let suyoVisto = false; // su final ya ha llegado (llega por dos temas: el de la partida y el guardado)
   const emit = (k, data) => {
     for (const fn of oyentes.get(k) ?? []) fn(data);
   };
@@ -763,26 +800,49 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     visto = now();
     empezada = Math.max(empezada, now() - START_WAIT / 2);
   };
+  const finDe = (f) => ({ status: f.status, winner: f.winner ?? null, flagged: f.flagged ?? null, moves: [...f.moves] });
+
+  // Se acabó aquí: mi final, al rival y guardado en el broker. Una vez.
+  function terminar(fin) {
+    if (cerrada || terminada) return;
+    terminada = { fin: finDe(fin), desde: now() };
+    send('fin', terminada.fin);
+    bus.publish(miFin, { ...terminada.fin, k: 'fin', from: me }, { retain: true });
+  }
   function anula() {
-    send('bye', { anulada: true });
-    cerrar();
+    terminar({ status: 'anulada', winner: null, flagged: null, moves: moves() });
   }
   function desincronizada() {
     anula();
     emit('desync');
   }
+
   // Lo que dice el rival, solo si tiene sentido: sus jugadas son las de su color (las pares si lleva blancas),
   // escritas como jugadas y dentro de una partida posible; su reloj, el suyo y con tiempos de verdad. Antes, un
   // `press` con otro bando escribía mi tiempo en el reloj del rival, y una lista sin fin se aceptaba entera.
   function vale(msg) {
     switch (msg.k) {
       case 'ping': return esEntero(msg.n) && (msg.h === undefined || (typeof msg.h === 'string' && msg.h.length <= 16));
-      case 'want': case 'resign': case 'bye': return true;
+      case 'want': case 'fin-ok': return true;
       case 'move': return esEntero(msg.n, MAX_JUGADAS - 1) && msg.n % 2 === (suyo === 'white' ? 0 : 1) && esJugada(msg.uci);
       case 'sync': return Array.isArray(msg.moves) && msg.moves.length <= MAX_JUGADAS && msg.moves.every(esJugada);
       case 'press': return msg.side === suyo && esEntero(msg.n) && esTiempo(msg.white) && esTiempo(msg.black);
+      case 'reclamo': return esEntero(msg.n) && msg.que === 'time';
+      case 'reloj': return esEntero(msg.n) && esTiempo(msg.white) && esTiempo(msg.black);
+      case 'fin': return valeFin(msg);
       default: return false;
     }
+  }
+  // Su final, con sentido: si se rinde, gano yo; si dice que me he ido, gana él; sin tiempo, uno de los dos; el
+  // mate, con ganador; las tablas y la anulada, sin.
+  function valeFin(msg) {
+    if (!FINES.has(msg.status) || !(msg.winner === null || esColor(msg.winner)) || !(msg.flagged === null || esColor(msg.flagged))) return false;
+    if (!Array.isArray(msg.moves) || msg.moves.length > MAX_JUGADAS || !msg.moves.every(esJugada)) return false;
+    if (msg.status === 'resign') return msg.winner === mio;
+    if (msg.status === 'abandon') return msg.winner === suyo;
+    if (msg.status === 'time') return esColor(msg.flagged);
+    if (msg.status === 'checkmate') return esColor(msg.winner);
+    return msg.winner === null;
   }
 
   const off = bus.onMessage((t, msg) => {
@@ -794,12 +854,32 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       }
       return;
     }
-    if (t !== topic || !vale(msg)) return;
+    if (!((t === topic || (t === suFin && msg.k === 'fin')) && vale(msg))) return;
     supoAlgo = true;
     visto = now();
     if (perdido) {
       perdido = false;
       emit('back');
+    }
+    if (msg.k === 'fin') {
+      // Su final: que sepa que me he enterado (y borre lo guardado), y a decidir qué pasa aquí. Si yo no la había
+      // acabado, ya no hay nada más que hablar.
+      send('fin-ok');
+      if (suyoVisto) return;
+      suyoVisto = true;
+      if (!terminada) cerrar();
+      emit('fin', finDe(msg));
+      return;
+    }
+    if (terminada) {
+      // Acabada aquí: a lo que diga, mi final (por si no le llegó); y en cuanto se entera, fuera, y lo guardado también.
+      if (msg.k === 'fin-ok') {
+        bus.limpia?.(miFin);
+        cerrar();
+      } else if (msg.k === 'ping' || msg.k === 'want') {
+        send('fin', terminada.fin);
+      }
+      return;
     }
     if (msg.k === 'ping') {
       const mias = moves();
@@ -831,20 +911,24 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       emit('sync', { moves: [...msg.moves] });
     } else if (msg.k === 'press') {
       emit('press', { side: msg.side, n: msg.n, white: msg.white, black: msg.black });
-    } else if (msg.k === 'bye' && msg.anulada === true) {
-      cerrar();
-      emit('desync');
-    } else if (msg.k === 'resign' || msg.k === 'bye') {
-      cerrar();
-      emit(msg.k);
+    } else if (msg.k === 'reclamo') {
+      emit('reclamo', { n: msg.n });
+    } else if (msg.k === 'reloj') {
+      emit('reloj', { n: msg.n, white: msg.white, black: msg.black });
     }
   });
   // Mi buzón, por mi cuenta: el «cancel» del rival llega ahí, y antes solo se oía si la sala o el
-  // emparejamiento se habían suscrito antes.
+  // emparejamiento se habían suscrito antes. Y su final guardado, que llega en cuanto me suscribo.
   bus.subscribe(inbox(me));
   bus.subscribe(topic);
+  bus.subscribe(suFin);
 
   const latido = timers.every(() => {
+    // Acabada aquí, ya no late: solo se espera a que el rival se entere (lo guardado en el broker sigue ahí).
+    if (terminada) {
+      if (now() - terminada.desde > TERMINADA_MS) cerrar();
+      return;
+    }
     late();
     // Sin conexión sana, el silencio del rival no dice nada de él.
     if (!enlaceBien()) {
@@ -860,8 +944,9 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       perdido = true;
       emit('lost');
     }
-    if (now() - visto > GONE_AFTER) {
-      cerrar();
+    // Ido: quien juega acaba la partida (`terminar`), y su final le llegará si vuelve.
+    if (!ido && now() - visto > GONE_AFTER) {
+      ido = true;
       emit('gone');
     }
   }, PING_EVERY);
@@ -869,11 +954,11 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
   // Al volver la conexión, un latido ya: si algo se perdió mientras tanto, se pide en el momento. Y al volver
   // al primer plano (`revive`), el silencio del rival vuelve a contar desde cero.
   const offEstado = bus.onEstado?.((estado) => {
-    if (estado === 'conectado') late();
+    if (estado === 'conectado' && !terminada) late();
     else if (estado === 'revive') ceroSilencio();
   });
 
-  // Se acabó del todo: ni latidos, ni oídos, ni su tema (antes se seguía suscrito a todas las partidas
+  // Se acabó del todo: ni latidos, ni oídos, ni sus temas (antes se seguía suscrito a todas las partidas
   // jugadas, y al reconectar se volvían a pedir todas).
   function cerrar() {
     if (cerrada) return;
@@ -882,14 +967,19 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     off();
     offEstado?.();
     bus.unsubscribe?.(topic);
+    bus.unsubscribe?.(suFin);
   }
 
   return {
     game,
     opponent,
-    color: white === me ? 'white' : 'black',
+    color: mio,
     get lost() {
       return perdido;
+    },
+    // Acabada aquí, esperando a que el rival se entere.
+    get terminada() {
+      return Boolean(terminada);
     },
     on(k, fn) {
       if (!oyentes.has(k)) oyentes.set(k, new Set());
@@ -907,11 +997,20 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     pide() {
       send('want');
     },
-    // La partida se anula (ya no es la misma en los dos lados): se le dice al rival y se acaba.
+    // A mí su reloj me marca cero, y le toca tras `n` jugadas: que conteste (o que acepte que ha perdido).
+    reclama(n) {
+      send('reclamo', { n, que: 'time' });
+    },
+    // No acepto su reclamo: lo que de verdad marca mi reloj.
+    reloj({ n, white, black }) {
+      send('reloj', { n, white, black });
+    },
+    // Se acabó aquí: { status, winner, flagged, moves } (status, el de todos: 'resign' es que se rinde quien no gana).
+    terminar,
+    // La partida se anula (ya no es la misma en los dos lados).
     anula,
-    // Se va: abandona (`resign`) o se marcha sin más (`bye`, al acabar).
-    leave(k = 'bye') {
-      send(k);
+    // Se cierra sin decir nada (una partida que se quita de la lista).
+    leave() {
       cerrar();
     },
   };
@@ -977,6 +1076,10 @@ export function createOnline({ urls = BROKERS } = {}) {
     // Al volver al primer plano o al volver la red: los brokers se comprueban ya (`createBus`).
     revive() {
       bus?.revive();
+    },
+    // ¿Me llega algo de algún broker? Sin eso, ni el silencio del rival ni su reloj dicen nada de él.
+    get sano() {
+      return Boolean(bus?.sano);
     },
     // Para probar a mano desde la consola (`bchess.red`): `corta(s)` deja sin red `s` segundos, `zombi(s)`
     // deja las conexiones abiertas pero mudas (como al despertar el iPhone) y `estado()` dice cómo están.

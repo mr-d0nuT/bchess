@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Position } from '../src/chess/position.js';
-import { createPartidaOnline } from '../src/net/partida.js';
+import { createPartidaOnline, decideBandera, decideFin, decideReclamo, estadoLocal, finDeTodos, mandaElSuyo } from '../src/net/partida.js';
 
 // El emparejamiento visto por «bbbb» (negras): su rival, «aaaa», lleva blancas.
 const info = (cambios = {}) => ({ game: 'aaaa-bbbb-x', white: 'aaaa', time: 'blitz:3+2', opponent: 'aaaa', opponentName: '  Ana ', ...cambios });
@@ -145,4 +145,102 @@ test('lo que llegó con la partida en el tablero (y se quedó aparcado al cambia
   assert.equal(p.position.side, 'white');
   assert.equal(p.clock.running, 'white');
   assert.equal(p.clock.remaining('black', 9000), 178000, 'el suyo, lo que dijo él');
+});
+
+// ---- El final, el mismo en los dos lados ----
+
+const MATE_PASTOR = ['e2e4', 'e7e5', 'f1c4', 'b8c6', 'd1h5', 'g8f6', 'h5f7'];
+const finDe = (status, winner, moves, flagged = null) => ({ status, winner, flagged, moves });
+
+test('un final de la red se lee desde mi lado: quien se rinde o se va es el que no gana', () => {
+  assert.equal(estadoLocal('resign', 'black', 'black'), 'rivalResigned');
+  assert.equal(estadoLocal('resign', 'white', 'black'), 'resign');
+  assert.equal(estadoLocal('abandon', 'black', 'black'), 'abandon');
+  assert.equal(estadoLocal('abandon', 'white', 'black'), 'abandonada');
+  assert.equal(estadoLocal('checkmate', 'white', 'black'), 'checkmate');
+  for (const s of ['rivalResigned', 'resign', 'abandon', 'abandonada', 'time', 'checkmate', 'anulada']) {
+    assert.equal(finDeTodos(estadoLocal(finDeTodos(s), 'white', 'white')), finDeTodos(s));
+  }
+});
+
+test('el mate del rival llega antes de que aquí se haya jugado: lo deciden mis reglas al jugarlo (mate, nunca «abandono»)', () => {
+  // Negras: las blancas dan mate, saltándose el combate; aquí aún no ha llegado la última jugada.
+  const p = createPartidaOnline({ info: info({ time: 'libre:libre' }), yo: 'bbbb' });
+  juega(p, ...MATE_PASTOR.slice(0, 6));
+  const fin = finDe('checkmate', 'white', MATE_PASTOR);
+  assert.deepEqual(decideFin(p, fin), { accion: 'esperar' });
+  assert.equal(p.sincroniza(fin.moves), 1, 'su final trae la jugada que faltaba');
+  const { status } = p.avanza(0);
+  assert.equal(status, 'checkmate');
+  assert.equal(p.ganador(status), 'white');
+});
+
+test('los finales que decide uno (se rinde, se va, sin tiempo, anulada) se acaban tal cual', () => {
+  const p = createPartidaOnline({ info: info(), yo: 'bbbb' }); // negras
+  assert.deepEqual(decideFin(p, finDe('resign', 'black', [])), { accion: 'acabar', status: 'rivalResigned', flagged: null });
+  assert.deepEqual(decideFin(p, finDe('abandon', 'white', [])), { accion: 'acabar', status: 'abandonada', flagged: null });
+  assert.deepEqual(decideFin(p, finDe('time', 'white', [], 'black')), { accion: 'acabar', status: 'time', flagged: 'black' });
+  assert.deepEqual(decideFin(p, finDe('anulada', null, [])), { accion: 'acabar', status: 'anulada', flagged: null });
+});
+
+test('dos finales que se cruzan: manda el de menos jugadas y, si empatan, el de las blancas (los dos lados eligen el mismo)', () => {
+  assert.equal(mandaElSuyo({ jugadas: 10, de: 'white' }, { jugadas: 9, de: 'black' }), true);
+  assert.equal(mandaElSuyo({ jugadas: 9, de: 'white' }, { jugadas: 10, de: 'black' }), false);
+  assert.equal(mandaElSuyo({ jugadas: 9, de: 'black' }, { jugadas: 9, de: 'white' }), true);
+  assert.equal(mandaElSuyo({ jugadas: 9, de: 'white' }, { jugadas: 9, de: 'black' }), false);
+  // Se rinden los dos a la vez: blancas («aaaa») y negras («bbbb»), cada uno con su final.
+  const blancas = createPartidaOnline({ info: info({ opponent: 'bbbb' }), yo: 'aaaa' });
+  const negras = createPartidaOnline({ info: info(), yo: 'bbbb' });
+  blancas.acabada = { status: 'resign', winner: 'black', flagged: null, fin: { status: 'resign', winner: 'black' }, jugadas: 4, de: 'white' };
+  negras.acabada = { status: 'resign', winner: 'white', flagged: null, fin: { status: 'resign', winner: 'white' }, jugadas: 4, de: 'black' };
+  const deBlancas = finDe('resign', 'black', ['e2e4', 'e7e5', 'g1f3', 'b8c6']);
+  const deNegras = finDe('resign', 'white', ['e2e4', 'e7e5', 'g1f3', 'b8c6']);
+  assert.deepEqual(decideFin(blancas, deNegras), { accion: 'nada' }, 'las blancas se quedan con el suyo');
+  assert.deepEqual(decideFin(negras, deBlancas), { accion: 'cambiar', status: 'rivalResigned', winner: 'black', flagged: null }, 'y las negras lo adoptan');
+  // Y el mismo final que ya tenía: nada.
+  assert.deepEqual(decideFin(negras, deNegras), { accion: 'nada' });
+});
+
+test('mi reloj a cero aquí: pierdo; el suyo: se espera, se le reclama y solo sin respuesta (con red) se gana', () => {
+  const yo = createPartidaOnline({ info: info({ time: 'bala:1' }), yo: 'aaaa', now: 0 }); // blancas: me corre a mí
+  assert.equal(decideBandera(yo, 59000), null);
+  assert.deepEqual(decideBandera(yo, 60000), { accion: 'perder' });
+  const p = createPartidaOnline({ info: info({ time: 'bala:1' }), yo: 'bbbb', now: 0 }); // negras: le corre a él
+  assert.deepEqual(decideBandera(p, 60000), { accion: 'esperar' }, 'un poco, por si llega su jugada');
+  assert.deepEqual(decideBandera(p, 62999), { accion: 'esperar' });
+  assert.deepEqual(decideBandera(p, 63000), { accion: 'reclamar', n: 0 });
+  assert.deepEqual(decideBandera(p, 70000), { accion: 'esperar' }, 'el reclamo, una vez');
+  // Sin red, el plazo vuelve a empezar: nunca se gana así.
+  assert.deepEqual(decideBandera(p, 80000, { enlaceBien: false }), { accion: 'esperar' });
+  assert.deepEqual(decideBandera(p, 99999), { accion: 'esperar' });
+  assert.deepEqual(decideBandera(p, 100000), { accion: 'ganar' });
+});
+
+test('su jugada llega con su reloj a cero aquí: se juega, su reloj se corrige y el reclamo se olvida', () => {
+  const p = createPartidaOnline({ info: info({ time: 'bala:1' }), yo: 'bbbb', now: 0 });
+  decideBandera(p, 60500);
+  decideBandera(p, 63500); // reclamado
+  assert.ok(p.reclamo);
+  // Movió con 0,3 s en su reloj: aquí llegó tarde (las animaciones, la red).
+  p.recibe(0, 'e2e4');
+  p.pulsa({ side: 'white', n: 1, white: 300, black: 60000 }, 63600);
+  p.avanza(63600);
+  assert.equal(p.clock.remaining('white', 63600), 300);
+  assert.equal(decideBandera(p, 63600), null);
+  assert.equal(p.reclamo, null);
+});
+
+test('un reclamo de tiempo: si ya moví, nada; si me queda tiempo (o aún no he visto su jugada), mi reloj; si no, pierdo', () => {
+  const p = createPartidaOnline({ info: info({ time: 'bala:1' }), yo: 'aaaa', now: 0 }); // blancas: me toca
+  assert.deepEqual(decideReclamo(p, { n: 0 }, 20000), { accion: 'corregir', reloj: { white: 40000, black: 60000 } });
+  assert.deepEqual(decideReclamo(p, { n: 0 }, 59500), { accion: 'perder' }, 'con medio segundo, de verdad se acaba');
+  assert.deepEqual(decideReclamo(p, { n: 0 }, 59500, 'e2e4'), { accion: 'ignorar' }, 'ya moví: va de camino, con mi tiempo');
+  juega(p, 'e2e4');
+  assert.deepEqual(decideReclamo(p, { n: 0 }, 59500), { accion: 'ignorar' });
+  // Su reclamo cuenta su jugada, que aquí aún se está animando: mi reloj ni ha empezado.
+  p.clock.press('white', 1000);
+  const r = decideReclamo(p, { n: 2 }, 61000, 'e7e5');
+  assert.equal(r.accion, 'corregir');
+  const libre = createPartidaOnline({ info: info({ time: 'libre:libre' }), yo: 'aaaa' });
+  assert.deepEqual(decideReclamo(libre, { n: 0 }, 0), { accion: 'ignorar' });
 });

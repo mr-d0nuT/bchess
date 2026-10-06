@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { connectPacket, encodeLength, publishPacket, readPublish, splitPackets, PUBLISH } from '../src/net/mqtt.js';
-import { LOBBY, createBus, createLobby, createMatchmaker, createSession, gameTopic, huella, inbox } from '../src/net/online.js';
+import { LOBBY, createBus, createLobby, createMatchmaker, createSession, finTopic, gameTopic, huella, inbox } from '../src/net/online.js';
 import { cleanName } from '../src/names.js';
 
 test('la longitud de MQTT va de 7 en 7 bits', () => {
@@ -39,25 +39,28 @@ test('el CONNECT pide MQTT 3.1.1 con sesión limpia', () => {
 });
 
 // Una red de juguete: cada mensaje llega a quien esté suscrito al tema, más tarde (como por la red).
-// `drop(msg)` decide qué se pierde.
+// `drop(msg, tema, opciones)` decide qué se pierde. `limpiados`: los temas cuyo guardado se ha borrado.
 function red({ drop = () => false } = {}) {
   const nodos = new Set();
+  const limpiados = [];
   return {
+    limpiados,
     bus(id) {
       const nodo = { temas: new Set(), oyentes: new Set() };
       nodos.add(nodo);
       let seq = 0;
       return {
         subscribe: (t) => nodo.temas.add(t),
-        publish: (t, msg) => {
+        publish: (t, msg, opciones) => {
           const m = { ...msg, mid: `${id}:${++seq}` };
-          if (drop(m)) return;
+          if (drop(m, t, opciones)) return;
           for (const n of nodos) if (n.temas.has(t)) for (const fn of n.oyentes) setImmediate(() => fn(t, m));
         },
         onMessage: (fn) => {
           nodo.oyentes.add(fn);
           return () => nodo.oyentes.delete(fn);
         },
+        limpia: (t) => limpiados.push(t),
       };
     },
   };
@@ -135,9 +138,13 @@ test('en la partida llegan las jugadas, y si una se pierde, el latido la recuper
   const llega = new Promise((resolve) => A.on('move', resolve));
   B.move(1, 'e7e5');
   assert.deepEqual(await conPlazo(llega), { n: 1, uci: 'e7e5' });
-  const adios = new Promise((resolve) => B.on('resign', resolve));
-  A.leave('resign');
-  await conPlazo(adios);
+  // Y se rinde (v2: su «fin», con que gana el otro).
+  const adios = new Promise((resolve) => B.on('fin', resolve));
+  A.terminar({ status: 'resign', winner: 'black', flagged: null, moves: ['e2e4', 'e7e5'] });
+  const fin = await conPlazo(adios);
+  assert.equal(fin.status, 'resign');
+  assert.equal(fin.winner, 'black');
+  A.leave();
   B.leave();
 });
 
@@ -441,9 +448,9 @@ test('el latido lleva la huella; dos seguidos que no casan anulan la partida (y 
   dice({ k: 'ping', n: 1, h: huella(['d2d4']) }); // la segunda seguida
   await espera(10);
   assert.equal(anulada, 1);
-  assert.equal(deB('bye').length, 1);
-  assert.equal(deB('bye')[0].anulada, true);
-  dice({ k: 'move', n: 2, uci: 'g1f3' }); // ya no se escucha
+  const [fin] = deB('fin');
+  assert.deepEqual([fin.status, fin.winner, fin.moves], ['anulada', null, mias], 'su final: anulada, sin ganador');
+  dice({ k: 'move', n: 2, uci: 'g1f3' }); // acabada: ya no se juega
   await espera(10);
   assert.equal(anulada, 1);
 });
@@ -465,18 +472,16 @@ test('una lista del rival que no empieza como la mía anula la partida; una viej
   assert.deepEqual(listas, [1, 4]);
 });
 
-test('si el rival anula la partida, aquí también; y se le pueden volver a pedir las jugadas', async () => {
+test('si el rival anula la partida, llega su final (anulada) y se le dice que me he enterado; y se le pueden volver a pedir las jugadas', async () => {
   const { B, dice, deB } = partidaDeB([]);
   B.pide();
   assert.equal(deB('want').length, 1);
-  let anulada = 0;
-  let adios = 0;
-  B.on('desync', () => anulada++);
-  B.on('bye', () => adios++);
-  dice({ k: 'bye', anulada: true });
+  const fines = [];
+  B.on('fin', (f) => fines.push(f));
+  dice({ k: 'fin', status: 'anulada', winner: null, flagged: null, moves: [] });
   await espera(10);
-  assert.equal(anulada, 1);
-  assert.equal(adios, 0, 'no es un adiós (ni gana nadie)');
+  assert.deepEqual(fines, [{ status: 'anulada', winner: null, flagged: null, moves: [] }]);
+  assert.equal(deB('fin-ok').length, 1);
 });
 
 // ---- El que no tiene red puedo ser yo ----
@@ -508,6 +513,8 @@ function partidaConReloj({ enlace = () => true } = {}) {
   const eventos = [];
   for (const k of ['lost', 'back', 'gone', 'cancel']) sesion.on(k, () => eventos.push(k));
   return {
+    sesion,
+    enviados,
     eventos,
     pings: () => enviados.filter((m) => m.k === 'ping').length,
     pasa(ms) {
@@ -623,4 +630,171 @@ test('si no llega el «invite-go», quien aceptó se entera (null) y a quien ret
   await conPlazo(cancelada, 1000);
   a.close();
   b.close();
+});
+
+// ---- El final, el mismo en los dos lados (v2) ----
+
+// Una partida entre «a1» (blancas) y «b2», cada uno con su sesión en la red de juguete; `de(quien, k)`: lo que ha
+// publicado cada uno, con su tema (`tema`) y si se guarda (`retain`).
+function partidaDeDos() {
+  const enviados = [];
+  const net = red({ drop: (m, tema, opciones) => !enviados.push({ ...m, tema, retain: Boolean(opciones?.retain) }) });
+  const quieto = { every: () => 0, stop: () => {} };
+  const A = createSession({ bus: net.bus('a'), me: 'a1', game: 'a1-b2-x', opponent: 'b2', white: 'a1', moves: () => [], timers: quieto });
+  const B = createSession({ bus: net.bus('b'), me: 'b2', game: 'a1-b2-x', opponent: 'a1', white: 'a1', moves: () => [], timers: quieto });
+  const de = (quien, k) => enviados.filter((m) => m.from === quien && m.k === k);
+  return { net, A, B, de };
+}
+
+test('quien acaba manda su final y lo deja guardado; el rival dice que se ha enterado y lo guardado se borra', async () => {
+  const { net, A, B, de } = partidaDeDos();
+  const fines = [];
+  B.on('fin', (f) => fines.push(f));
+  A.terminar({ status: 'resign', winner: 'black', flagged: null, moves: ['e2e4'] });
+  assert.equal(A.terminada, true);
+  const [vivo, guardado] = de('a1', 'fin');
+  assert.equal(vivo.tema, gameTopic('a1-b2-x'));
+  assert.deepEqual([guardado.tema, guardado.retain], [finTopic('a1-b2-x', 'a1'), true]);
+  await espera(20);
+  assert.deepEqual(fines, [{ status: 'resign', winner: 'black', flagged: null, moves: ['e2e4'] }], 'una vez, aunque llegue por los dos temas');
+  assert.ok(de('b2', 'fin-ok').length >= 1);
+  assert.deepEqual(net.limpiados, [finTopic('a1-b2-x', 'a1')]);
+});
+
+test('acabada aquí, a lo que diga el rival le contesto con mi final (por si no le llegó), hasta que se entera', async () => {
+  const enviados = [];
+  const net = red({ drop: (m) => !enviados.push(m) });
+  const quieto = { every: () => 0, stop: () => {} };
+  const A = createSession({ bus: net.bus('a'), me: 'a1', game: 'a1-b2-x', opponent: 'b2', white: 'a1', moves: () => [], timers: quieto });
+  const jugadas = [];
+  A.on('move', (m) => jugadas.push(m));
+  A.terminar({ status: 'time', winner: 'white', flagged: 'black', moves: [] });
+  const rival = net.bus('b');
+  const dice = (m) => rival.publish(gameTopic('a1-b2-x'), { from: 'b2', ...m });
+  const fines = () => enviados.filter((m) => m.from === 'a1' && m.k === 'fin').length;
+  dice({ k: 'ping', n: 0 });
+  dice({ k: 'want' });
+  dice({ k: 'move', n: 1, uci: 'e7e5' });
+  await espera(20);
+  assert.equal(fines(), 2 + 2, 'al acabar (en vivo y guardado) y a cada latido o petición');
+  assert.deepEqual(jugadas, [], 'acabada, sus jugadas ya no se juegan');
+  dice({ k: 'fin-ok' });
+  await espera(20);
+  dice({ k: 'ping', n: 0 });
+  await espera(20);
+  assert.equal(fines(), 4, 'enterado: se acabó');
+  assert.deepEqual(net.limpiados, [finTopic('a1-b2-x', 'a1')]);
+});
+
+test('si los dos acaban a la vez, cada uno recibe el final del otro una vez, dicen que se han enterado y se cierran', async () => {
+  const { net, A, B } = partidaDeDos();
+  const deA = [];
+  const deB = [];
+  A.on('fin', (f) => deA.push(f.winner));
+  B.on('fin', (f) => deB.push(f.winner));
+  A.terminar({ status: 'resign', winner: 'black', flagged: null, moves: [] });
+  B.terminar({ status: 'resign', winner: 'white', flagged: null, moves: [] });
+  await espera(30);
+  assert.deepEqual(deA, ['white']);
+  assert.deepEqual(deB, ['black']);
+  assert.deepEqual(net.limpiados.sort(), [finTopic('a1-b2-x', 'a1'), finTopic('a1-b2-x', 'b2')]);
+});
+
+// Un broker de juguete que, además, guarda lo publicado con `retain` y se lo da a quien se suscribe después.
+function brokerConGuardados() {
+  const clientes = new Set();
+  const guardados = new Map(); // tema → texto
+  const entrega = (c, t, texto) => {
+    for (const fn of c.oyentes) setImmediate(() => fn(t, texto));
+  };
+  return {
+    guardados,
+    async connect(url) {
+      const c = { temas: new Set(), oyentes: new Set() };
+      clientes.add(c);
+      return {
+        url,
+        subscribe(t) {
+          c.temas.add(t);
+          if (guardados.has(t)) entrega(c, t, guardados.get(t));
+        },
+        unsubscribe: (t) => c.temas.delete(t),
+        publish(t, texto, { retain = false } = {}) {
+          if (retain && texto === '') guardados.delete(t);
+          else if (retain) guardados.set(t, texto);
+          for (const otro of clientes) if (otro.temas.has(t) && texto) entrega(otro, t, texto);
+        },
+        onMessage(fn) {
+          c.oyentes.add(fn);
+          return () => c.oyentes.delete(fn);
+        },
+        onClose: () => () => {},
+        close: () => clientes.delete(c),
+      };
+    },
+  };
+}
+
+test('el final guardado le llega al rival que no estaba (al volver y suscribirse), y en cuanto se entera se borra', async (t) => {
+  const broker = brokerConGuardados();
+  const quieto = { every: () => 0, stop: () => {} };
+  const busA = createBus({ urls: ['wss://juguete'], clientId: 'a', connect: broker.connect });
+  t.after(() => busA.close());
+  await espera(20);
+  const A = createSession({ bus: busA, me: 'aaaa', game: 'aaaa-bbbb-x', opponent: 'bbbb', white: 'aaaa', moves: () => ['e2e4'], timers: quieto });
+  A.terminar({ status: 'resign', winner: 'black', flagged: null, moves: ['e2e4'] });
+  await espera(20);
+  assert.ok(broker.guardados.has(finTopic('aaaa-bbbb-x', 'aaaa')));
+  // El rival no tenía red: vuelve ahora y se suscribe.
+  const busB = createBus({ urls: ['wss://juguete'], clientId: 'b', connect: broker.connect });
+  t.after(() => busB.close());
+  await espera(20);
+  const B = createSession({ bus: busB, me: 'bbbb', game: 'aaaa-bbbb-x', opponent: 'aaaa', white: 'aaaa', moves: () => [], timers: quieto });
+  const fin = await conPlazo(new Promise((resolve) => B.on('fin', resolve)), 1000);
+  assert.deepEqual([fin.status, fin.winner, fin.moves], ['resign', 'black', ['e2e4']]);
+  await espera(30);
+  assert.equal(broker.guardados.has(finTopic('aaaa-bbbb-x', 'aaaa')), false, 'enterado: borrado');
+});
+
+test('«se ha ido» ya no cierra la partida: mi final le tiene que llegar si vuelve', () => {
+  const p = partidaConReloj();
+  p.dice({ k: 'ping', n: 0 });
+  p.pasa(124000);
+  assert.deepEqual(p.eventos, ['lost', 'gone']);
+  p.sesion.terminar({ status: 'abandon', winner: 'black', flagged: null, moves: [] });
+  assert.equal(p.enviados.filter((m) => m.k === 'fin').length, 2);
+});
+
+test('un final sin sentido se ignora: rendirse dándose la victoria, sin tiempo sin decir de quién, mate sin ganador…', async () => {
+  const { B, dice, deB } = partidaDeB([]); // yo, negras; el rival, blancas
+  const fines = [];
+  B.on('fin', (f) => fines.push(f));
+  for (const malo of [
+    { status: 'resign', winner: 'white' },
+    { status: 'abandon', winner: 'black' },
+    { status: 'time', winner: 'white' },
+    { status: 'checkmate', winner: null },
+    { status: 'stalemate', winner: 'white' },
+    { status: 'gana', winner: 'white' },
+    { status: 'anulada', winner: null, moves: ['x'] },
+    { status: 'anulada', winner: null, flagged: undefined },
+  ]) dice({ k: 'fin', flagged: null, moves: [], ...malo });
+  await espera(20);
+  assert.deepEqual(fines, []);
+  assert.equal(deB('fin-ok').length, 0);
+});
+
+test('el reclamo de tiempo y la respuesta con el reloj van y vienen, comprobados', async () => {
+  const { A, B } = partidaDeDos();
+  const reclamos = [];
+  const relojes = [];
+  B.on('reclamo', (r) => reclamos.push(r));
+  A.on('reloj', (r) => relojes.push(r));
+  A.reclama(3);
+  await espera(20);
+  assert.deepEqual(reclamos, [{ n: 3 }]);
+  B.reloj({ n: 3, white: 5000, black: 1200 });
+  B.reloj({ n: 3, white: -1, black: 1200 }); // sin sentido: no llega
+  await espera(20);
+  assert.deepEqual(relojes, [{ n: 3, white: 5000, black: 1200 }]);
 });
