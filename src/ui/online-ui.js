@@ -1,4 +1,12 @@
 import { t } from '../i18n.js';
+import { findTimeControl } from '../chess/timecontrol.js';
+import { timeLabel } from './menu.js';
+
+// El ritmo de una partida, para leerlo: «Blitz · 3 | 2», o «Sin reloj».
+function ritmoDe(time) {
+  const control = findTimeControl(time);
+  return control ? `${t(`tiempo.${control.key.split(':')[0]}`)} · ${timeLabel(control)}` : t('tiempo.sinreloj');
+}
 
 // La pantalla de «Buscando rival…» de las partidas online: un radar que late, cuántos más buscan ahora
 // mismo y «Cancelar». Al encontrar rival dice con qué color se juega; si no hay conexión, lo dice y ofrece
@@ -17,7 +25,7 @@ export function createOnlineUi() {
   boton.addEventListener('click', () => alPulsar?.('cancelar'));
   reintentar.addEventListener('click', () => alPulsar?.('reintentar'));
 
-  function pinta({ phase, seekers = 0, color = null, rival = '', conectado = true }) {
+  function pinta({ phase, seekers = 0, color = null, rival = '', conectado = true, time = null }) {
     root.dataset.fase = phase;
     root.classList.toggle('encontrado', phase === 'found');
     if (phase === 'connecting') {
@@ -29,8 +37,11 @@ export function createOnlineUi() {
       texto.textContent = !conectado ? t('online.reconectando') : seekers > 0 ? t('online.hay', { n: seekers }) : t('online.solo');
     } else if (phase === 'found') {
       titulo.textContent = t('online.encontrado');
-      const conQue = color === 'black' ? t('online.negras') : t('online.blancas');
-      texto.textContent = rival ? `${conQue} · ${t('online.rival', { nombre: rival })}` : conQue;
+      // Con qué color, a qué ritmo (antes no se decía: el emparejamiento podía mezclarlos) y contra quién.
+      const partes = [color === 'black' ? t('online.negras') : t('online.blancas')];
+      if (time) partes.push(ritmoDe(time));
+      if (rival) partes.push(t('online.rival', { nombre: rival }));
+      texto.textContent = partes.join(' · ');
     } else if (phase === 'error') {
       titulo.textContent = t('online.error');
       texto.textContent = '';

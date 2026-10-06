@@ -312,14 +312,39 @@ export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, c
   };
 }
 
+// LA PUNTUACIÓN QUE ANUNCIA CADA UNO ([r, rd], la de su ritmo): la dice él de sí mismo, y sin un servidor no hay
+// forma de comprobarla (cualquiera puede decir que tiene 3000). Sirve para emparejar con alguien parecido y para
+// enseñarla, no para nada que haya que creerse. Con sentido (r entre 100 y 3500, rd entre 45 y 350); si no, la de
+// empezar.
+export const PUNTUACION_INICIAL = { r: 1200, rd: 350 };
+export function leePuntuacion(rt) {
+  const [r, rd] = Array.isArray(rt) ? rt : [];
+  const vale = Number.isFinite(r) && r >= 100 && r <= 3500 && Number.isFinite(rd) && rd >= 45 && rd <= 350;
+  return vale ? { r, rd } : { ...PUNTUACION_INICIAL };
+}
+// Y la mía, para anunciarla: redondeada.
+export const anunciaPuntuacion = (p) => [Math.round(p?.r ?? PUNTUACION_INICIAL.r), Math.round(p?.rd ?? PUNTUACION_INICIAL.rd)];
+
+// Online no hay partidas «diarias» (aún: haría falta que cada uno pudiera tardar días en contestar): con ese ritmo,
+// sin reloj.
+const esDiaria = (time) => String(time).split(':')[0] === 'diaria';
+export const ritmoOnline = (time) => (esRitmo(time) && !esDiaria(time) ? time : 'libre:libre');
+
+const MEZCLA_TRAS = 15000; // buscando más que esto, también con quien busca otro ritmo
+const VENTANA = 200; // la diferencia de puntuación con que se empieza a buscar
+const VENTANA_CRECE = 100; // y lo que se ensancha…
+const VENTANA_CADA = 5000; // …cada tanto buscando
+
 // ---- El emparejamiento ----
 // `bus`: { subscribe, publish, onMessage }. `me`: mi identificador. `time`: el reloj que he elegido.
-// `name`: mi nombre (puede ir vacío), que el rival sabe al emparejarse.
+// `name`: mi nombre (puede ir vacío), que el rival sabe al emparejarse. `rating`: mi puntuación en ese ritmo.
 // Devuelve { found: Promise<{ game, white, time, opponent, opponentName }>, seekers(): cuántos más
 // buscan, stop() }.
-export function createMatchmaker({ bus, me, time, name = '', now = Date.now, random = Math.random, timers = TIMERS }) {
+export function createMatchmaker({ bus, me, time, name = '', rating = null, now = Date.now, random = Math.random, timers = TIMERS }) {
   const since = now();
-  const seekers = new Map(); // id → { since, time, seen }
+  const miRitmo = ritmoOnline(time);
+  const miPuntuacion = rating ? leePuntuacion(anunciaPuntuacion(rating)) : { ...PUNTUACION_INICIAL };
+  const seekers = new Map(); // id → { since, time, seen, r }
   const tried = new Map(); // id → cuándo se le ofreció sin respuesta
   let state = 'seeking'; // 'offering' | 'accepted' | 'matched' | 'stopped'
   let pending = null; // la oferta que he hecho: { to, game, white, time }
@@ -344,8 +369,8 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
     const s = seekers.get(id);
     const game = `${me}-${id}-${Math.floor(random() * 1e9).toString(36)}`;
     const white = random() < 0.5 ? me : id;
-    // El reloj, el de quien lleva más rato esperando.
-    const reloj = s.since < since ? s.time : time;
+    // El reloj: el mismo si buscamos el mismo; si no (pasado un rato), el de quien lleva más rato esperando.
+    const reloj = s.time === miRitmo || s.since >= since ? miRitmo : s.time;
     pending = { to: id, game, white, time: reloj };
     state = 'offering';
     to(id, { k: 'offer', pv: PV, game, white, time: reloj, name });
@@ -369,24 +394,36 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
     resolveFound(info);
   }
 
-  // Si estoy libre, le ofrezco partida al primero que busca y tiene un identificador mayor que el mío.
+  // Si estoy libre, le ofrezco partida a uno de los que buscan con un identificador mayor que el mío (así no nos
+  // ofrecemos los dos a la vez): primero a quien busca mi mismo ritmo y con la puntuación más parecida a la mía,
+  // dentro de una ventana que se ensancha cuanto más se busca (200 puntos, y 100 más cada 5 s); pasados 15 s, también
+  // a quien busca otro ritmo. Antes se le ofrecía al primero de la lista, con el ritmo que fuera, y el reloj lo
+  // ponía quien llevara más rato esperando: a quien quería una bala le podía tocar una rápida.
   function tick() {
     if (state !== 'seeking') return;
-    for (const id of [...seekers.keys()].sort()) {
+    const buscando = now() - since;
+    const ventana = VENTANA + VENTANA_CRECE * Math.floor(buscando / VENTANA_CADA);
+    let mejor = null;
+    for (const [id, s] of seekers) {
       if (id <= me || !fresh(id)) continue;
       const t = tried.get(id);
       if (t !== undefined && now() - t < RETRY_AFTER) continue;
-      offer(id);
-      return;
+      const otroRitmo = s.time !== miRitmo;
+      if (otroRitmo && buscando < MEZCLA_TRAS) continue;
+      const diferencia = Math.abs(s.r - miPuntuacion.r);
+      if (diferencia > ventana) continue;
+      const orden = [otroRitmo ? 1 : 0, diferencia, id];
+      if (!mejor || orden[0] < mejor[0] || (orden[0] === mejor[0] && (orden[1] < mejor[1] || (orden[1] === mejor[1] && id < mejor[2])))) mejor = orden;
     }
+    if (mejor) offer(mejor[2]);
   }
 
   const off = bus.onMessage((topic, msg) => {
     if (state === 'matched' || state === 'stopped' || msg.from === me) return;
     if (topic === LOBBY) {
       if (msg.k === 'seek') {
-        // Su reloj puede acabar siendo el de la partida: si no es un ritmo, sin reloj.
-        seekers.set(msg.from, { since: Number.isFinite(msg.since) ? msg.since : now(), time: esRitmo(msg.time) ? msg.time : 'libre:libre', seen: now() });
+        // Su reloj puede acabar siendo el de la partida: si no es un ritmo (o es la diaria), sin reloj.
+        seekers.set(msg.from, { since: Number.isFinite(msg.since) ? msg.since : now(), time: ritmoOnline(msg.time), seen: now(), r: leePuntuacion(msg.rt).r });
         tick();
       } else if (msg.k === 'leave') {
         seekers.delete(msg.from);
@@ -399,7 +436,7 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
       // y trae un ritmo. Si no, es falsa o de algo roto: ni se contesta. (Con otro color, los dos creían
       // llevar las negras; con «#» por partida, uno se suscribía a todas.)
       if (!esPartidaDe(msg.game, msg.from, me) || (msg.white !== me && msg.white !== msg.from) || !esRitmo(msg.time)) return;
-      if (state === 'seeking' || state === 'offering') {
+      if ((state === 'seeking' || state === 'offering') && !esDiaria(msg.time)) {
         if (state === 'offering') to(pending.to, { k: 'cancel', game: pending.game });
         pending = null;
         accepted = { from: msg.from, game: msg.game, white: msg.white, time: msg.time, name: cleanName(msg.name) };
@@ -451,7 +488,9 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
   bus.subscribe(LOBBY);
   bus.subscribe(inbox(me));
   const anuncia = () => {
-    if (state === 'seeking' || state === 'offering') bus.publish(LOBBY, { k: 'seek', pv: PV, from: me, since, time, name });
+    if (state === 'seeking' || state === 'offering') {
+      bus.publish(LOBBY, { k: 'seek', pv: PV, from: me, since, time: miRitmo, name, rt: anunciaPuntuacion(miPuntuacion) });
+    }
     tick();
   };
   const anuncio = timers.every(anuncia, SEEK_EVERY);
@@ -559,6 +598,11 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
       // Como las ofertas del emparejamiento: nombrada por quien reta, uno de los dos con blancas y un ritmo.
       if (!esPartidaDe(msg.game, msg.from, me) || (msg.white !== me && msg.white !== msg.from) || !esRitmo(msg.time)) return;
       if (recibidos.has(msg.game) || aceptando.has(msg.game)) return;
+      // A la diaria, online, no se juega (aún): se le dice que no (los de la versión de antes aún podían retar así).
+      if (esDiaria(msg.time)) {
+        to(msg.from, { k: 'invite-decline', game: msg.game });
+        return;
+      }
       const reto = {
         game: msg.game,
         from: msg.from,
@@ -645,7 +689,8 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
       retosOyentes.add(fn);
       return () => retosOyentes.delete(fn);
     },
-    invite(id, { time = 'libre:libre' } = {}) {
+    invite(id, { time: ritmo = 'libre:libre' } = {}) {
+      const time = ritmoOnline(ritmo); // la diaria, online, no: sin reloj
       const game = `${me}-${id}-${Math.floor(random() * 1e9).toString(36)}`;
       const white = random() < 0.5 ? me : id;
       let resolver;
@@ -1045,7 +1090,8 @@ export function createOnline({ urls = BROKERS, me = randomId() } = {}) {
       if (!sala) sala = createLobby({ bus: getBus(), me });
       return sala;
     },
-    async find({ time, name = '', onStatus = () => {} }) {
+    // `rating`: mi puntuación en ese ritmo, para emparejar con alguien parecido.
+    async find({ time, name = '', rating = null, onStatus = () => {} }) {
       busca?.stop();
       const turno = ++busquedas;
       onStatus({ phase: 'connecting', seekers: 0 });
@@ -1059,7 +1105,7 @@ export function createOnline({ urls = BROKERS, me = randomId() } = {}) {
       // Cancelada mientras conectaba: sin esto, la búsqueda empezaba igual por detrás, y quien se
       // emparejara con ella se quedaba esperando una partida que aquí nadie iba a jugar.
       if (turno !== busquedas) return null;
-      const mm = createMatchmaker({ bus: b, me, time, name: cleanName(name) });
+      const mm = createMatchmaker({ bus: b, me, time, name: cleanName(name), rating });
       busca = mm;
       // (Con `conectado`: si se pierde la red mientras se busca, la pantalla lo dice en vez de «nadie busca».)
       const cuenta = setInterval(() => onStatus({ phase: 'searching', seekers: mm.seekers(), conectado: b.sano }), 1000);

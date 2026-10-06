@@ -40,7 +40,7 @@ import { createChessClockUi } from './ui/chess-clock.js';
 import { createHistoryUi } from './ui/history-ui.js';
 import { gameRecord } from './chess/notation.js';
 import { createRankingUi } from './ui/ranking-ui.js';
-import { cpuRating, createRatings, isProvisional } from './rating/ratings.js';
+import { categoryOf, cpuRating, createRatings, isProvisional } from './rating/ratings.js';
 import { createCloud } from './net/cloud.js';
 import { createAuthUi } from './ui/auth-ui.js';
 import { createChessClock, findTimeControl } from './chess/timecontrol.js';
@@ -2301,6 +2301,7 @@ async function start() {
       const busca = online.find({
         time,
         name: game.miNombre,
+        rating: ratings.get(categoryOf({ mode: 'online', time })), // para emparejar con alguien parecido
         onStatus: (s) => {
           fase = s.phase;
           onlineUi.status(s);
@@ -2340,7 +2341,7 @@ async function start() {
     salaUi.close();
     const color = info.white === online.me ? 'white' : 'black';
     onlineUi.show(() => {});
-    onlineUi.status({ phase: 'found', color, rival: info.opponentName });
+    onlineUi.status({ phase: 'found', color, rival: info.opponentName, time: info.time });
     await new Promise((resolve) => setTimeout(resolve, 1700));
     const partida = crearPartida(info, { origen, anterior });
     if (state.phase !== 'starting') {

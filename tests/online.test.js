@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { connectPacket, encodeLength, publishPacket, readPublish, splitPackets, PUBLISH } from '../src/net/mqtt.js';
-import { LOBBY, createBus, createLobby, createMatchmaker, createSession, finTopic, gameTopic, huella, inbox } from '../src/net/online.js';
+import { LOBBY, createBus, createLobby, createMatchmaker, createSession, finTopic, gameTopic, huella, inbox, leePuntuacion } from '../src/net/online.js';
 import { cleanName } from '../src/names.js';
 
 test('la longitud de MQTT va de 7 en 7 bits', () => {
@@ -76,6 +76,8 @@ test('dos que buscan se emparejan en la misma partida, uno con blancas, con el r
   const a = createMatchmaker({ bus: net.bus('a'), me: 'a1', time: 'blitz:3+2', name: 'Ana', now, timers: rapido });
   reloj = 2000;
   const b = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'libre:libre', name: '  Bruno\u0007 ', now, timers: rapido });
+  // Con ritmos distintos, solo se mezclan pasados 15 s buscando (antes, al momento).
+  reloj = 2000 + 15000;
   const [fa, fb] = await conPlazo(Promise.all([a.found, b.found]));
   assert.equal(fa.game, fb.game);
   assert.equal(fa.white, fb.white);
@@ -802,4 +804,85 @@ test('el reclamo de tiempo y la respuesta con el reloj van y vienen, comprobados
   B.reloj({ n: 3, white: -1, black: 1200 }); // sin sentido: no llega
   await espera(20);
   assert.deepEqual(relojes, [{ n: 3, white: 5000, black: 1200 }]);
+});
+
+// ---- Emparejar con el mismo ritmo y una puntuación parecida ----
+
+test('se empareja antes con quien busca el mismo ritmo: blitz con blitz, aunque haya una bala de por medio', async () => {
+  const net = red();
+  const A = createMatchmaker({ bus: net.bus('a'), me: 'a1', time: 'blitz:3+2', timers: rapido });
+  const B = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'bala:1', timers: rapido });
+  const C = createMatchmaker({ bus: net.bus('c'), me: 'c3', time: 'blitz:3+2', timers: rapido });
+  const [fa, fc] = await conPlazo(Promise.all([A.found, C.found]));
+  assert.equal(fa.opponent, 'c3');
+  assert.equal(fc.opponent, 'a1');
+  assert.equal(fa.time, 'blitz:3+2');
+  assert.equal(B.state, 'seeking', 'la bala sigue buscando');
+  B.stop();
+});
+
+test('de los que buscan el mismo ritmo y se conocen a la vez, primero el de puntuación más parecida', async () => {
+  const net = red();
+  const A = createMatchmaker({ bus: net.bus('a'), me: 'a1', time: 'blitz:3+2', rating: { r: 1500, rd: 90 }, timers: rapido });
+  // Uno que anuncia y nunca contesta: A se lo ofrece y, mientras espera respuesta, llegan dos más.
+  net.bus('x').publish(LOBBY, { k: 'seek', from: 'b0', since: 0, time: 'blitz:3+2', rt: [1500, 90] });
+  await espera(20);
+  assert.equal(A.state, 'offering');
+  // 150 por debajo y 60 por encima (y a 210 uno del otro: entre ellos, aún no).
+  const B = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'blitz:3+2', rating: { r: 1350, rd: 90 }, timers: rapido });
+  const C = createMatchmaker({ bus: net.bus('c'), me: 'c3', time: 'blitz:3+2', rating: { r: 1560, rd: 90 }, timers: rapido });
+  const fa = await conPlazo(A.found);
+  assert.equal(fa.opponent, 'c3', 'de los dos, el más parecido');
+  assert.equal(B.state, 'seeking');
+  B.stop();
+  C.stop();
+});
+
+test('la diferencia de puntuación que se acepta empieza en 200 y crece 100 cada 5 s buscando', async () => {
+  const net = red();
+  let reloj = 0;
+  const now = () => reloj;
+  const B = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'blitz:3+2', rating: { r: 1650, rd: 90 }, now, timers: rapido });
+  const D = createMatchmaker({ bus: net.bus('d'), me: 'd4', time: 'blitz:3+2', rating: { r: 2050, rd: 90 }, now, timers: rapido });
+  await espera(120);
+  assert.deepEqual([B.state, D.state], ['seeking', 'seeking'], 'a 400 de diferencia, al empezar no');
+  reloj = 9999; // buscando casi 10 s: hasta 300
+  await espera(120);
+  assert.deepEqual([B.state, D.state], ['seeking', 'seeking']);
+  reloj = 10000; // y a los 10 s, hasta 400
+  const [fb, fd] = await conPlazo(Promise.all([B.found, D.found]));
+  assert.equal(fb.game, fd.game);
+});
+
+test('online no hay diaria: quien la busca va sin reloj, y una oferta o un reto con ella se rechazan', async () => {
+  const enviados = [];
+  const net = red({ drop: (m) => !enviados.push(m) });
+  const B = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'diaria:1d', timers: rapido });
+  await espera(20);
+  assert.equal(enviados.find((m) => m.from === 'b2' && m.k === 'seek').time, 'libre:libre');
+  const tramposo = net.bus('t');
+  tramposo.publish(inbox('b2'), { k: 'offer', from: 'a1', game: 'a1-b2-x', white: 'a1', time: 'diaria:3d' });
+  await espera(20);
+  assert.equal(B.state, 'seeking');
+  assert.ok(enviados.some((m) => m.from === 'b2' && m.k === 'decline'));
+  B.stop();
+  const sala = createLobby({ bus: net.bus('s'), me: 'c3', timers: rapido });
+  const retos = [];
+  sala.onInvite((r) => retos.push(r));
+  tramposo.publish(inbox('c3'), { k: 'invite', from: 'a1', game: 'a1-c3-x', white: 'a1', time: 'diaria:1d', name: 'Ana' });
+  await espera(20);
+  assert.deepEqual(retos, []);
+  assert.ok(enviados.some((m) => m.from === 'c3' && m.k === 'invite-decline'));
+  // Y el mío, si se pide con la diaria, sale sin reloj.
+  const reto = sala.invite('d4', { time: 'diaria:7d' });
+  assert.equal(enviados.find((m) => m.from === 'c3' && m.k === 'invite').time, 'libre:libre');
+  reto.cancel();
+  sala.close();
+});
+
+test('la puntuación que anuncia cada uno se toma si tiene sentido; si no, la de empezar (1200?)', () => {
+  assert.deepEqual(leePuntuacion([1532, 80]), { r: 1532, rd: 80 });
+  for (const malo of [null, 'x', [], [99, 80], [3501, 80], [1500, 44], [1500, 351], ['1500', 80], [Number.NaN, 80], [1500, Infinity], { r: 1500 }]) {
+    assert.deepEqual(leePuntuacion(malo), { r: 1200, rd: 350 });
+  }
 });
