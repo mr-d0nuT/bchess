@@ -763,6 +763,12 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .final-punto-delta.sube { color: #6be08a; }
 .final-punto-delta.baja { color: #ff8a7a; }
 .final-punto-delta.igual { color: #c9d4ee; }
+/* El resumen de la partida. */
+.final-resumen { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: -6px 0 18px; }
+.final-resumen:empty { display: none; }
+.final-dato { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 4px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); }
+.final-dato strong { font: 900 17px/1 system-ui, sans-serif; color: #fff; font-variant-numeric: tabular-nums; }
+.final-dato span { font-size: 11px; opacity: 0.7; }
 .final-botones { display: flex; gap: 10px; justify-content: center; }
 .final-boton, .ajustes-accion {
   padding: 12px 22px;

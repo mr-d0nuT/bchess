@@ -46,7 +46,9 @@ export function createMatchUi(root = document.getElementById('hud')) {
   finalBotones.append(revancha, menu);
   // La puntuación que cambia (el ranking): una línea por jugador, con la cifra que sube o baja contando.
   const finalPuntos = el('div', 'final-puntos');
-  finalCaja.append(finalTitulo, finalTexto, finalPuntos, finalBotones);
+  // Y el resumen de la partida: jugadas, piezas comidas, duración y combates.
+  const finalResumen = el('div', 'final-resumen');
+  finalCaja.append(finalTitulo, finalTexto, finalPuntos, finalResumen, finalBotones);
   let cuenta = 0; // la animación de la cifra en marcha
   final.append(finalCaja);
   document.body.append(final);
@@ -130,6 +132,24 @@ export function createMatchUi(root = document.getElementById('hud')) {
       cuenta = requestAnimationFrame(paso);
     },
 
+    // El resumen de la partida en el cartel del final: { jugadas, capturas, segundos, combates }.
+    showSummary({ jugadas = 0, capturas = 0, segundos = 0, combates = 0 } = {}) {
+      const h = Math.floor(segundos / 3600);
+      const m = Math.floor((segundos % 3600) / 60);
+      const sg = String(segundos % 60).padStart(2, '0');
+      const duracion = segundos >= 86400 ? `${Math.round(segundos / 86400)} d` : h ? `${h}:${String(m).padStart(2, '0')}:${sg}` : `${m}:${sg}`;
+      finalResumen.replaceChildren(...[
+        [jugadas, 'resumen.jugadas'],
+        [capturas, 'resumen.capturas'],
+        [duracion, 'resumen.duracion'],
+        [combates, 'resumen.combates'],
+      ].map(([valor, clave]) => {
+        const celda = el('div', 'final-dato');
+        celda.append(el('strong', '', String(valor)), el('span', '', t(clave)));
+        return celda;
+      }));
+    },
+
     // El final. `status`: el de `Position.status()` o 'time' (se le acabó el tiempo a `flagged`);
     // `winner`, el color que gana (o null si son tablas). Devuelve 'rematch' o 'menu'.
     // `escena`: detrás está la del jaque mate (el rey de rodillas, el confeti…): el cartel va abajo y deja verla.
@@ -160,6 +180,7 @@ export function createMatchUi(root = document.getElementById('hud')) {
       finalTitulo.textContent = titulo;
       finalTexto.textContent = texto;
       finalPuntos.replaceChildren();
+      finalResumen.replaceChildren();
       revancha.textContent = mode === 'online' ? t('final.otro') : t('final.revancha'); // online, otro rival
       menu.textContent = t('final.menu');
       final.dataset.tipo = tipo;

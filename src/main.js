@@ -36,6 +36,7 @@ import { createMenu, levelName, timeLabel } from './ui/menu.js';
 import { createMatchUi } from './ui/match-ui.js';
 import { createChessClockUi } from './ui/chess-clock.js';
 import { createHistoryUi } from './ui/history-ui.js';
+import { gameRecord } from './chess/notation.js';
 import { createRankingUi } from './ui/ranking-ui.js';
 import { cpuRating, createRatings, isProvisional } from './rating/ratings.js';
 import { createCloud } from './net/cloud.js';
@@ -896,6 +897,7 @@ async function start() {
       const combate = elegirCombate(candidatos);
       if (combate) {
         await combate.jugar();
+        resumen.combates += 1;
         if (!testing.active) {
           vistos.add(combate.clave);
           guardarPreferencia(VISTOS, JSON.stringify([...vistos]));
@@ -1622,6 +1624,7 @@ async function start() {
     const puntos = puntua(winner);
     const cartelFinal = ui.gameOver({ status, winner, mode: game.mode, human: game.human, flagged, nombres: game.nombres, escena: Boolean(escena) });
     ui.showRating(puntos);
+    ui.showSummary(resumenPartida());
     const que = await cartelFinal;
     // Fin de la fiesta: el rey, otra vez de pie, y la cámara, para el usuario.
     if (escena) {
@@ -1670,7 +1673,30 @@ async function start() {
     });
   }
 
+  // EL RESUMEN DE LA PARTIDA (punto 10 del plan de mejora), para el cartel del final: cuántas jugadas, cuántas
+  // piezas comidas, cuánto ha durado y cuántos combates se han visto. Se empieza a contar con la partida
+  // (sin jugadas) o, en una que se continúa, desde que se abre.
+  const resumen = { desde: 0, combates: 0 };
+  function cuentaResumen() {
+    if (!game.moves.length) {
+      resumen.desde = Date.now();
+      resumen.combates = 0;
+    } else if (!resumen.desde) {
+      resumen.desde = Date.now();
+    }
+  }
+  function resumenPartida() {
+    const record = gameRecord(game.start, game.moves);
+    return {
+      jugadas: Math.ceil(game.moves.length / 2),
+      capturas: record.captured.white.length + record.captured.black.length,
+      segundos: Math.max(0, Math.round((Date.now() - resumen.desde) / 1000)),
+      combates: resumen.combates,
+    };
+  }
+
   function paintTurn() {
+    cuentaResumen();
     historial.set(game.start, game.moves);
     // La última jugada, con una flecha tenue (punto 14).
     const ultima = game.moves.at(-1);

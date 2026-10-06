@@ -95,7 +95,9 @@ frecuentes. Hoy tienen un único combate:
 **Qué:** las piezas cercanas reaccionan al combate: se asustan si pasa algo cerca, aplauden al
 ganador de su bando, se tapan los ojos…
 
-### 10. Pantalla final con resumen · S
+### 10. Pantalla final con resumen · S · ✔ hecho
+**Hecho (6/10/2026):** el cartel del final enseña cómo cambia la puntuación (la cifra contando hasta la nueva,
+con la diferencia en verde o rojo) y el resumen: jugadas, piezas comidas, duración y combates vistos.
 **Qué:** al acabar, jugadas, capturas, tiempo y combates vistos, con Revancha y Menú.
 
 ## Fase 3 — Comodidad de partida
