@@ -28,8 +28,8 @@ import { endsOf, gridOf, pickPair, pickTurn, place } from './moves/dodge.js';
 import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
 import { createCpu } from './chess/cpu.js';
-import { createOnline, randomId } from './net/online.js';
-import { MAX_MALAS, createPartidaOnline, decideBandera, decideFin, decideReclamo, finDeTodos, mandaElSuyo } from './net/partida.js';
+import { LOST_AFTER, createOnline, randomId } from './net/online.js';
+import { MAX_MALAS, createPartidaOnline, decideBandera, decideFin, decideReclamo, finDeTodos, mandaElSuyo, retrasoReclamo } from './net/partida.js';
 import { ONLINE_KEY, identidadOnline, packOnline, packTodas, readOnline } from './net/guardadas-online.js';
 import { createOnlineUi } from './ui/online-ui.js';
 import { createLobbyUi } from './ui/lobby-ui.js';
@@ -1493,8 +1493,6 @@ async function start() {
     session.on('back', () => {
       if (activa(p) && state.phase === 'playing') ui.banner(t('online.vuelve'), { tipo: 'tablas', ms: 2000 });
     });
-    // Dos minutos callado con mi conexión sana: se ha ido. Gano, y mi final le llegará si vuelve.
-    session.on('gone', () => seVa(p, 'abandon'));
     session.on('desync', () => anula(p));
     // Su final (`decideFin`). Primero, las jugadas que trae: si es de reglas (mate, tablas), son las que lo deciden
     // aquí, al jugarlas (antes llegaba su «bye» y, si aún se animaba la última, salía «Tu rival ha abandonado»).
@@ -1718,6 +1716,49 @@ async function start() {
     return guardadas.length;
   }
 
+  // LA CONEXIÓN, A LA VISTA, debajo del turno (`ui.conexion`): si el que no tiene red soy yo, si el rival calla y
+  // cuánto, y, pasado un rato según el ritmo (`retrasoReclamo`), «Reclamar la victoria» o «Esperar» (otro rato más).
+  // Antes solo salía un cartel de un par de segundos y, a los dos minutos, la partida se ganaba sola sin preguntar.
+  function pintaConexion() {
+    const p = game.mode === 'online' && state.phase === 'playing' ? game.partida : null;
+    if (!p || p.acabada) {
+      ui.conexion({ estado: 'bien' });
+      return;
+    }
+    if (p.reclamo?.enviado) {
+      ui.conexion({ estado: 'reclamando' });
+      return;
+    }
+    const { enlace, silencio } = p.session.estado();
+    if (!enlace) {
+      ui.conexion({ estado: 'yo' });
+      return;
+    }
+    if (silencio < LOST_AFTER) {
+      p.umbralReclamo = null; // ha vuelto: si se vuelve a ir, a contar de nuevo
+      ui.conexion({ estado: 'bien' });
+      return;
+    }
+    const umbral = p.umbralReclamo ?? retrasoReclamo(p.time);
+    const datos = { nombre: nombreRival(p), segundos: Math.floor(silencio / 1000) };
+    if (silencio < umbral) {
+      ui.conexion({ estado: 'rival', ...datos });
+      return;
+    }
+    ui.conexion({
+      estado: 'reclamable',
+      ...datos,
+      // Se gana por abandono: su final le llega si vuelve (y si vuelve a tiempo de verlo, lo verá).
+      onReclamar: () => {
+        if (activa(p) && !p.acabada && p.session.estado().silencio >= umbral) seVa(p, 'abandon');
+      },
+      onEsperar: () => {
+        p.umbralReclamo = p.session.estado().silencio + retrasoReclamo(p.time);
+        pintaConexion();
+      },
+    });
+  }
+
   // En espera, los relojes siguen: una vez por segundo, quién se ha quedado sin tiempo (`banderaOnline`), en ellas y en
   // la del tablero, y la lista con sus relojes. En un `setInterval` y no en el bucle de dibujo: con la pestaña de
   // fondo el dibujo se para, pero esto sigue (frenado, pero sigue).
@@ -1728,6 +1769,8 @@ async function start() {
       if (p.clock && (!activa(p) || relojVivo())) banderaOnline(p, ahora);
     }
     pintaPartidas();
+    pintaConexion();
+    salaUi.setConexion(online.sano);
     // Y con algún reloj corriendo, a guardarlas de vez en cuando (por si la app se va sin avisar).
     vueltasReloj += 1;
     if (vueltasReloj % 5 === 0 && partidasVivas().some((p) => p.clock)) guardaOnline();
@@ -1749,6 +1792,7 @@ async function start() {
       toca: !p.acabada && p.position.side === p.color,
       aviso: p.aviso,
       acabada: p.acabada && (p.acabada.status === 'anulada' ? 'anulada' : !p.acabada.winner ? 'tablas' : p.acabada.winner === p.color ? 'ganada' : 'perdida'),
+      desconectado: !p.acabada && p.session.estado().silencio >= LOST_AFTER,
       reloj: p.clock ? { white: p.clock.remaining('white', ahora), black: p.clock.remaining('black', ahora) } : null,
     })));
     const meToca = partidas.filter((p) => !activa(p) && !p.acabada && p.position.side === p.color).length;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Position } from '../src/chess/position.js';
-import { createPartidaOnline, decideBandera, decideFin, decideReclamo, estadoLocal, finDeTodos, mandaElSuyo } from '../src/net/partida.js';
+import { createPartidaOnline, decideBandera, decideFin, decideReclamo, estadoLocal, finDeTodos, mandaElSuyo, retrasoReclamo } from '../src/net/partida.js';
 
 // El emparejamiento visto por «bbbb» (negras): su rival, «aaaa», lleva blancas.
 const info = (cambios = {}) => ({ game: 'aaaa-bbbb-x', white: 'aaaa', time: 'blitz:3+2', opponent: 'aaaa', opponentName: '  Ana ', ...cambios });
@@ -243,4 +243,12 @@ test('un reclamo de tiempo: si ya moví, nada; si me queda tiempo (o aún no he 
   assert.equal(r.accion, 'corregir');
   const libre = createPartidaOnline({ info: info({ time: 'libre:libre' }), yo: 'aaaa' });
   assert.deepEqual(decideReclamo(libre, { n: 0 }, 0), { accion: 'ignorar' });
+});
+
+test('el silencio que hace falta para reclamar la victoria, según el ritmo: bala 30 s, blitz 45 s, lo demás un minuto', () => {
+  assert.equal(retrasoReclamo('bala:1'), 30000);
+  assert.equal(retrasoReclamo('blitz:3+2'), 45000);
+  assert.equal(retrasoReclamo('rapida:10'), 60000);
+  assert.equal(retrasoReclamo('libre:libre'), 60000);
+  assert.equal(retrasoReclamo(undefined), 60000);
 });

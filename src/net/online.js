@@ -35,7 +35,7 @@ import { cleanName } from '../names.js';
 //     'resign' es que se rinde quien no gana) y lo deja guardado en `…/g/<partida>/fin/<id>` para el rival que
 //     ahora no tenga red; «fin-ok», que se ha enterado (y lo guardado se borra).
 //   Y en mi buzón, «cancel» (o «invite-cancel»): el rival no llegó a empezarla. Sin noticias del rival en un
-//   rato, se avisa de que se ha perdido la conexión; en más (con mi conexión sana), se da por ido.
+//   rato (con mi conexión sana), se avisa de que se ha perdido la conexión; en más, se puede reclamar la victoria.
 
 // Usuario y contraseña de shiftr.io: los públicos de su instancia de pruebas, que son de su documentación.
 export const BROKERS = [
@@ -78,7 +78,6 @@ const RETRY_AFTER = 6000; // a quien no contestó, no se le vuelve a ofrecer has
 export const PING_EVERY = 4000;
 // Los silencios del rival solo cuentan mientras MI conexión está sana (ver `createSession`).
 export const LOST_AFTER = 20000; // sin noticias del rival en este tiempo: conexión perdida
-export const GONE_AFTER = 120000; // y en este: se ha ido (cerró la app sin despedirse)
 export const START_WAIT = 15000; // sin una sola noticia del rival al empezar: no ha llegado a la partida
 const GO_AGAIN = 800; // el «go» (y el «invite-go») se manda dos veces: si se pierde el primero, una partida fantasma
 
@@ -742,8 +741,8 @@ export const TERMINADA_MS = 10 * 60 * 1000; // acabada, lo que se espera a que e
 // para poner al día al rival. Eventos (`on`), solo con lo que el rival dice con sentido: 'move' ({ n, uci }),
 // 'press' ({ side, n, white, black }), 'sync' ({ moves }), 'fin' ({ status, winner, flagged, moves }: cómo ha
 // acabado para él), 'reclamo' ({ n }: a él le marca cero mi reloj), 'reloj' ({ n, white, black }: lo que marca el
-// suyo, que no acepta mi reclamo), 'lost' (calla), 'back' (vuelve), 'gone' (calla demasiado), 'cancel' (no llegó
-// a empezar) y 'desync' (la partida ya no es la misma en los dos lados: se anula).
+// suyo, que no acepta mi reclamo), 'lost' (calla), 'back' (vuelve), 'cancel' (no llegó a empezar) y 'desync' (la
+// partida ya no es la misma en los dos lados: se anula). Y `estado()`: { enlace, silencio, supoAlgo }.
 //
 // EL FINAL, EL MISMO EN LOS DOS LADOS (v2). Antes cada aparato decidía solo, con lo que sabía, y al acabar mandaba
 // un «bye» que el rival, si aún estaba viendo el último combate, leía como un abandono: el que recibía el mate veía
@@ -764,6 +763,8 @@ export const TERMINADA_MS = 10 * 60 * 1000; // acabada, lo que se espera a que e
 // (`enlaceBien`: algún broker me ha dicho algo hace poco); sin ella, o al volver al primer plano, el reloj del
 // silencio vuelve a cero. Y si su latido llega y el mío lleva un rato sin salir (una pestaña de fondo frena los
 // temporizadores, pero no los mensajes), le contesto con otro: que él tampoco me dé por ido.
+// Darlo por ido ya no es cosa de la sesión: cuánto lleva callado lo dice `estado()`, y quien juega decide (ofrece
+// «Reclamar la victoria»; antes, a los dos minutos se ganaba solo, sin preguntar).
 // Si al empezar el rival no dice nada en 15 s de conexión sana, no ha llegado a la partida ('cancel'), y lo
 // mismo si me lo dice él en mi buzón («cancel» o «invite-cancel»: su confirmación no llegó).
 export function createSession({ bus, me, game, opponent, white, moves, now = Date.now, timers = TIMERS, enlaceBien = () => true, reanudada = false }) {
@@ -777,7 +778,6 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
   let empezada = now(); // para saber si el rival no llega a empezarla
   let latidoEn = -Infinity; // cuándo salió mi último latido
   let perdido = false;
-  let ido = false; // ya se avisó de que se ha ido
   let cerrada = false;
   let supoAlgo = reanudada; // el rival ya ha dicho algo en la partida (en una que se sigue tras recargar, sí)
   let distintas = 0; // latidos seguidos con una huella que no casa con mis jugadas
@@ -944,11 +944,6 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       perdido = true;
       emit('lost');
     }
-    // Ido: quien juega acaba la partida (`terminar`), y su final le llegará si vuelve.
-    if (!ido && now() - visto > GONE_AFTER) {
-      ido = true;
-      emit('gone');
-    }
   }, PING_EVERY);
   late();
   // Al volver la conexión, un latido ya: si algo se perdió mientras tanto, se pide en el momento. Y al volver
@@ -976,6 +971,13 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     color: mio,
     get lost() {
       return perdido;
+    },
+    // Cómo va: `enlace`, si mi conexión está sana; `silencio`, cuánto lleva el rival sin decir nada con ella sana
+    // (sin ella, cero: no se sabe si calla él o yo); `supoAlgo`, si ha llegado a decir algo en la partida.
+    estado() {
+      const enlace = enlaceBien();
+      const contando = enlace && !terminada && !cerrada;
+      return { enlace, silencio: contando ? Math.max(0, now() - visto) : 0, supoAlgo };
     },
     // Acabada aquí, esperando a que el rival se entere.
     get terminada() {
@@ -1059,8 +1061,9 @@ export function createOnline({ urls = BROKERS, me = randomId() } = {}) {
       if (turno !== busquedas) return null;
       const mm = createMatchmaker({ bus: b, me, time, name: cleanName(name) });
       busca = mm;
-      const cuenta = setInterval(() => onStatus({ phase: 'searching', seekers: mm.seekers() }), 1000);
-      onStatus({ phase: 'searching', seekers: 0 });
+      // (Con `conectado`: si se pierde la red mientras se busca, la pantalla lo dice en vez de «nadie busca».)
+      const cuenta = setInterval(() => onStatus({ phase: 'searching', seekers: mm.seekers(), conectado: b.sano }), 1000);
+      onStatus({ phase: 'searching', seekers: 0, conectado: true });
       const info = await mm.found;
       clearInterval(cuenta);
       if (busca === mm) busca = null;

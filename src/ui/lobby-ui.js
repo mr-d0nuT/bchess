@@ -34,6 +34,12 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
   let partidas = [];
   let jugadores = [];
   let miNombre = '';
+  let conRed = true;
+  // Un punto junto al título: verde con red, ámbar sin ella (antes, sin red, la sala decía que no había nadie).
+  const punto = document.createElement('span');
+  punto.className = 'sala-punto';
+  punto.setAttribute('aria-hidden', 'true');
+  root.querySelector('#sala-titulo')?.append(punto);
   const retando = new Map(); // id → { reto, estado: 'esperando' | 'rechaza' | 'nocontesta', hasta }
 
   const nombreDe = (p) => p.name || t('sala.anonimo');
@@ -114,7 +120,7 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
       return li;
     }));
     vacia.hidden = vistos.length > 0;
-    vacia.textContent = jugadores.length ? t('sala.nadie') : t('sala.vacia');
+    vacia.textContent = !conRed ? t('sala.sinconexion') : jugadores.length ? t('sala.nadie') : t('sala.vacia');
     yoTexto.textContent = miNombre ? t('sala.yo', { nombre: miNombre }) : t('sala.sinnombre');
   }
 
@@ -149,7 +155,7 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
   function pintaPartidas() {
     partidasCaja.hidden = partidas.length === 0;
     partidasLista.replaceChildren(...partidas.map((g) => {
-      const estado = g.acabada ?? (g.aqui ? 'aqui' : g.toca ? 'toca' : 'letoca');
+      const estado = g.acabada ?? (g.aqui ? 'aqui' : g.desconectado ? 'desconectado' : g.toca ? 'toca' : 'letoca');
       const li = document.createElement('li');
       li.className = 'sala-partida';
       li.dataset.estado = estado;
@@ -338,7 +344,7 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
   }
 
   return {
-    // Tus partidas online: [{ id, rival, rivalId, color, jugada, aqui, toca, aviso, acabada, reloj }].
+    // Tus partidas online: [{ id, rival, rivalId, color, jugada, aqui, toca, aviso, acabada, desconectado, reloj }].
     setGames(lista) {
       partidas = lista;
       if (!root.hidden) pintaPartidas();
@@ -347,6 +353,14 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
     // El nombre con el que se aparece en la sala.
     setName(nombre) {
       miNombre = nombre;
+      if (!root.hidden) pintaLista();
+    },
+    // Si tengo red con la sala (se pregunta cada segundo: solo se repinta si cambia).
+    setConexion(bien) {
+      if (conRed === bien) return;
+      conRed = bien;
+      punto.classList.toggle('sin-red', !bien);
+      punto.title = bien ? '' : t('sala.sinconexion');
       if (!root.hidden) pintaLista();
     },
     open: abrir,

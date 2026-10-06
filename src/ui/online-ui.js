@@ -17,7 +17,7 @@ export function createOnlineUi() {
   boton.addEventListener('click', () => alPulsar?.('cancelar'));
   reintentar.addEventListener('click', () => alPulsar?.('reintentar'));
 
-  function pinta({ phase, seekers = 0, color = null, rival = '' }) {
+  function pinta({ phase, seekers = 0, color = null, rival = '', conectado = true }) {
     root.dataset.fase = phase;
     root.classList.toggle('encontrado', phase === 'found');
     if (phase === 'connecting') {
@@ -25,7 +25,8 @@ export function createOnlineUi() {
       texto.textContent = '';
     } else if (phase === 'searching') {
       titulo.textContent = t('online.buscando');
-      texto.textContent = seekers > 0 ? t('online.hay', { n: seekers }) : t('online.solo');
+      // Sin red mientras se busca, se dice (antes decía que no buscaba nadie más).
+      texto.textContent = !conectado ? t('online.reconectando') : seekers > 0 ? t('online.hay', { n: seekers }) : t('online.solo');
     } else if (phase === 'found') {
       titulo.textContent = t('online.encontrado');
       const conQue = color === 'black' ? t('online.negras') : t('online.blancas');

@@ -535,21 +535,25 @@ function partidaConReloj({ enlace = () => true } = {}) {
   };
 }
 
-test('sin conexión sana, el silencio del rival no cuenta: ni «perdido» ni «ido»; con ella, sí', () => {
+test('sin conexión sana, el silencio del rival no cuenta (ni para «perdido» ni para reclamar); con ella, sí', () => {
   let sana = false;
   const p = partidaConReloj({ enlace: () => sana });
   p.dice({ k: 'ping', n: 0 });
   p.pasa(100000); // el móvil sin cobertura: el rival calla porque no me llega nada
   assert.deepEqual(p.eventos, []);
+  assert.equal(p.sesion.estado().silencio, 0);
+  assert.equal(p.sesion.estado().enlace, false);
   sana = true;
   p.pasa(20000);
   assert.deepEqual(p.eventos, []);
+  assert.equal(p.sesion.estado().silencio, 20000, 'contando desde que volvió la red');
   p.pasa(4000);
   assert.deepEqual(p.eventos, ['lost'], 'a los 20 s de silencio con la conexión sana');
-  p.pasa(96000);
-  assert.deepEqual(p.eventos, ['lost'], 'a los 120 s, aún no');
-  p.pasa(4000);
-  assert.deepEqual(p.eventos, ['lost', 'gone']);
+  p.pasa(600000);
+  assert.deepEqual(p.eventos, ['lost'], 'y nunca «se ha ido» solo: eso lo decide quien juega (reclamar)');
+  assert.equal(p.sesion.estado().silencio, 624000);
+  p.dice({ k: 'want' });
+  assert.equal(p.sesion.estado().silencio, 0, 'ha vuelto');
 });
 
 test('al volver al primer plano, el silencio del rival vuelve a contar desde cero', () => {
@@ -756,13 +760,14 @@ test('el final guardado le llega al rival que no estaba (al volver y suscribirse
   assert.equal(broker.guardados.has(finTopic('aaaa-bbbb-x', 'aaaa')), false, 'enterado: borrado');
 });
 
-test('«se ha ido» ya no cierra la partida: mi final le tiene que llegar si vuelve', () => {
+test('reclamar la victoria a un rival que se ha ido: mi final le llegará si vuelve (y ya no cuento su silencio)', () => {
   const p = partidaConReloj();
   p.dice({ k: 'ping', n: 0 });
-  p.pasa(124000);
-  assert.deepEqual(p.eventos, ['lost', 'gone']);
+  p.pasa(64000);
+  assert.deepEqual(p.eventos, ['lost']);
   p.sesion.terminar({ status: 'abandon', winner: 'black', flagged: null, moves: [] });
   assert.equal(p.enviados.filter((m) => m.k === 'fin').length, 2);
+  assert.equal(p.sesion.estado().silencio, 0, 'acabada: no hay nada que reclamar');
 });
 
 test('un final sin sentido se ignora: rendirse dándose la victoria, sin tiempo sin decir de quién, mate sin ganador…', async () => {

@@ -144,6 +144,16 @@ export function createPartidaOnline({ info, yo, miNombre = '', now = 0, moves = 
   return p;
 }
 
+// Cuánto tiene que llevar callado el rival (con mi conexión sana) para poder reclamar la victoria, según el ritmo:
+// en bala, medio minuto es mucho; en una rápida, menos. (Antes, en cualquier ritmo, a los dos minutos se ganaba
+// solo, sin preguntar.)
+export function retrasoReclamo(time) {
+  const ritmo = String(time ?? '').split(':')[0];
+  if (ritmo === 'bala') return 30000;
+  if (ritmo === 'blitz') return 45000;
+  return 60000;
+}
+
 // ---- El final, el mismo en los dos lados ----
 const DE_REGLAS = new Set(['checkmate', 'stalemate', 'fifty', 'repetition', 'material']);
 

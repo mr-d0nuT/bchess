@@ -25,6 +25,32 @@ export function createMatchUi(root = document.getElementById('hud')) {
   turno.append(turnoPieza, turnoTexto);
   root.append(turno);
 
+  // Cómo va la conexión (online), debajo del turno: quién no tiene red, cuánto lleva callado el rival y, pasado un
+  // rato, «Reclamar la victoria» o «Esperar».
+  const conexion = el('div', 'conexion');
+  conexion.setAttribute('role', 'status');
+  conexion.setAttribute('aria-live', 'polite');
+  conexion.hidden = true;
+  const conexionTexto = el('span', 'conexion-texto');
+  const reclamar = el('button', 'conexion-boton principal');
+  const esperar = el('button', 'conexion-boton');
+  reclamar.type = 'button';
+  esperar.type = 'button';
+  conexion.append(conexionTexto, reclamar, esperar);
+  root.append(conexion);
+  let alReclamar = null;
+  let alEsperar = null;
+  reclamar.addEventListener('click', (event) => {
+    event.stopPropagation();
+    alReclamar?.();
+  });
+  esperar.addEventListener('click', (event) => {
+    event.stopPropagation();
+    alEsperar?.();
+  });
+  let ultimaConexion = null;
+  const minutos = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
   // El cartel del jaque, en medio.
   const cartel = el('div', 'cartel');
   cartel.setAttribute('aria-live', 'assertive');
@@ -258,9 +284,32 @@ export function createMatchUi(root = document.getElementById('hud')) {
       cierraCorona?.(null);
     },
 
+    // Cómo va la conexión online (`estado`): 'bien' (no se ve), 'yo' (el que no tiene red soy yo), 'rival' (el rival
+    // calla: `nombre`, `segundos`), 'reclamable' (lo mismo, con «Reclamar la victoria» y «Esperar»: `onReclamar`,
+    // `onEsperar`) o 'reclamando' (se le ha reclamado el tiempo). Se llama cada segundo: solo cambia lo que cambia.
+    conexion(datos = { estado: 'bien' }) {
+      ultimaConexion = datos;
+      const { estado = 'bien', nombre = '', segundos = 0, onReclamar = null, onEsperar = null } = datos;
+      if (conexion.hidden !== (estado === 'bien')) conexion.hidden = estado === 'bien';
+      if (estado === 'bien') return;
+      conexion.dataset.estado = estado;
+      const texto = estado === 'yo' ? t('online.reconectando')
+        : estado === 'reclamando' ? t('online.reclamandoTiempo')
+          : t('online.rivalFuera', { nombre, tiempo: minutos(segundos) });
+      if (conexionTexto.textContent !== texto) conexionTexto.textContent = texto;
+      const botones = estado === 'reclamable';
+      if (reclamar.hidden !== !botones) reclamar.hidden = !botones;
+      if (esperar.hidden !== !botones) esperar.hidden = !botones;
+      if (reclamar.textContent !== t('online.reclamar')) reclamar.textContent = t('online.reclamar');
+      if (esperar.textContent !== t('online.esperar')) esperar.textContent = t('online.esperar');
+      alReclamar = onReclamar;
+      alEsperar = onEsperar;
+    },
+
     // Vuelve a escribir lo que se ve (al cambiar de idioma).
     refresh() {
       if (ultimoTurno) api.turn(ultimoTurno);
+      if (ultimaConexion) api.conexion(ultimaConexion);
     },
 
     closeAll() {
@@ -269,6 +318,8 @@ export function createMatchUi(root = document.getElementById('hud')) {
       final.hidden = true;
       corona.hidden = true;
       turno.hidden = true;
+      conexion.hidden = true;
+      ultimaConexion = null;
       cartel.classList.remove('sale');
     },
   };
