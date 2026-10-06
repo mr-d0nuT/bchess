@@ -3,7 +3,7 @@ import { pickQuality, qualityFromQuery } from './quality.js';
 import { createMusic } from './audio/music.js';
 import { unlockAudioOnGesture } from './audio/context.js';
 import { sfx } from './audio/sfx.js';
-import { voicesFor } from './audio/voces.js';
+import { grita, voicesFor } from './audio/voces.js';
 import { createLoading } from './ui/loading.js';
 import { createStage } from './scene/stage.js';
 import { addLighting } from './scene/lighting.js';
@@ -62,6 +62,7 @@ import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
 import { battleName, battlesFor, runGagBattle, testing } from './combat/battles.js';
 import { pawnThrowsBomb } from './combat/pawn-bomb.js';
+import { pickAudience } from './combat/audience.js';
 
 // Arranque: la pantalla de carga, el menú (uno contra uno o contra la CPU, y su nivel) y la partida,
 // con las reglas del ajedrez enteras (`chess/position.js`): empiezan las blancas, se mueve por turnos
@@ -855,6 +856,7 @@ async function start() {
     pintaSalto();
     highlights.clear();
     const target = defender.mover.square;
+    let hubo = false; // si ha habido combate de verdad (no una captura rápida), para el público
     try {
       const obstacles = pieces.filter((entry) => entry !== attacker && entry !== defender).map((entry) => board.squareToWorld(entry.mover.square));
       // Las que no pelean, translúcidas: si alguna queda delante de la cámara, no tapa el combate. Y
@@ -900,6 +902,7 @@ async function start() {
       if (combate) {
         await combate.jugar();
         resumen.combates += 1;
+        hubo = true;
         if (!testing.active) {
           vistos.add(combate.clave);
           guardarPreferencia(VISTOS, JSON.stringify([...vistos]));
@@ -926,7 +929,38 @@ async function start() {
       await fade.restore();
       await Promise.race([crowd.settle(), clock.wait(SETTLE_LIMIT)]);
       state.fighting = false;
+      const saltado = salto.saltando;
       finSalto();
+      if (hubo && !saltado) reaccionaPublico(attacker, target);
+    }
+  }
+
+  // EL PÚBLICO (`combat/audience.js`, punto 9 del plan de mejora): al acabar un combate, las que lo han visto
+  // de cerca reaccionan. Las del bando que gana dan saltitos de alegría (la primera lo grita: ¡yahoo!, o la
+  // risa de villano de las negras) y una del que pierde se lamenta con un gesto. Sin estorbar: la que tenga
+  // que moverse para entonces, no reacciona, y el gesto suelto no corta ningún movimiento.
+  function reaccionaPublico(ganador, casilla) {
+    if (testing.active || !pieces.includes(ganador)) return;
+    const quien = pickAudience({
+      pieces: pieces.filter((e) => e !== ganador).map((entry) => ({ kind: entry.kind, color: entry.color, square: entry.mover.square, entry })),
+      at: casilla,
+      winner: ganador.color,
+    });
+    if (!quien) return;
+    quien.cheer.forEach(({ entry }, i) => {
+      clock.wait(0.15 + i * 0.35).then(() => {
+        if (!pieces.includes(entry) || entry.mover.busy || state.fighting) return;
+        if (i === 0) grita(entry, 'victoria', { volume: 0.7 });
+        entry.mover.hop?.(2);
+      });
+    });
+    if (quien.sigh) {
+      const { entry } = quien.sigh;
+      clock.wait(0.6).then(() => {
+        if (!pieces.includes(entry) || entry.mover.busy || state.fighting) return;
+        grita(entry, 'decepcion', { volume: 0.7 });
+        entry.mover.fidget?.();
+      });
     }
   }
 

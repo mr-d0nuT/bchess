@@ -91,7 +91,13 @@ frecuentes. Hoy tienen un único combate:
 **Por qué:** ver siempre el mismo combate para la misma pareja cansa.
 **Cómo:** uno por sesión, diseñado contigo antes de hacerlo.
 
-### 9. Público · M
+### 9. Público · M · ✔ hecho (primera parte)
+**Hecho (6/10/2026):** al acabar cada combate (no en las capturas rápidas), las piezas que lo han visto de
+cerca reaccionan, tres de cada cuatro veces: una o dos del bando que gana dan saltitos de alegría (la primera
+lo grita: ¡yahoo!, o la risa de villano de las negras) y una del que pierde se lamenta («ooooh…») con un
+gesto. Sin estorbar: la que tenga que moverse para entonces no reacciona. Falta lo de durante el combate
+(asustarse, taparse los ojos): ahí las demás están translúcidas para no tapar la escena, y habría que decidir
+contigo si alguna se queda a la vista.
 **Qué:** las piezas cercanas reaccionan al combate: se asustan si pasa algo cerca, aplauden al
 ganador de su bando, se tapan los ojos…
 
