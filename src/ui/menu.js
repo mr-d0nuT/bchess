@@ -49,6 +49,16 @@ function haceCuanto(ms) {
 // Lo que se cuenta de la partida a medias: «1 contra CPU · nivel 42 (…) · Blitz · 3 | 2 · jugada 14 ·
 // hace 5 minutos».
 function describirGuardada(g) {
+  // Una online en marcha: contra quién, el ritmo, la jugada y a quién le toca.
+  if (g.mode === 'online') {
+    const control = findTimeControl(g.time);
+    return [
+      t('partidas.contra', { nombre: g.rival }),
+      control ? `${t(`tiempo.${control.key.split(':')[0]}`)} · ${timeLabel(control)}` : t('tiempo.sinreloj'),
+      t('menu.jugada', { n: Math.floor(g.moves / 2) + 1 }),
+      g.toca ? t('partidas.toca') : t('partidas.letoca'),
+    ].join(' · ');
+  }
   const conNombres = g.mode === 'pvp' && (g.nombres?.white || g.nombres?.black);
   const pvp = conNombres ? `${g.nombres.white || t('color.white')} – ${g.nombres.black || t('color.black')}` : t('ajustes.pvp');
   const partes = [g.mode === 'cpu' ? t('ajustes.cpu', { n: g.level, nombre: levelName(g.level) }) : pvp];

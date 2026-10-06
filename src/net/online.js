@@ -211,7 +211,7 @@ export function createBus({ urls = BROKERS, clientId = `bchess-${randomId()}`, c
       }
       let ya = false;
       try {
-        const c = await connect(url, { clientId: `${clientId}-${i}`, username, password });
+        const c = await connect(url, { clientId: `${clientId}${i}`, username, password });
         if (cerrado) {
           c.close();
           return;
@@ -766,7 +766,7 @@ export const TERMINADA_MS = 10 * 60 * 1000; // acabada, lo que se espera a que e
 // temporizadores, pero no los mensajes), le contesto con otro: que él tampoco me dé por ido.
 // Si al empezar el rival no dice nada en 15 s de conexión sana, no ha llegado a la partida ('cancel'), y lo
 // mismo si me lo dice él en mi buzón («cancel» o «invite-cancel»: su confirmación no llegó).
-export function createSession({ bus, me, game, opponent, white, moves, now = Date.now, timers = TIMERS, enlaceBien = () => true }) {
+export function createSession({ bus, me, game, opponent, white, moves, now = Date.now, timers = TIMERS, enlaceBien = () => true, reanudada = false }) {
   const topic = gameTopic(game);
   const suFin = finTopic(game, opponent); // donde me deja guardado su final
   const miFin = finTopic(game, me);
@@ -779,7 +779,7 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
   let perdido = false;
   let ido = false; // ya se avisó de que se ha ido
   let cerrada = false;
-  let supoAlgo = false; // el rival ya ha dicho algo en la partida
+  let supoAlgo = reanudada; // el rival ya ha dicho algo en la partida (en una que se sigue tras recargar, sí)
   let distintas = 0; // latidos seguidos con una huella que no casa con mis jugadas
   let terminada = null; // mi final, ya mandado: { fin, desde }
   let suyoVisto = false; // su final ya ha llegado (llega por dos temas: el de la partida y el guardado)
@@ -1020,14 +1020,18 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
 // `find({ time, name, onStatus })`: busca rival y resuelve con { info, color, time, opponentName }, o null si
 // se cancela.
 // `onStatus({ phase: 'connecting' | 'searching' | 'found' | 'error', seekers })`.
-export function createOnline({ urls = BROKERS } = {}) {
+// `me`: mi identificador (el de siempre, guardado en el aparato: `guardadas-online.js`).
+export function createOnline({ urls = BROKERS, me = randomId() } = {}) {
   let bus = null;
   let busca = null;
   let busquedas = 0; // cada búsqueda (y cada cancelación) cambia el número: lo que llegue tarde no cuenta
-  const me = randomId();
+  // El cliente MQTT, con una marca de esta carga de la página: con el mismo identificador de siempre, la conexión
+  // que dejó colgada la carga de antes se peleaba con la nueva, y sus mensajes (con los mismos números que antes)
+  // el rival los tiraba por repetidos. Solo letras y cifras, y como mucho 23: lo que todo broker acepta.
+  const clientId = `b${me}${Math.random().toString(36).slice(2, 7)}`;
 
   function getBus() {
-    if (!bus) bus = createBus({ urls, clientId: `bchess-${me}` });
+    if (!bus) bus = createBus({ urls, clientId });
     return bus;
   }
 
@@ -1064,9 +1068,11 @@ export function createOnline({ urls = BROKERS } = {}) {
       return { info, color: info.white === me ? 'white' : 'black', time: info.time, opponentName: info.opponentName ?? '' };
     },
     // La sesión de la partida emparejada; `moves()` da las jugadas que conoce el juego (`createSession`).
-    session(info, moves) {
+    // Una partida que se sigue tras recargar: `yo`, el identificador con que se jugó, y `reanudada` (el rival ya
+    // estaba en ella: no se le espera a que llegue).
+    session(info, moves, { yo = me, reanudada = false } = {}) {
       const b = getBus();
-      return createSession({ bus: b, me, game: info.game, opponent: info.opponent, white: info.white, moves, enlaceBien: () => b.sano });
+      return createSession({ bus: b, me: yo, game: info.game, opponent: info.opponent, white: info.white, moves, reanudada, enlaceBien: () => b.sano });
     },
     cancel() {
       busquedas += 1;

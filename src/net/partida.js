@@ -12,18 +12,20 @@ export const MAX_MALAS = 3;
 // navegador. Los tiempos (`now`) son los del reloj de la partida, en milisegundos.
 //
 // `info`: el emparejamiento ({ game, white, time, opponent, opponentName }); `yo`: mi identificador en la
-// partida; `miNombre`: el mío.
-export function createPartidaOnline({ info, yo, miNombre = '', now = 0 }) {
+// partida; `miNombre`: el mío. Para seguir una partida guardada (`guardadas-online.js`): sus `moves` (ya
+// comprobadas), su `reloj` ({ white, black }, como va ahora) y sus `nombres`.
+export function createPartidaOnline({ info, yo, miNombre = '', now = 0, moves = [], reloj = null, nombres = null }) {
   const color = info.white === yo ? 'white' : 'black';
   const rival = color === 'white' ? 'black' : 'white';
   const control = findTimeControl(info.time);
   const p = {
     id: info.game,
+    yo,
     opponent: info.opponent,
     color,
     rival,
     time: info.time ?? 'libre:libre',
-    nombres: { [color]: cleanName(miNombre), [rival]: cleanName(info.opponentName) },
+    nombres: nombres ? { white: cleanName(nombres.white), black: cleanName(nombres.black) } : { [color]: cleanName(miNombre), [rival]: cleanName(info.opponentName) },
     control,
     clock: control ? createChessClock(control) : null,
     start: INITIAL_FEN,
@@ -133,7 +135,12 @@ export function createPartidaOnline({ info, yo, miNombre = '', now = 0 }) {
       return null;
     },
   };
-  p.clock?.start('white', now);
+  for (const uci of moves) {
+    p.position.playUci(uci);
+    p.moves.push(uci);
+  }
+  if (p.clock && reloj) p.clock.restore(reloj);
+  p.clock?.start(p.position.side, now); // corre el del que mueve (al empezar, las blancas)
   return p;
 }
 

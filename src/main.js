@@ -28,8 +28,9 @@ import { endsOf, gridOf, pickPair, pickTurn, place } from './moves/dodge.js';
 import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
 import { createCpu } from './chess/cpu.js';
-import { createOnline } from './net/online.js';
+import { createOnline, randomId } from './net/online.js';
 import { MAX_MALAS, createPartidaOnline, decideBandera, decideFin, decideReclamo, finDeTodos, mandaElSuyo } from './net/partida.js';
+import { ONLINE_KEY, identidadOnline, packOnline, packTodas, readOnline } from './net/guardadas-online.js';
 import { createOnlineUi } from './ui/online-ui.js';
 import { createLobbyUi } from './ui/lobby-ui.js';
 import { cleanName } from './names.js';
@@ -385,8 +386,10 @@ async function start() {
   }
   // Las partidas online (`net/online.js` lleva los mensajes y `net/partida.js` las cuentas de cada una): online,
   // la del tablero es `game.partida`, con su sesión (`sesion()`); las jugadas del rival llegan a `game.remote`
-  // (número de jugada → jugada), que es el de la partida.
-  const online = createOnline();
+  // (número de jugada → jugada), que es el de la partida. Con la identidad de siempre, la que permite seguirlas tras
+  // recargar (`net/guardadas-online.js`); si otra pestaña ya la tiene, esta va con una de usar y tirar.
+  const identidad = await identidadOnline({ nuevo: randomId });
+  const online = createOnline({ me: identidad.me });
   const onlineUi = createOnlineUi();
   const menu = createMenu({
     onShow: () => attract.start(),
@@ -427,7 +430,12 @@ async function start() {
   function avisaVersion() {
     if (!versionNueva || state.phase !== 'menu') return;
     versionNueva = false;
-    salaUi.notify({ texto: t('version.nueva'), boton: t('version.actualizar'), accion: () => location.reload(), dura: 0, icono: '✨' });
+    // Recargar ya no pierde las partidas online: se guardan antes y vuelven al cargar (`guardaOnline`).
+    const actualiza = () => {
+      guardaOnlineYa();
+      location.reload();
+    };
+    salaUi.notify({ texto: t('version.nueva'), boton: t('version.actualizar'), accion: actualiza, dura: 0, icono: '✨' });
   }
   alHaberVersion.add(avisaVersion);
   const local = /^(localhost|127\.|\[::1\])/.test(location.hostname);
@@ -1054,7 +1062,10 @@ async function start() {
     game.enCurso = plan.uci;
     guardarPartida();
     // Online, la del jugador sale ya hacia el rival: así la ven a la vez los dos.
-    if (sesion() && game.position.side === game.human) sesion().move(game.moves.length, plan.uci);
+    if (sesion() && game.position.side === game.human) {
+      guardaOnlineYa(); // ya, con ella: si la página se recarga a media animación, al volver está hecha
+      sesion().move(game.moves.length, plan.uci);
+    }
     select(null);
     highlights.check(null);
     try {
@@ -1327,7 +1338,10 @@ async function start() {
         if (pulsado === false || id !== game.id || state.phase !== 'playing') return;
       }
       game.clock.press(movio, relojAhora());
-      if (game.mode === 'online') relojOnline(movio);
+      if (game.mode === 'online') {
+        relojOnline(movio);
+        guardaOnline();
+      }
     }
     paintTurn();
     if (game.mode === 'pvp') await view.flipTo(side === 'black');
@@ -1449,14 +1463,19 @@ async function start() {
 
   // El registro de la partida con el rival de `info` y, después (que el primer latido ya cuente con él), su sesión.
   // `origen`: 'azar' (emparejamiento) o 'reto'; `anterior`: la partida online que había en el tablero, a la que
-  // se vuelve si esta no llega a empezar.
-  function crearPartida(info, { origen = 'azar', anterior = null } = {}) {
-    const p = createPartidaOnline({ info, yo: online.me, miNombre: game.miNombre, now: Date.now() });
-    const session = online.session(info, () => p.conocidas(enCursoDe(p)));
+  // se vuelve si esta no llega a empezar. `guardada`: una que se sigue tras recargar (`readOnline`).
+  function crearPartida(info, { origen = 'azar', anterior = null, guardada = null } = {}) {
+    const yo = guardada?.yo ?? online.me;
+    const p = createPartidaOnline({
+      info, yo, miNombre: game.miNombre, now: Date.now(),
+      moves: guardada?.moves, reloj: guardada?.reloj, nombres: guardada?.nombres,
+    });
+    const session = online.session(info, () => p.conocidas(enCursoDe(p)), { yo, reanudada: Boolean(guardada) });
     p.session = session;
     p.origen = origen;
     p.anterior = anterior;
     partidas.push(p);
+    guardaOnline();
     session.on('move', ({ n, uci }) => {
       if (p.recibe(n, uci, enCursoDe(p))) llegaAlgo(p);
     });
@@ -1464,7 +1483,10 @@ async function start() {
     session.on('sync', ({ moves }) => {
       if (p.sincroniza(moves, enCursoDe(p))) llegaAlgo(p);
     });
-    session.on('press', (msg) => p.pulsa(msg, Date.now()));
+    session.on('press', (msg) => {
+      p.pulsa(msg, Date.now());
+      guardaOnline();
+    });
     session.on('lost', () => {
       if (activa(p) && state.phase === 'playing') ui.banner(t('online.perdido'), { tipo: 'tablas', ms: 4000 });
     });
@@ -1498,6 +1520,7 @@ async function start() {
     session.on('reloj', ({ n, white, black }) => {
       if (p.acabada || n !== p.jugadas(enCursoDe(p)).length) return;
       p.aplicaTiempo({ side: p.rival, white, black }, Date.now());
+      guardaOnline();
       p.reclamo = null;
     });
     // El rival no llegó a empezarla (se había emparejado con otro, o se perdió su confirmación): fuera, aunque yo
@@ -1553,6 +1576,7 @@ async function start() {
     p.aviso = true;
     salaUi.notify({ texto: t('aviso.movio', { nombre: nombreRival(p) }), boton: t('aviso.ver'), accion: () => irAPartida(p) });
     pintaPartidas();
+    guardaOnline();
   }
 
   const nombreRival = (p) => p.nombres[p.rival] || t('sala.anonimo');
@@ -1593,6 +1617,7 @@ async function start() {
     p.finPendiente = null;
     p.clock?.pause(Date.now());
     if (!fin) p.session.terminar({ ...deTodos, moves: p.moves });
+    guardaOnline(); // acabada: ya no se guarda para seguirla
   }
 
   // Los dos han acabado la partida a la vez, cada uno a su manera, y manda la suya (`decideFin`): se cambia aquí.
@@ -1653,19 +1678,63 @@ async function start() {
     if (i >= 0) partidas.splice(i, 1);
     if (!p.acabada) p.session.leave();
     pintaPartidas();
+    guardaOnline();
+  }
+
+  // LAS PARTIDAS ONLINE, GUARDADAS EN EL APARATO (`net/guardadas-online.js`): si la página se recarga (el iPhone
+  // tira las pestañas de fondo; «Actualizar» recarga), al volver siguen ahí, en espera, con sus relojes. Se guardan
+  // al hacer o recibir una jugada, con cada reloj que llega, al acabar una, al esconderse la app y, con reloj, cada
+  // pocos segundos (juntando lo que llegue seguido). Solo la pestaña titular (`identidadOnline`).
+  let guardaOnlinePlazo = 0;
+  function guardaOnline() {
+    if (!identidad.titular) return;
+    clearTimeout(guardaOnlinePlazo);
+    guardaOnlinePlazo = setTimeout(guardaOnlineYa, 300);
+  }
+  function guardaOnlineYa() {
+    if (!identidad.titular) return;
+    clearTimeout(guardaOnlinePlazo);
+    const ahora = Date.now();
+    const vivas = partidasVivas().map((p) => packOnline(p, { enCurso: enCursoDe(p), now: ahora }));
+    try {
+      if (vivas.length) localStorage.setItem(ONLINE_KEY, packTodas(vivas));
+      else localStorage.removeItem(ONLINE_KEY);
+    } catch {
+      // sin almacenamiento: se juega igual, sin poder seguirlas tras recargar
+    }
+  }
+  // Y al arrancar, las que había: en espera, como estaban (con el tiempo que ha pasado ya descontado a quien le
+  // tocaba). Si el rival las acabó mientras tanto, su final guardado llega en cuanto se suscriben.
+  function recuperaOnline() {
+    if (!identidad.titular) return 0;
+    let guardadas = [];
+    try {
+      guardadas = readOnline(localStorage.getItem(ONLINE_KEY), Date.now());
+    } catch {
+      return 0;
+    }
+    for (const g of guardadas) if (!yaEsta(g.info)) crearPartida(g.info, { origen: g.origen, guardada: g });
+    ponEstado('menu');
+    return guardadas.length;
   }
 
   // En espera, los relojes siguen: una vez por segundo, quién se ha quedado sin tiempo (`banderaOnline`), en ellas y en
   // la del tablero, y la lista con sus relojes. En un `setInterval` y no en el bucle de dibujo: con la pestaña de
   // fondo el dibujo se para, pero esto sigue (frenado, pero sigue).
+  let vueltasReloj = 0;
   function revisaRelojes() {
     const ahora = Date.now();
     for (const p of partidasVivas()) {
       if (p.clock && (!activa(p) || relojVivo())) banderaOnline(p, ahora);
     }
     pintaPartidas();
+    // Y con algún reloj corriendo, a guardarlas de vez en cuando (por si la app se va sin avisar).
+    vueltasReloj += 1;
+    if (vueltasReloj % 5 === 0 && partidasVivas().some((p) => p.clock)) guardaOnline();
   }
   setInterval(revisaRelojes, 1000);
+  // Las que había antes de recargar, de vuelta ya (el aviso sale con el menú).
+  const recuperadas = recuperaOnline();
 
   // Lo que se enseña de cada una (la sala y el botón «Tus partidas»).
   function pintaPartidas() {
@@ -2305,27 +2374,40 @@ async function start() {
       return null;
     }
   }
-  // Lo que el menú cuenta de ella en «Continuar partida».
+  // Lo que el menú cuenta en «Continuar partida»: la online en la que me toca, si hay alguna (tras recargar, por
+  // ejemplo); si no, la de aquí guardada; y si tampoco, otra online en marcha.
+  let continuaOnline = null; // la online que se ofrece ahí
   const resumenGuardada = () => {
+    const enMarcha = partidasVivas();
     const g = partidaGuardada();
+    const p = enMarcha.find((x) => x.position.side === x.color) ?? (g ? null : enMarcha[0]);
+    continuaOnline = p?.id ?? null;
+    if (p) return { mode: 'online', time: p.time, moves: p.moves.length, rival: nombreRival(p), toca: p.position.side === p.color };
     return g && { mode: g.mode, level: g.level, time: g.time, moves: g.moves.length, cuando: g.cuando, nombres: g.nombres };
   };
   // Lo elegido en el menú: continuar la guardada (si sigue ahí) o una partida nueva.
   async function empezar(eleccion) {
-    const guardada = eleccion.continuar ? partidaGuardada() : null;
+    const online = eleccion.continuar && continuaOnline ? partidas.find((p) => p.id === continuaOnline) : null;
+    const guardada = eleccion.continuar && !online ? partidaGuardada() : null;
     const elegida = eleccion.continuar ? menu.choice : eleccion;
-    const enEspera = eleccion.partida ? partidas.find((p) => p.id === eleccion.partida) : null;
+    const enEspera = online ?? (eleccion.partida ? partidas.find((p) => p.id === eleccion.partida) : null);
     if (enEspera) await activarPartida(enEspera);
     else if (guardada) await newGame({ ...guardada, guardada });
     else if (eleccion.reto) await empezarOnline(eleccion.reto, { origen: 'reto' });
     else if (elegida.mode === 'online') await jugarOnline(elegida);
     else await newGame(elegida);
   }
+  // (Y las online: en el iPhone, cambiar de app no avisa con `pagehide`, solo con `visibilitychange`.)
   const alEsconderse = () => {
-    if (document.visibilityState === 'hidden') guardarPartida();
+    if (document.visibilityState !== 'hidden') return;
+    guardarPartida();
+    guardaOnlineYa();
   };
   document.addEventListener('visibilitychange', alEsconderse);
-  window.addEventListener('pagehide', () => guardarPartida());
+  window.addEventListener('pagehide', () => {
+    guardarPartida();
+    guardaOnlineYa();
+  });
 
   // Al menú: vuelve la melodía de la carga y, al pulsar JUGAR, se funde y empieza la partida elegida.
   async function toMenu() {
@@ -2641,6 +2723,11 @@ async function start() {
   // Todo cargado: la pantalla de carga se funde y debajo espera el menú, con la melodía de la carga
   // sonando todavía. Al pulsar JUGAR se funde la música y empieza la partida.
   const eleccion = menu.show({ guardada: resumenGuardada() });
+  // Si había partidas online en marcha antes de recargar, se dice (y «Ver» abre la lista).
+  if (recuperadas) {
+    const texto = recuperadas === 1 ? t('online.reanudar1') : t('online.reanudar', { n: recuperadas });
+    salaUi.notify({ texto, boton: t('aviso.ver'), accion: () => salaUi.open() });
+  }
   await loading.finish();
   const elegido = await eleccion;
   music.endIntro();
