@@ -1418,10 +1418,14 @@ async function start() {
   }
 
   // El registro de la partida con el rival de `info` y, después (que el primer latido ya cuente con él), su sesión.
-  function crearPartida(info) {
+  // `origen`: 'azar' (emparejamiento) o 'reto'; `anterior`: la partida online que había en el tablero, a la que
+  // se vuelve si esta no llega a empezar.
+  function crearPartida(info, { origen = 'azar', anterior = null } = {}) {
     const p = createPartidaOnline({ info, yo: online.me, miNombre: game.miNombre, now: performance.now() });
     const session = online.session(info, () => p.conocidas(enCursoDe(p)));
     p.session = session;
+    p.origen = origen;
+    p.anterior = anterior;
     partidas.push(p);
     session.on('move', ({ n, uci }) => {
       if (p.recibe(n, uci, enCursoDe(p))) llegaAlgo(p);
@@ -1441,12 +1445,20 @@ async function start() {
     session.on('bye', () => seVa(p, 'abandon'));
     session.on('gone', () => seVa(p, 'abandon'));
     session.on('desync', () => anula(p));
-    // Se había emparejado con otro a la vez y no llegó a empezar: fuera; y si estaba en el tablero, a buscar otra.
+    // El rival no llegó a empezarla (se había emparejado con otro, o se perdió su confirmación): fuera, aunque yo
+    // ya hubiera movido, y se dice. Si estaba en el tablero: si buscaba al azar, a buscar otro; si era un reto, de
+    // vuelta a la partida de antes (o al menú). Antes, con una jugada hecha se quedaba esperando a un rival que
+    // nunca iba a llegar, y tras un reto se ponía a buscar uno al azar.
     session.on('cancel', () => {
-      if (p.moves.length || p.acabada) return;
+      if (p.acabada) return;
       const estaba = activa(p);
       quitaPartida(p);
-      if (estaba && state.phase === 'playing') jugarOnline({ time: p.time });
+      salaUi.notify({ texto: t('online.noLlega', { nombre: nombreRival(p) }), icono: '⚔' });
+      if (!estaba || state.phase !== 'playing') return;
+      const antes = p.anterior && partidas.includes(p.anterior) ? p.anterior : null;
+      if (p.origen === 'azar') jugarOnline({ time: p.time, volverA: antes });
+      else if (antes) volverAPartida(antes);
+      else toMenu();
     });
     pintaPartidas();
     return p;
@@ -1572,6 +1584,12 @@ async function start() {
       onlineUi.hide();
     }
     activarPartida(p);
+  }
+
+  // De vuelta a una partida online que esperaba (tras cancelar una búsqueda, o si la nueva no llegó a empezar).
+  async function volverAPartida(p) {
+    state.phase = 'starting';
+    await activarPartida(p);
   }
 
   // Pone en el tablero la partida online `p`. La que había se queda en espera (si es online) o guardada
@@ -1982,8 +2000,9 @@ async function start() {
   }
 
   // ONLINE: busca rival (la pantalla del radar) y, al encontrarlo, empieza la partida con el color que le
-  // haya tocado y el reloj acordado. Si se cancela, o no hay conexión, vuelve al menú.
-  async function jugarOnline({ time = 'libre:libre', nombres = null } = {}) {
+  // haya tocado y el reloj acordado. Si se cancela, o no hay conexión, vuelve al menú. `volverA`: la partida
+  // online a la que volver si se cancela (si no se dice, la que esté en el tablero).
+  async function jugarOnline({ time = 'libre:libre', nombres = null, volverA = undefined } = {}) {
     if (state.phase === 'searching' || state.phase === 'starting') return; // un doble toque: ya se está en ello
     if (nombres) ponMiNombre(nombres.yo);
     // Desde una partida (la sala está también a mitad de partida), primero acaba la jugada del tablero (con su
@@ -1995,7 +2014,8 @@ async function start() {
       state.phase = 'playing';
     }
     // Y al cancelar se vuelve a ella; la online, mientras tanto, en espera.
-    const volver = state.phase === 'playing' ? { partida: game.mode === 'online' ? game.partida : null } : null;
+    const volver = volverA !== undefined ? { partida: volverA }
+      : state.phase === 'playing' ? { partida: game.mode === 'online' ? game.partida : null } : null;
     if (volver?.partida) ponEnEspera(volver.partida);
     state.phase = 'searching';
     ponEstado('seeking');
@@ -2030,8 +2050,7 @@ async function start() {
     if (!r) {
       onlineUi.hide();
       if (volver?.partida && partidas.includes(volver.partida)) {
-        state.phase = 'starting';
-        await activarPartida(volver.partida);
+        await volverAPartida(volver.partida);
       } else if (volver && game.mode !== 'online') {
         state.phase = 'playing'; // la partida de aquí sigue donde estaba
         ponEstado('menu');
@@ -2043,12 +2062,12 @@ async function start() {
       }
       return;
     }
-    await empezarOnline(r.info);
+    await empezarOnline(r.info, { origen: 'azar', anterior: volver?.partida ?? null });
   }
 
   // La partida online con el rival de `info` (del emparejamiento o de un reto): un momento el «¡Rival
-  // encontrado!» y a jugar.
-  async function empezarOnline(info) {
+  // encontrado!» y a jugar. `origen` y `anterior`, como en `crearPartida`.
+  async function empezarOnline(info, { origen = 'azar', anterior = null } = {}) {
     state.phase = 'starting';
     salaUi.clearInvites();
     salaUi.close();
@@ -2056,7 +2075,7 @@ async function start() {
     onlineUi.show(() => {});
     onlineUi.status({ phase: 'found', color, rival: info.opponentName });
     await new Promise((resolve) => setTimeout(resolve, 1700));
-    const partida = crearPartida(info);
+    const partida = crearPartida(info, { origen, anterior });
     if (state.phase !== 'starting') {
       partida.session.leave('resign'); // se fue justo ahora: que el rival no se quede esperando
       quitaPartida(partida);
@@ -2072,6 +2091,7 @@ async function start() {
     if (state.phase === 'starting' || yaEsta(info)) return;
     salaUi.clearInvites();
     if (state.phase === 'menu' && menu.answer({ ...menu.choice, mode: 'online', reto: info })) return; // sigue `toMenu`
+    let anterior = null; // la online del tablero: si esta no llega a empezar, se vuelve a ella
     if (state.phase === 'searching') online.cancel(); // `jugarOnline` ve que ya no busca y se aparta
     else if (state.phase === 'playing') {
       guardarPartida(); // la partida de aquí se puede continuar luego
@@ -2082,10 +2102,13 @@ async function start() {
         if (state.phase !== 'starting') return;
       }
       // Y si es online, se queda en espera ya: lo que mande su rival mientras empieza esta, se juega.
-      if (game.mode === 'online') ponEnEspera(game.partida);
+      if (game.mode === 'online') {
+        anterior = game.partida;
+        ponEnEspera(game.partida);
+      }
     }
     ui.closeAll();
-    await empezarOnline(info);
+    await empezarOnline(info, { origen: 'reto', anterior });
   }
 
   // LA PARTIDA GUARDADA (`chess/saved-game.js`): tras cada jugada (nada más decidirla), al deshacer, al
@@ -2140,7 +2163,7 @@ async function start() {
     const enEspera = eleccion.partida ? partidas.find((p) => p.id === eleccion.partida) : null;
     if (enEspera) await activarPartida(enEspera);
     else if (guardada) await newGame({ ...guardada, guardada });
-    else if (eleccion.reto) await empezarOnline(eleccion.reto);
+    else if (eleccion.reto) await empezarOnline(eleccion.reto, { origen: 'reto' });
     else if (elegida.mode === 'online') await jugarOnline(elegida);
     else await newGame(elegida);
   }

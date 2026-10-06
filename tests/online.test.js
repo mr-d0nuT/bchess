@@ -478,3 +478,149 @@ test('si el rival anula la partida, aquí también; y se le pueden volver a pedi
   assert.equal(anulada, 1);
   assert.equal(adios, 0, 'no es un adiós (ni gana nadie)');
 });
+
+// ---- El que no tiene red puedo ser yo ----
+
+// La partida de «b2» con la hora en la mano: `pasa(ms)` adelanta la hora y da los latidos que tocan (uno cada 4 s);
+// `adelanta(ms)`, sin latidos (una pestaña de fondo, o el móvil dormido). `dice` habla por el rival y `estado`
+// hace de bus.
+function partidaConReloj({ enlace = () => true } = {}) {
+  let hora = 0;
+  let latir = null;
+  const enviados = [];
+  const oyentes = new Set();
+  const estados = new Set();
+  const bus = {
+    subscribe: () => {},
+    unsubscribe: () => {},
+    publish: (topic, msg) => enviados.push(msg),
+    onMessage: (fn) => {
+      oyentes.add(fn);
+      return () => oyentes.delete(fn);
+    },
+    onEstado: (fn) => {
+      estados.add(fn);
+      return () => estados.delete(fn);
+    },
+  };
+  const timers = { every: (fn) => (latir = fn), stop: () => (latir = null) };
+  const sesion = createSession({ bus, me: 'b2', game: 'a1-b2-x', opponent: 'a1', white: 'a1', moves: () => [], now: () => hora, timers, enlaceBien: () => enlace() });
+  const eventos = [];
+  for (const k of ['lost', 'back', 'gone', 'cancel']) sesion.on(k, () => eventos.push(k));
+  return {
+    eventos,
+    pings: () => enviados.filter((m) => m.k === 'ping').length,
+    pasa(ms) {
+      for (let i = 0; i < ms; i += 4000) {
+        hora += Math.min(4000, ms - i);
+        latir?.();
+      }
+    },
+    adelanta(ms) {
+      hora += ms;
+    },
+    dice: (msg) => {
+      for (const fn of [...oyentes]) fn(gameTopic('a1-b2-x'), { from: 'a1', ...msg });
+    },
+    estado: (e) => {
+      for (const fn of [...estados]) fn(e);
+    },
+  };
+}
+
+test('sin conexión sana, el silencio del rival no cuenta: ni «perdido» ni «ido»; con ella, sí', () => {
+  let sana = false;
+  const p = partidaConReloj({ enlace: () => sana });
+  p.dice({ k: 'ping', n: 0 });
+  p.pasa(100000); // el móvil sin cobertura: el rival calla porque no me llega nada
+  assert.deepEqual(p.eventos, []);
+  sana = true;
+  p.pasa(20000);
+  assert.deepEqual(p.eventos, []);
+  p.pasa(4000);
+  assert.deepEqual(p.eventos, ['lost'], 'a los 20 s de silencio con la conexión sana');
+  p.pasa(96000);
+  assert.deepEqual(p.eventos, ['lost'], 'a los 120 s, aún no');
+  p.pasa(4000);
+  assert.deepEqual(p.eventos, ['lost', 'gone']);
+});
+
+test('al volver al primer plano, el silencio del rival vuelve a contar desde cero', () => {
+  const p = partidaConReloj();
+  p.dice({ k: 'ping', n: 0 });
+  p.adelanta(122000); // dos minutos en el bolsillo, sin un latido
+  p.estado('revive');
+  p.pasa(16000);
+  assert.deepEqual(p.eventos, [], 'sin esto, al primer latido: «se ha ido»');
+});
+
+test('si llega su latido y el mío lleva un rato sin salir (una pestaña de fondo), le contesto con otro', () => {
+  const p = partidaConReloj();
+  assert.equal(p.pings(), 1, 'el del principio');
+  p.adelanta(5000);
+  p.dice({ k: 'ping', n: 0 });
+  assert.equal(p.pings(), 2);
+  p.adelanta(1000);
+  p.dice({ k: 'ping', n: 0 });
+  assert.equal(p.pings(), 2, 'con uno reciente basta');
+});
+
+test('si el rival no dice nada en 15 s de conexión sana, no ha llegado a la partida', () => {
+  let sana = true;
+  const p = partidaConReloj({ enlace: () => sana });
+  p.pasa(12000);
+  assert.deepEqual(p.eventos, []);
+  sana = false;
+  p.pasa(60000); // sin red no cuenta
+  assert.deepEqual(p.eventos, []);
+  sana = true;
+  p.pasa(4000);
+  assert.deepEqual(p.eventos, [], 'al volver, aún le quedan unos segundos');
+  p.pasa(4000);
+  assert.deepEqual(p.eventos, ['cancel']);
+  // Y con una sola noticia suya, nunca.
+  const q = partidaConReloj();
+  q.dice({ k: 'want' });
+  q.pasa(19000);
+  assert.deepEqual(q.eventos, []);
+});
+
+test('si se pierde el primer «go», el repetido empareja a los dos igual', async () => {
+  let gos = 0;
+  const net = red({ drop: (m) => m.k === 'go' && gos++ === 0 });
+  const a = createMatchmaker({ bus: net.bus('a'), me: 'a1', time: 'libre:libre', timers: rapido });
+  const b = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'libre:libre', timers: rapido });
+  const [fa, fb] = await conPlazo(Promise.all([a.found, b.found]));
+  assert.equal(fa.game, fb.game);
+  assert.equal(gos, 2, 'el primero se perdió y llegó el segundo');
+});
+
+test('si no llega ningún «go», a quien lo mandó le llega un «cancel» en su partida: su rival no la empezó', async () => {
+  const net = red({ drop: (m) => m.k === 'go' });
+  const a = createMatchmaker({ bus: net.bus('a'), me: 'a1', time: 'libre:libre', timers: rapido });
+  const b = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'libre:libre', timers: rapido });
+  const fa = await conPlazo(a.found); // «a1» ofrece y confirma: para él, ya hay partida
+  const quieto = { every: () => 0, stop: () => {} };
+  const sesion = createSession({ bus: net.bus('a'), me: 'a1', game: fa.game, opponent: 'b2', white: fa.white, moves: () => [], timers: quieto });
+  await conPlazo(new Promise((resolve) => sesion.on('cancel', resolve)), 1000);
+  assert.equal(b.state, 'seeking', 'y el otro sigue buscando');
+  b.stop();
+});
+
+test('si no llega el «invite-go», quien aceptó se entera (null) y a quien retó le llega un «cancel»', async () => {
+  const net = red({ drop: (m) => m.k === 'invite-go' });
+  const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: rapido });
+  const b = createLobby({ bus: net.bus('b'), me: 'b2', timers: rapido });
+  const llega = new Promise((resolve) => b.onInvite(resolve));
+  const reto = a.invite('b2', { time: 'blitz:3+2' });
+  const visto = await conPlazo(llega);
+  const acepta = b.acceptInvite(visto.game);
+  const mio = await conPlazo(reto.promise); // quien retó ya tiene partida
+  const quieto = { every: () => 0, stop: () => {} };
+  const sesion = createSession({ bus: net.bus('a'), me: 'a1', game: mio.game, opponent: 'b2', white: mio.white, moves: () => [], timers: quieto });
+  const cancelada = new Promise((resolve) => sesion.on('cancel', resolve));
+  assert.equal(await conPlazo(acepta), null);
+  await conPlazo(cancelada, 1000);
+  a.close();
+  b.close();
+});

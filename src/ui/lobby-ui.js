@@ -283,7 +283,9 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
       no.disabled = true;
       quitaAviso(reto.game);
       const info = await lobby.acceptInvite(reto.game);
+      // Si no llega su confirmación (o lo retiró justo entonces), se dice: antes, «Aceptar» no hacía nada.
       if (info) onMatch(info);
+      else notifica({ texto: t('reto.fallo', { nombre: reto.name || t('reto.anonimo') }), icono: '⚔' });
     });
     no.addEventListener('click', () => {
       lobby.declineInvite(reto.game);
@@ -294,52 +296,54 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
     setTimeout(() => si.focus({ preventScroll: true }), 50);
   });
 
+  // Un aviso arriba (el rival ha movido en una partida en espera, o se ha acabado), con un botón.
+  // `dura`: lo que se queda (en ms; 0, hasta que se toque). `icono`: el dibujo de la izquierda.
+  function notifica({ texto, boton, accion, dura = 8000, icono: dibujo = '♞' }) {
+    const el = document.createElement('div');
+    el.className = 'reto aviso';
+    el.setAttribute('role', 'status');
+    const icono = document.createElement('span');
+    icono.className = 'reto-icono';
+    icono.setAttribute('aria-hidden', 'true');
+    icono.textContent = dibujo;
+    const textos = document.createElement('span');
+    textos.className = 'reto-textos';
+    const b = document.createElement('b');
+    b.textContent = texto;
+    textos.append(b);
+    el.append(icono, textos);
+    const quita = () => {
+      el.classList.add('sale');
+      setTimeout(() => el.remove(), 300);
+    };
+    if (boton && accion) {
+      const ver = document.createElement('button');
+      ver.type = 'button';
+      ver.className = 'reto-si';
+      ver.textContent = boton;
+      ver.addEventListener('click', () => {
+        quita();
+        accion();
+      });
+      el.append(ver);
+    }
+    if (dura > 0) {
+      const barra = document.createElement('span');
+      barra.className = 'reto-tiempo';
+      barra.style.setProperty('--dura', `${dura / 1000}s`);
+      el.append(barra);
+      setTimeout(quita, dura);
+    }
+    retosCaja.append(el);
+  }
+
   return {
     // Tus partidas online: [{ id, rival, rivalId, color, jugada, aqui, toca, aviso, acabada, reloj }].
     setGames(lista) {
       partidas = lista;
       if (!root.hidden) pintaPartidas();
     },
-    // Un aviso arriba (el rival ha movido en una partida en espera, o se ha acabado), con un botón.
-    // `dura`: lo que se queda (en ms; 0, hasta que se toque). `icono`: el dibujo de la izquierda.
-    notify({ texto, boton, accion, dura = 8000, icono: dibujo = '♞' }) {
-      const el = document.createElement('div');
-      el.className = 'reto aviso';
-      el.setAttribute('role', 'status');
-      const icono = document.createElement('span');
-      icono.className = 'reto-icono';
-      icono.setAttribute('aria-hidden', 'true');
-      icono.textContent = dibujo;
-      const textos = document.createElement('span');
-      textos.className = 'reto-textos';
-      const b = document.createElement('b');
-      b.textContent = texto;
-      textos.append(b);
-      el.append(icono, textos);
-      const quita = () => {
-        el.classList.add('sale');
-        setTimeout(() => el.remove(), 300);
-      };
-      if (boton && accion) {
-        const ver = document.createElement('button');
-        ver.type = 'button';
-        ver.className = 'reto-si';
-        ver.textContent = boton;
-        ver.addEventListener('click', () => {
-          quita();
-          accion();
-        });
-        el.append(ver);
-      }
-      if (dura > 0) {
-        const barra = document.createElement('span');
-        barra.className = 'reto-tiempo';
-        barra.style.setProperty('--dura', `${dura / 1000}s`);
-        el.append(barra);
-        setTimeout(quita, dura);
-      }
-      retosCaja.append(el);
-    },
+    notify: notifica,
     // El nombre con el que se aparece en la sala.
     setName(nombre) {
       miNombre = nombre;

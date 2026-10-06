@@ -66,8 +66,11 @@ const SEEN_FOR = 7000; // un anuncio de hace más de esto ya no cuenta: se ha id
 const ANSWER_WAIT = 4500; // lo que se espera a que contesten a una oferta (o a que confirmen)
 const RETRY_AFTER = 6000; // a quien no contestó, no se le vuelve a ofrecer hasta pasado esto
 export const PING_EVERY = 4000;
+// Los silencios del rival solo cuentan mientras MI conexión está sana (ver `createSession`).
 export const LOST_AFTER = 20000; // sin noticias del rival en este tiempo: conexión perdida
-export const GONE_AFTER = 90000; // y en este: se ha ido (cerró la app sin despedirse)
+export const GONE_AFTER = 120000; // y en este: se ha ido (cerró la app sin despedirse)
+export const START_WAIT = 15000; // sin una sola noticia del rival al empezar: no ha llegado a la partida
+const GO_AGAIN = 800; // el «go» (y el «invite-go») se manda dos veces: si se pierde el primero, una partida fantasma
 
 // Los temporizadores de verdad (envueltos: en el navegador, `setInterval` no se puede llamar como
 // método de otro objeto). Las pruebas pasan otros, más rápidos.
@@ -389,6 +392,8 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
         const game = msg.game;
         espera(() => {
           if (state === 'accepted' && accepted?.game === game) {
+            // Su «go» no ha llegado: se le dice, que él sí la habrá empezado (y si no, se quedaba esperando).
+            to(accepted.from, { k: 'cancel', game });
             accepted = null;
             state = 'seeking';
             tick();
@@ -399,7 +404,10 @@ export function createMatchmaker({ bus, me, time, name = '', now = Date.now, ran
       }
     } else if (msg.k === 'accept') {
       if (state === 'offering' && pending?.game === msg.game && pending.to === msg.from) {
-        to(msg.from, { k: 'go', game: msg.game });
+        // Dos veces: si el primero se pierde, yo empezaría la partida y él no (el repetido no hace nada).
+        const go = { k: 'go', game: msg.game };
+        to(msg.from, go);
+        timers.set(() => to(msg.from, go), GO_AGAIN);
         match({ game: pending.game, white: pending.white, time: pending.time, opponent: msg.from, opponentName: cleanName(msg.name) });
       } else {
         to(msg.from, { k: 'cancel', game: msg.game });
@@ -559,7 +567,10 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
       if (s && s.to === msg.from) {
         enviados.delete(msg.game);
         timers.clear(s.plazo);
-        to(msg.from, { k: 'invite-go', game: msg.game });
+        // Dos veces, como el «go» del emparejamiento: perdido el primero, él se quedaba sin partida y yo con una.
+        const go = { k: 'invite-go', game: msg.game };
+        to(msg.from, go);
+        timers.set(() => to(msg.from, go), GO_AGAIN);
         s.resolve({ game: msg.game, white: s.white, time: s.time, opponent: msg.from, opponentName: cleanName(msg.name) || s.name });
       } else {
         to(msg.from, { k: 'invite-cancel', game: msg.game });
@@ -654,7 +665,9 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
       to(reto.from, { k: 'invite-accept', game, name: yo.name });
       return new Promise((resolve) => {
         const plazo = timers.set(() => {
+          // Su confirmación no ha llegado: se le dice, que él sí la habrá empezado (y si no, se quedaba esperando).
           aceptando.delete(game);
+          to(reto.from, { k: 'invite-cancel', game });
           resolve(null);
         }, GO_WAIT);
         aceptando.set(game, { reto, resolve, plazo });
@@ -713,11 +726,22 @@ export function huella(moves) {
 // empieza como la mía), se anula, y se le dice al rival (un «bye» con `anulada`, que los de antes leen como
 // un adiós). Sin arreglos: haría falta deshacer jugadas en los dos tableros, y con lo que se comprueba ya
 // todo lo que llega, no debería pasar nunca.
-export function createSession({ bus, me, game, opponent, white, moves, now = Date.now, timers = TIMERS }) {
+//
+// EL QUE NO TIENE RED PUEDO SER YO. Con el móvil en el bolsillo dos minutos (o al pasar de wifi a datos), al
+// volver mi aparato veía al rival callado todo ese rato y lo daba por ido: «¡ganas!»; y él, que me había visto
+// callar a mí, también ganaba. Así que el silencio del rival solo cuenta mientras mi conexión está sana
+// (`enlaceBien`: algún broker me ha dicho algo hace poco); sin ella, o al volver al primer plano, el reloj del
+// silencio vuelve a cero. Y si su latido llega y el mío lleva un rato sin salir (una pestaña de fondo frena los
+// temporizadores, pero no los mensajes), le contesto con otro: que él tampoco me dé por ido.
+// Si al empezar el rival no dice nada en 15 s de conexión sana, no ha llegado a la partida ('cancel'), y lo
+// mismo si me lo dice él en mi buzón («cancel» o «invite-cancel»: su confirmación no llegó).
+export function createSession({ bus, me, game, opponent, white, moves, now = Date.now, timers = TIMERS, enlaceBien = () => true }) {
   const topic = gameTopic(game);
   const oyentes = new Map();
   const suyo = white === opponent ? 'white' : 'black'; // el color del rival
   let visto = now();
+  let empezada = now(); // para saber si el rival no llega a empezarla
+  let latidoEn = -Infinity; // cuándo salió mi último latido
   let perdido = false;
   let cerrada = false;
   let supoAlgo = false; // el rival ya ha dicho algo en la partida
@@ -730,7 +754,14 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
   };
   const late = () => {
     const mias = moves();
+    latidoEn = now();
     send('ping', { n: mias.length, h: huella(mias) });
+  };
+  // El silencio del rival vuelve a contar desde ahora (no sé si ha callado él o he callado yo); y si aún no ha
+  // llegado a la partida, le quedan al menos unos segundos de conexión sana para llegar.
+  const ceroSilencio = () => {
+    visto = now();
+    empezada = Math.max(empezada, now() - START_WAIT / 2);
   };
   function anula() {
     send('bye', { anulada: true });
@@ -757,7 +788,7 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
   const off = bus.onMessage((t, msg) => {
     if (cerrada || msg.from !== opponent) return;
     if (t === inbox(me)) {
-      if (msg.k === 'cancel' && msg.game === game && !supoAlgo) {
+      if ((msg.k === 'cancel' || msg.k === 'invite-cancel') && msg.game === game && !supoAlgo) {
         cerrar();
         emit('cancel');
       }
@@ -783,6 +814,7 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       }
       if (msg.n < mias.length) send('sync', { moves: mias });
       else if (msg.n > mias.length) send('want');
+      if (now() - latidoEn >= PING_EVERY) late(); // mi latido lleva un rato sin salir: que sepa que sigo
     } else if (msg.k === 'want') {
       send('sync', { moves: moves() });
     } else if (msg.k === 'move') {
@@ -814,6 +846,16 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
 
   const latido = timers.every(() => {
     late();
+    // Sin conexión sana, el silencio del rival no dice nada de él.
+    if (!enlaceBien()) {
+      ceroSilencio();
+      return;
+    }
+    if (!supoAlgo && now() - empezada > START_WAIT) {
+      cerrar();
+      emit('cancel');
+      return;
+    }
     if (!perdido && now() - visto > LOST_AFTER) {
       perdido = true;
       emit('lost');
@@ -824,8 +866,12 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     }
   }, PING_EVERY);
   late();
-  // Al volver la conexión, un latido ya: si algo se perdió mientras tanto, se pide en el momento.
-  const offEstado = bus.onEstado?.((estado) => estado === 'conectado' && late());
+  // Al volver la conexión, un latido ya: si algo se perdió mientras tanto, se pide en el momento. Y al volver
+  // al primer plano (`revive`), el silencio del rival vuelve a contar desde cero.
+  const offEstado = bus.onEstado?.((estado) => {
+    if (estado === 'conectado') late();
+    else if (estado === 'revive') ceroSilencio();
+  });
 
   // Se acabó del todo: ni latidos, ni oídos, ni su tema (antes se seguía suscrito a todas las partidas
   // jugadas, y al reconectar se volvían a pedir todas).
@@ -920,7 +966,8 @@ export function createOnline({ urls = BROKERS } = {}) {
     },
     // La sesión de la partida emparejada; `moves()` da las jugadas que conoce el juego (`createSession`).
     session(info, moves) {
-      return createSession({ bus: getBus(), me, game: info.game, opponent: info.opponent, white: info.white, moves });
+      const b = getBus();
+      return createSession({ bus: b, me, game: info.game, opponent: info.opponent, white: info.white, moves, enlaceBien: () => b.sano });
     },
     cancel() {
       busquedas += 1;
