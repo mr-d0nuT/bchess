@@ -28,6 +28,8 @@ html, body {
   background: rgba(0, 0, 0, 0.45);
   font: 12px/1 ui-monospace, Menlo, monospace;
 }
+/* En el móvil, la fila de botones (con el dónut delante) llega a la derecha: los fps, debajo de ella. */
+@media (max-width: 480px) { #fps { top: calc(max(10px, env(safe-area-inset-top)) + 46px); } }
 
 
 #aviso {
@@ -186,14 +188,18 @@ html, body {
 }
 
 
-/* Los botones de arriba a la izquierda. */
+/* Los botones de arriba a la izquierda, detrás del dónut. */
 #botones {
   position: absolute;
   top: max(10px, env(safe-area-inset-top));
-  left: max(12px, env(safe-area-inset-left));
+  left: calc(max(12px, env(safe-area-inset-left)) + 37px);
   display: flex;
   gap: 8px;
 }
+/* El dónut de mr_d0nuT (el distintivo del final de `index.html`, el mismo en todos los repos, que lo pone abajo a
+   la izquierda): aquí, en la esquina de arriba, el primero de la fila (lo pidió el usuario). Más específico que
+   el suyo, que se añade después. */
+html body #dnt-badge { top: max(10px, env(safe-area-inset-top)); bottom: auto; }
 .boton {
   display: grid;
   place-items: center;
@@ -520,5 +526,11 @@ html, body {
 .historial-piezas .historial-fig { font-size: 1em; }
 #historial[aria-pressed="true"] { border-color: rgba(255, 207, 107, 0.7); color: #ffd66b; }
 /* Con todos los botones a la vista (una online en espera mientras se juega otra), en un móvil estrecho
-   no cabían: más juntos. */
-@media (max-width: 400px) { #botones { gap: 5px; } }
+   no cabían: más juntos; y en los más estrechos (360 px), un poco más pequeños, con el dónut también. */
+@media (max-width: 400px) { #botones { gap: 5px; left: calc(max(12px, env(safe-area-inset-left)) + 34px); } }
+@media (max-width: 380px) {
+  #botones { gap: 4px; left: calc(max(12px, env(safe-area-inset-left)) + 28px); }
+  #botones .boton { width: 35px; height: 35px; }
+  html body #dnt-badge { top: calc(max(10px, env(safe-area-inset-top)) + 2px); height: 32px; }
+  html body #dnt-badge img { height: 32px; }
+}
