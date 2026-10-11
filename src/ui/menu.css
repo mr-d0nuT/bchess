@@ -693,6 +693,8 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
   align-items: center;
   justify-content: center;
   gap: 8px;
+  /* Su ancho, el que pida (con `left: 50%`, sin esto solo cabría en la mitad derecha y se partiría antes). */
+  width: max-content;
   max-width: calc(100vw - 32px);
   padding: 6px 12px;
   border: 1px solid rgba(255, 196, 81, 0.6);
@@ -706,6 +708,7 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .conexion[hidden] { display: none; }
 .conexion[data-estado="reclamable"] { flex-wrap: wrap; border-color: rgba(255, 90, 70, 0.75); border-radius: 16px; background: rgba(48, 8, 6, 0.9); color: #ffd0c8; }
 .conexion-texto { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conexion-botones { display: inline-flex; gap: 8px; }
 .conexion-boton { padding: 6px 12px; border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: inherit; font: 800 12.5px/1 system-ui, sans-serif; cursor: pointer; }
 .conexion-boton.principal { border: 0; background: linear-gradient(180deg, #ff9a8a, #e0402c); color: #2a0400; }
 .conexion-boton[hidden] { display: none; }

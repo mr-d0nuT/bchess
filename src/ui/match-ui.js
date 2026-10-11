@@ -36,7 +36,10 @@ export function createMatchUi(root = document.getElementById('hud')) {
   const esperar = el('button', 'conexion-boton');
   reclamar.type = 'button';
   esperar.type = 'button';
-  conexion.append(conexionTexto, reclamar, esperar);
+  // Los dos botones, juntos: si no caben al lado del texto, bajan los dos (antes bajaba solo «Esperar»).
+  const conexionBotones = el('span', 'conexion-botones');
+  conexionBotones.append(reclamar, esperar);
+  conexion.append(conexionTexto, conexionBotones);
   root.append(conexion);
   let alReclamar = null;
   let alEsperar = null;
