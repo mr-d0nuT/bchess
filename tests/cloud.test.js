@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { errorKey, profileOf } from '../src/net/cloud.js';
+import { claveNombre, errorKey, nombreInvalido, profileOf, sugerenciasNombre } from '../src/net/cloud.js';
 import { createRatings, cpuRating } from '../src/rating/ratings.js';
 
 function almacenFalso() {
@@ -32,4 +32,27 @@ test('cada error de Firebase, con su mensaje (o ninguno si el jugador cerró la 
   assert.equal(errorKey('auth/too-many-requests'), 'cuenta.error.muchos');
   assert.equal(errorKey('auth/popup-closed-by-user'), null);
   assert.equal(errorKey('algo/raro'), 'cuenta.error.otro');
+});
+
+test('los nombres del ranking: la misma clave sin mayúsculas ni espacios de más', () => {
+  assert.equal(claveNombre('  Ana  María '), 'ana maría');
+  assert.equal(claveNombre('ANA'), claveNombre('ana'));
+  assert.notEqual(claveNombre('Ana'), claveNombre('Ana2'));
+});
+
+test('un nombre del ranking no puede ir vacío ni llevar barras (sería una ruta de la base de datos)', () => {
+  assert.equal(nombreInvalido('Ana'), null);
+  assert.equal(nombreInvalido('   '), 'cuenta.error.nombreVacio');
+  assert.equal(nombreInvalido('Ana/Luis'), 'cuenta.error.nombreRaro');
+  assert.equal(nombreInvalido('..'), 'cuenta.error.nombreRaro');
+  assert.equal(nombreInvalido('__ana__'), 'cuenta.error.nombreRaro');
+});
+
+test('si el nombre está cogido, se prueba con un número detrás, sin pasar de 16 letras', () => {
+  assert.deepEqual(sugerenciasNombre('Josep').slice(0, 3), ['Josep', 'Josep2', 'Josep3']);
+  const largo = sugerenciasNombre('Bartolomé Ramírez');
+  assert.equal(largo[0], 'Bartolomé Ramíre');
+  assert.equal(largo[1], 'Bartolomé Ramír2');
+  assert.ok(largo.every((n) => [...n].length <= 16));
+  assert.deepEqual(sugerenciasNombre('').slice(0, 2), ['Jugador', 'Jugador2']);
 });

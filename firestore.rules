@@ -9,8 +9,25 @@ rules_version = '2';
 // - Solo cada uno puede escribir el suyo, y solo con la cuenta confirmada (Google ya lo está; con correo, al
 //   abrir el enlace del correo de confirmación).
 // - Lo que se escribe ha de tener la forma de siempre y valores con sentido: si no, no entra.
+// - Los nombres del ranking son únicos: cada uno se reserva en `nombres/{clave}` (la clave, el nombre en minúsculas)
+//   y solo se sale en el ranking con uno reservado por uno mismo.
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Los nombres del ranking (`net/cloud.js`): de quién es cada uno. Cualquiera puede mirar si uno está libre (al
+    // crear la cuenta, aún sin ella); se puede quedar uno libre (crearlo) para uno mismo, aunque aún no haya
+    // confirmado el correo, y soltar (borrar) el suyo. Cambiarlo, no: se suelta y se coge otro.
+    match /nombres/{clave} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['uid', 'nombre', 'creado'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() >= 1 && request.resource.data.nombre.size() <= 16
+        && request.resource.data.nombre.lower() == clave
+        && request.resource.data.creado == request.time;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
     match /users/{uid} {
       allow read: if true;
       allow create, update: if request.auth != null
@@ -45,9 +62,16 @@ service cloud.firestore {
         && (!('cpu' in b) || puntuacion(b.cpu));
     }
 
+    // Su nombre, uno reservado por él (`nombres`): así no hay dos iguales en el ranking.
+    function nombreSuyo(nombre) {
+      return exists(/databases/$(database)/documents/nombres/$(nombre.lower()))
+        && get(/databases/$(database)/documents/nombres/$(nombre.lower())).data.uid == request.auth.uid;
+    }
+
     function perfilValido(d) {
       return d.keys().hasOnly(['name', 'ratings', 'board', 'updated'])
         && d.name is string && d.name.size() >= 1 && d.name.size() <= 16
+        && nombreSuyo(d.name)
         && d.ratings is map && d.ratings.keys().hasOnly(['bala', 'blitz', 'rapida', 'diaria', 'cpu'])
         && tablero(d.board)
         && d.updated == request.time;

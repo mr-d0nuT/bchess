@@ -33,7 +33,49 @@ const G = '<svg viewBox="0 0 48 48" aria-hidden="true">'
 // La persona del botón de la cuenta, sin cuenta (con ella, su inicial).
 const PERSONA = '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>';
 
-export function createAuthUi({ cloud, area, chip = null, onAccount = null }) {
+// EL NOMBRE DEL RANKING, comprobado al escribirlo (lo pidió el usuario: que diga en el momento si ya existe). Un
+// campo y, debajo, cómo está: libre, cogido, mirándolo… `onCambia(estado)` con { nombre, libre } (libre: true,
+// false, o null si aún no se sabe o no vale).
+const ESPERA_NOMBRE = 400;
+function vigilaNombre(cloud, input, linea, onCambia = () => {}) {
+  let plazo = 0;
+  let turno = 0;
+  const pon = (texto, clase, libre) => {
+    linea.textContent = texto;
+    linea.dataset.estado = clase;
+    onCambia({ nombre: input.value, libre });
+  };
+  async function mira() {
+    const nombre = input.value.trim();
+    const mio = ++turno;
+    if (!nombre) {
+      pon('', '', null);
+      return;
+    }
+    const r = await cloud.nombreLibre(nombre);
+    if (mio !== turno) return; // ya se está mirando otro
+    if (r.error) pon(t(r.error), r.error === 'cuenta.error.red' ? '' : 'cogido', r.error === 'cuenta.error.red' ? null : false);
+    else if (r.libre) pon(t('cuenta.nombre.libre', { nombre }), 'libre', true);
+    else pon(t('cuenta.nombre.cogido', { nombre }), 'cogido', false);
+  }
+  input.addEventListener('input', () => {
+    clearTimeout(plazo);
+    turno += 1;
+    if (input.value.trim()) pon(t('cuenta.nombre.mirando'), 'mirando', null);
+    else pon('', '', null);
+    plazo = setTimeout(mira, ESPERA_NOMBRE);
+  });
+  return {
+    mira,
+    reset() {
+      clearTimeout(plazo);
+      turno += 1;
+      pon('', '', null);
+    },
+  };
+}
+
+export function createAuthUi({ cloud, area, chip = null, onAccount = null, onNombre = null }) {
   if (!cloud?.available || !area) return { refresh() {}, open() {} };
   area.hidden = false;
   let user = null;
@@ -65,6 +107,11 @@ export function createAuthUi({ cloud, area, chip = null, onAccount = null }) {
   const nombre = campo('text', 'nickname');
   nombre.maxLength = 16;
   nombre.autocapitalize = 'words';
+  // Debajo del nombre (creando la cuenta), si está libre: se mira al escribir.
+  const nombreEstado = el('p', 'cuenta-nombre-estado');
+  nombreEstado.setAttribute('aria-live', 'polite');
+  let nombreLibre = null;
+  const vigila = vigilaNombre(cloud, nombre, nombreEstado, ({ libre }) => (nombreLibre = libre));
   const correo = campo('email', 'email');
   const clave = campo('password', 'current-password');
   const enviar = el('button', 'final-boton principal cuenta-enviar');
@@ -79,7 +126,7 @@ export function createAuthUi({ cloud, area, chip = null, onAccount = null }) {
   mensaje.setAttribute('role', 'status');
   // Sin cuenta también se juega: todo igual, con la puntuación guardada solo en este aparato.
   const invitado = boton('cuenta-invitado', '', () => (fondo.hidden = true));
-  form.append(nombre, correo, clave, enviar);
+  form.append(nombre, nombreEstado, correo, clave, enviar);
   caja.append(cabecera, porque, google, o, form, cambia, olvido, mensaje, invitado);
   fondo.append(caja);
   document.body.append(fondo);
@@ -93,6 +140,11 @@ export function createAuthUi({ cloud, area, chip = null, onAccount = null }) {
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const email = correo.value.trim();
+    if (creando && nombreLibre === false) {
+      // Cogido (o no vale): ya lo dice debajo del nombre; que se vea dónde.
+      nombre.focus();
+      return;
+    }
     if (creando) entra(() => cloud.signUp(email, clave.value, nombre.value.trim()));
     else entra(() => cloud.signIn(email, clave.value));
   });
@@ -114,6 +166,7 @@ export function createAuthUi({ cloud, area, chip = null, onAccount = null }) {
 
   function abre() {
     aviso = '';
+    vigila.reset();
     fondo.hidden = false;
     pintaVentana();
   }
@@ -127,6 +180,7 @@ export function createAuthUi({ cloud, area, chip = null, onAccount = null }) {
     o.textContent = t('cuenta.o');
     nombre.placeholder = t('cuenta.nombre');
     nombre.hidden = !creando;
+    nombreEstado.hidden = !creando;
     correo.placeholder = t('cuenta.correo');
     clave.placeholder = t('cuenta.clave');
     clave.autocomplete = creando ? 'new-password' : 'current-password';
@@ -160,9 +214,9 @@ export function createAuthUi({ cloud, area, chip = null, onAccount = null }) {
       chipEntrar.textContent = t('cuenta.entrar');
       chip.title = t('cuenta.entrarOcrear');
     } else {
-      const quien = (user.name || user.email.split('@')[0] || '?').trim();
+      const quien = (cloud.nombre || user.name || user.email.split('@')[0] || '?').trim();
       chipIco.textContent = quien.charAt(0).toUpperCase();
-      chipNombre.textContent = quien.split(/\s+/)[0];
+      chipNombre.textContent = cloud.nombre || quien.split(/\s+/)[0];
       chip.title = user.verified ? `${t('cuenta.tuya')} · ${user.email}` : t('cuenta.verifica', { correo: user.email });
     }
     chip.setAttribute('aria-label', chip.title);
@@ -176,9 +230,10 @@ export function createAuthUi({ cloud, area, chip = null, onAccount = null }) {
       area.append(el('p', 'cuenta-texto', t('cuenta.sin')), boton('cuenta-boton', t('cuenta.entrarOcrear'), abre));
       return;
     }
-    const inicial = el('span', 'cuenta-inicial', (user.name || user.email || '?').trim().charAt(0).toUpperCase());
+    const inicial = el('span', 'cuenta-inicial', (cloud.nombre || user.name || user.email || '?').trim().charAt(0).toUpperCase());
     const textos = el('div', 'cuenta-textos');
     textos.append(el('strong', 'cuenta-quien', user.name || user.email));
+    if (cloud.nombre) textos.append(lineaNombre());
     if (user.verified) {
       textos.append(el('span', 'cuenta-texto', t('cuenta.nube')));
       area.append(inicial, textos, boton('cuenta-boton secundario', t('cuenta.salir'), () => cloud.signOut()));
@@ -196,6 +251,50 @@ export function createAuthUi({ cloud, area, chip = null, onAccount = null }) {
     );
     area.append(inicial, textos, acciones);
   }
+  // Su nombre del ranking, con «Cambiar»: un campo comprobado al escribir (como al crear la cuenta) y «Guardar».
+  let cambiando = false;
+  function lineaNombre() {
+    const linea = el('div', 'cuenta-ranking');
+    if (!cambiando) {
+      linea.append(el('span', 'cuenta-texto', t('cuenta.nombre.ranking')), el('b', '', cloud.nombre), boton('cuenta-enlace', t('cuenta.nombre.cambiar'), () => {
+        cambiando = true;
+        pinta();
+      }));
+      return linea;
+    }
+    const input = el('input', 'cuenta-campo');
+    input.type = 'text';
+    input.maxLength = 16;
+    input.value = cloud.nombre;
+    input.autocapitalize = 'words';
+    const estado = el('p', 'cuenta-nombre-estado');
+    let libre = null;
+    const v = vigilaNombre(cloud, input, estado, (e) => (libre = e.libre));
+    const guardar = boton('cuenta-boton', t('cuenta.nombre.guardar'), async () => {
+      if (libre === false) return;
+      guardar.disabled = true;
+      const r = await cloud.reservaNombre(input.value);
+      guardar.disabled = false;
+      if (r.error) {
+        estado.textContent = t(r.error);
+        estado.dataset.estado = 'cogido';
+        return;
+      }
+      cambiando = false;
+      v.reset();
+      onNombre?.(r.nombre);
+      pinta();
+    });
+    const cancelar = boton('cuenta-boton secundario', t('online.cancelar'), () => {
+      cambiando = false;
+      pinta();
+    });
+    linea.classList.add('cambiando');
+    linea.append(input, estado, guardar, cancelar);
+    setTimeout(() => input.focus(), 0);
+    return linea;
+  }
+
   function alertaEn(donde, texto) {
     donde.querySelector('.cuenta-alerta')?.remove();
     donde.append(el('span', 'cuenta-alerta', texto));

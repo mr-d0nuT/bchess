@@ -1371,6 +1371,16 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .cuenta-enlace[hidden] { display: none; }
 .cuenta-mensaje { min-height: 1.3em; margin: 0; font-size: 13px; text-align: center; color: #ffd66b; }
 .cuenta-porque { margin: -4px 0 0; font-size: 13px; line-height: 1.4; opacity: 0.75; }
+/* El nombre del ranking, comprobado al escribirlo: libre en verde, cogido en rojo. */
+.cuenta-nombre-estado { min-height: 1.2em; margin: -4px 4px 0; font-size: 12.5px; line-height: 1.3; opacity: 0.85; }
+.cuenta-nombre-estado:empty { min-height: 0; margin: 0; }
+.cuenta-nombre-estado[hidden] { display: none; }
+.cuenta-nombre-estado[data-estado="libre"] { color: #6be08a; }
+.cuenta-nombre-estado[data-estado="cogido"] { color: #ff8a7a; }
+.cuenta-ranking { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-top: 2px; font-size: 13px; }
+.cuenta-ranking .cuenta-enlace { padding: 0 2px; }
+.cuenta-ranking.cambiando { flex-direction: column; align-items: stretch; width: 100%; }
+.cuenta-ranking.cambiando .cuenta-boton { align-self: flex-start; }
 /* Seguir sin cuenta: tan a mano como entrar. */
 .cuenta-invitado { width: 100%; padding: 11px 16px; border: 1px solid rgba(255, 214, 140, 0.3); border-radius: 999px; background: rgba(255, 255, 255, 0.04); color: #e9dcc0; font: 700 15px/1 system-ui, sans-serif; cursor: pointer; }
 .cuenta-invitado:hover { border-color: #ffc451; }

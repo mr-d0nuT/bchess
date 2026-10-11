@@ -374,15 +374,27 @@ async function start() {
   const cloud = createCloud();
   const ranking = createRankingUi({ ratings, button: document.getElementById('menu-ranking'), world: cloud.available });
   // Y arriba en el menú, con quién has entrado (al tocarlo, el panel, donde está la cuenta) o «Invitado · Entrar».
-  createAuthUi({ cloud, area: ranking.accountArea, chip: document.getElementById('menu-cuenta'), onAccount: () => ranking.open() });
-  // El nombre en el ranking: el que se ha puesto para jugar online; si no, el nombre de pila de la cuenta.
-  const nombreEnRanking = (user) => cleanName(game.miNombre || (user?.name ?? '').split(' ')[0]) || 'Jugador';
+  // Con la cuenta, su nombre del ranking se puede cambiar (`onNombre`): es también el de jugar online.
+  const cuentaUi = createAuthUi({
+    cloud, area: ranking.accountArea, chip: document.getElementById('menu-cuenta'), onAccount: () => ranking.open(),
+    onNombre: (nombre) => {
+      menu.ponNombre('yo', nombre);
+      if (cloud.user?.verified) cloud.save({ name: nombre, data: ratings.export() });
+    },
+  });
+  // El nombre en el ranking: el de la cuenta, único (`cloud.aseguraNombre`: el que tiene reservado o, al entrar por
+  // primera vez, el suyo si está libre, o con un número detrás).
+  const nombreEnRanking = (user) => cloud.nombre || cleanName(game.miNombre || (user?.name ?? '').split(' ')[0]) || 'Jugador';
   if (cloud.available) {
-    // Al entrar: lo de la nube y lo del aparato se juntan (de cada ritmo, lo más reciente) y se guarda.
+    // Al entrar: su nombre del ranking (antes de nada: las reglas no dejan guardar el perfil con otro), y lo de la
+    // nube y lo del aparato se juntan (de cada ritmo, lo más reciente) y se guarda.
     cloud.onUser(async (user) => {
       ranking.meUid = user?.uid ?? null;
       ranking.refresh();
-      if (!user?.verified) return;
+      if (!user) return;
+      await cloud.aseguraNombre(user.name || game.miNombre);
+      cuentaUi.refresh();
+      if (!user.verified) return;
       const remoto = await cloud.load();
       if (remoto) ratings.import(remoto);
       cloud.save({ name: nombreEnRanking(user), data: ratings.export() });
@@ -474,10 +486,14 @@ async function start() {
   }
   const NOMBRE_ESPERA = 400;
   ponMiNombre(menu.choice.nombres?.yo);
-  // Al entrar con la cuenta, si aún no tenía nombre para jugar online, el de la cuenta (su nombre de pila).
+  // Al entrar con la cuenta, se juega online con su nombre del ranking.
   if (cloud.available) {
-    cloud.onUser((user) => {
-      if (user && !cleanName(menu.choice.nombres?.yo)) menu.ponNombre('yo', (user.name || user.email.split('@')[0]).split(' ')[0]);
+    cloud.onUser(async (user) => {
+      if (!user) return;
+      // Con cuenta, se juega online con su nombre del ranking (el que tiene reservado: único).
+      const nombre = await cloud.aseguraNombre(user.name || game.miNombre);
+      if (nombre) menu.ponNombre('yo', nombre);
+      else if (!cleanName(menu.choice.nombres?.yo)) menu.ponNombre('yo', (user.name || user.email.split('@')[0]).split(' ')[0]);
     });
   }
   // Lo que digo de mí en la sala: disponible (en el menú o en una partida que no es online), buscando rival o

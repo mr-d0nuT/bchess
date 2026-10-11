@@ -1,5 +1,6 @@
 import { FIREBASE } from './firebase-config.js';
 import { currentLanguage } from '../i18n.js';
+import { cleanName } from '../names.js';
 
 // LA CUENTA Y LA NUBE (Firebase, en su plan gratuito: sin tarjeta, no puede cobrar nada; si un día se pasara
 // del cupo, la nube se para hasta el día siguiente y el juego sigue igual, con lo guardado en el aparato).
@@ -40,6 +41,30 @@ export function errorKey(code) {
   }
 }
 
+// LOS NOMBRES DEL RANKING, ÚNICOS (lo pidió el usuario: al registrarse, que diga en el momento si el nombre ya
+// existe, y que no haya dos iguales). Cada nombre se reserva en `nombres/{clave}`, con la clave sin mayúsculas
+// («Ana» y «ana» son el mismo), y las reglas (`firestore.rules`) solo dejan reservar uno libre y salir en el
+// ranking con uno reservado por uno mismo.
+export const claveNombre = (nombre) => cleanName(nombre).toLowerCase();
+// Por qué no vale como nombre del ranking (la clave del texto), o null si vale: vacío, o algo que no puede ser el
+// nombre de un documento de la base de datos (una barra, «.», «..» o «__…__»).
+export function nombreInvalido(nombre) {
+  const limpio = cleanName(nombre);
+  if (!limpio) return 'cuenta.error.nombreVacio';
+  if (limpio.includes('/') || limpio === '.' || limpio === '..' || /^__.*__$/.test(limpio)) return 'cuenta.error.nombreRaro';
+  return null;
+}
+// Los que se prueban, por orden, si el que se quiere está cogido: «Josep», «Josep2»… (sin pasar de 16 letras).
+export function sugerenciasNombre(base, cuantas = 9) {
+  const limpio = cleanName(base) || 'Jugador';
+  const lista = [limpio];
+  for (let i = 2; i <= cuantas; i++) {
+    const numero = String(i);
+    lista.push(`${Array.from(limpio).slice(0, NAME_MAX - numero.length).join('').trimEnd()}${numero}`);
+  }
+  return lista;
+}
+
 // El perfil público del jugador tal como se guarda: su nombre, sus puntuaciones y, para ordenar el ranking,
 // `board` (categoría → puntuación redondeada, solo de las que tienen partidas). Sin correo ni nada personal.
 // Lo privado (el ranking local, con los nombres de los que juegan en casa) no va aquí: va aparte y solo lo ve él.
@@ -48,7 +73,8 @@ export function profileOf({ name, data }) {
   for (const [cat, entry] of Object.entries(data.ratings ?? {})) {
     if (entry?.games > 0) board[cat] = Math.round(entry.r);
   }
-  return { name: String(name ?? '').trim().slice(0, NAME_MAX) || 'Jugador', ratings: data.ratings, board };
+  // Limpio como el reservado (`claveNombre`): si no, las reglas no lo reconocerían como suyo.
+  return { name: cleanName(name) || 'Jugador', ratings: data.ratings, board };
 }
 
 export function createCloud() {
@@ -56,6 +82,9 @@ export function createCloud() {
   let sdk = null; // { auth, store, a, db } cuando ya está cargado
   let cargando = null;
   let user = null; // { uid, name, email, verified, google }
+  let reservado = null; // { uid, nombre }: el nombre del ranking del que ha entrado (`aseguraNombre`)
+  let registrando = null; // el nombre con que se está creando la cuenta: ese es el que se reserva, lo pida quien lo pida
+  let asegurando = null; // la reserva en marcha (una a la vez: dos a la vez dejaban a uno con dos nombres)
   let guardar = 0;
   const cache = new Map(); // categoría → { at, list }
 
@@ -123,14 +152,31 @@ export function createCloud() {
     },
     google: () => intenta(({ auth, a }) => auth.signInWithPopup(a, new auth.GoogleAuthProvider())),
     signIn: (email, password) => intenta(({ auth, a }) => auth.signInWithEmailAndPassword(a, email, password)),
-    // Cuenta nueva con correo: se le pone el nombre y se le manda el correo de confirmación.
-    signUp: (email, password, name) => intenta(async ({ auth, a }) => {
-      const { user: u } = await auth.createUserWithEmailAndPassword(a, email, password);
-      if (name) await auth.updateProfile(u, { displayName: String(name).trim().slice(0, NAME_MAX) });
-      await auth.sendEmailVerification(u, vuelta());
-      user = describe(u);
-      for (const fn of avisos) fn(user);
-    }),
+    // Cuenta nueva con correo, con su nombre del ranking (que ha de estar libre: se mira antes de crearla, y al
+    // crearla se reserva); y se le manda el correo de confirmación.
+    async signUp(email, password, name) {
+      const invalido = nombreInvalido(name);
+      if (invalido) return { error: invalido };
+      const libre = await this.nombreLibre(name);
+      if (libre.error) return libre;
+      if (!libre.libre) return { error: 'cuenta.error.nombreCogido' };
+      registrando = cleanName(name);
+      try {
+        const r = await intenta(async ({ auth, a }) => {
+          const { user: u } = await auth.createUserWithEmailAndPassword(a, email, password);
+          await auth.updateProfile(u, { displayName: cleanName(name) });
+          await auth.sendEmailVerification(u, vuelta());
+          user = describe(u);
+        });
+        if (r.error) return r;
+        // Si alguien se lo ha quedado justo ahora, el más parecido que quede libre («Ana2»).
+        await this.aseguraNombre(name);
+        for (const fn of avisos) fn(user);
+        return r;
+      } finally {
+        registrando = null;
+      }
+    },
     resendVerification: () => intenta(({ auth, a }) => auth.sendEmailVerification(a.currentUser, vuelta())),
     resetPassword: (email) => intenta(({ auth, a }) => auth.sendPasswordResetEmail(a, email, vuelta())),
     // ¿Ya ha confirmado el correo? (al volver a la pestaña después de abrir el enlace).
@@ -145,6 +191,93 @@ export function createCloud() {
       return user;
     },
     signOut: () => intenta(({ auth, a }) => auth.signOut(a)),
+
+    // LOS NOMBRES DEL RANKING (`claveNombre`). ¿Está libre? { libre, mio } (mio: es el mío), o { error }.
+    async nombreLibre(nombre) {
+      const invalido = nombreInvalido(nombre);
+      if (invalido) return { error: invalido };
+      try {
+        const { store, db } = await carga();
+        const doc = await store.getDoc(store.doc(db, 'nombres', claveNombre(nombre)));
+        const mio = doc.exists() && doc.data().uid === user?.uid;
+        return { libre: !doc.exists() || mio, mio };
+      } catch (err) {
+        console.warn('[BChess] No se pudo mirar el nombre:', err?.code ?? err);
+        return { error: 'cuenta.error.red' };
+      }
+    },
+    // El nombre del ranking del que ha entrado (el que tiene reservado), o null.
+    get nombre() {
+      return reservado?.uid === user?.uid ? reservado.nombre : null;
+    },
+    // Se queda `nombre` (si está libre) y suelta el que tuviera. { ok, nombre } o { error }.
+    async reservaNombre(nombre) {
+      if (!user) return { error: 'cuenta.error.otro' };
+      const invalido = nombreInvalido(nombre);
+      if (invalido) return { error: invalido };
+      const limpio = cleanName(nombre);
+      const clave = claveNombre(limpio);
+      try {
+        const { store, db } = await carga();
+        const anterior = this.nombre ?? (await this.leeNombre());
+        if (anterior && claveNombre(anterior) === clave && anterior === limpio) return { ok: true, nombre: limpio };
+        // Si es el mío con otras mayúsculas, se suelta antes (si no, la clave ya estaría cogida, por mí).
+        if (anterior && claveNombre(anterior) === clave) await store.deleteDoc(store.doc(db, 'nombres', clave));
+        await store.setDoc(store.doc(db, 'nombres', clave), { uid: user.uid, nombre: limpio, creado: store.serverTimestamp() });
+        if (anterior && claveNombre(anterior) !== clave) {
+          await store.deleteDoc(store.doc(db, 'nombres', claveNombre(anterior))).catch(() => {});
+        }
+        reservado = { uid: user.uid, nombre: limpio };
+        return { ok: true, nombre: limpio };
+      } catch (err) {
+        // Las reglas no dejan quedarse uno que ya es de alguien: es que está cogido (salvo que sea mío).
+        if (err?.code === 'permission-denied') {
+          const { store, db } = await carga();
+          const doc = await store.getDoc(store.doc(db, 'nombres', clave)).catch(() => null);
+          if (doc?.exists() && doc.data().uid === user.uid) {
+            reservado = { uid: user.uid, nombre: doc.data().nombre };
+            return { ok: true, nombre: doc.data().nombre };
+          }
+          return { error: 'cuenta.error.nombreCogido' };
+        }
+        console.warn('[BChess] No se pudo reservar el nombre:', err?.code ?? err);
+        return { error: 'cuenta.error.red' };
+      }
+    },
+    // El que tiene reservado en la nube (o null).
+    async leeNombre() {
+      if (!user) return null;
+      try {
+        const { store, db } = await carga();
+        const snap = await store.getDocs(store.query(store.collection(db, 'nombres'), store.where('uid', '==', user.uid), store.limit(1)));
+        const nombre = snap.empty ? null : snap.docs[0].data().nombre;
+        if (nombre) reservado = { uid: user.uid, nombre };
+        return nombre;
+      } catch (err) {
+        console.warn('[BChess] No se pudo leer el nombre:', err?.code ?? err);
+        return null;
+      }
+    },
+    // Que tenga uno: el que ya tiene; si no, `sugerencia` (creando la cuenta, el elegido) o, si está cogida, la
+    // primera libre de `sugerenciasNombre`.
+    aseguraNombre(sugerencia) {
+      asegurando ??= (async () => {
+        try {
+          if (!user) return null;
+          const ya = this.nombre ?? (await this.leeNombre());
+          if (ya) return ya;
+          for (const nombre of sugerenciasNombre(registrando ?? sugerencia)) {
+            const r = await this.reservaNombre(nombre);
+            if (r.ok) return r.nombre;
+            if (r.error !== 'cuenta.error.nombreCogido') return null; // sin red: ya se probará
+          }
+          return null;
+        } finally {
+          asegurando = null;
+        }
+      })();
+      return asegurando;
+    },
 
     // EL PERFIL. Lo que hay guardado en la nube del que ha entrado (o null).
     async load() {
