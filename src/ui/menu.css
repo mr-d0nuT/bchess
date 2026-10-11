@@ -811,6 +811,9 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .final-punto-delta.sube { color: #6be08a; }
 .final-punto-delta.baja { color: #ff8a7a; }
 .final-punto-delta.igual { color: #c9d4ee; }
+/* Provisional: la palabra junto al nombre, y debajo, qué quiere decir. */
+.final-punto-prov { margin-inline-start: 8px; padding: 2px 7px; border-radius: 999px; background: rgba(255, 196, 81, 0.18); color: #ffd66b; font: 800 11px/1.2 system-ui, sans-serif; vertical-align: 2px; }
+.final-punto-nota { margin: 0 4px; font-size: 12px; line-height: 1.35; opacity: 0.75; }
 /* El resumen de la partida. */
 .final-resumen { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: -6px 0 18px; }
 .final-resumen:empty { display: none; }

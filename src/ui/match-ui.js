@@ -241,11 +241,16 @@ export function createMatchUi(root = document.getElementById('hud')) {
         const cifra = el('span', 'final-punto-cifra', String(linea.from));
         const signo = linea.delta > 0 ? 'sube' : linea.delta < 0 ? 'baja' : 'igual';
         const delta = el('span', `final-punto-delta ${signo}`, `${linea.delta > 0 ? '+' : linea.delta < 0 ? '−' : '±'}${Math.abs(linea.delta)}`);
-        fila.append(el('span', 'final-punto-nombre', linea.label), cifra, delta);
+        const nombre = el('span', 'final-punto-nombre', linea.label);
+        // El «?» dice «provisional», pero eso no lo sabe nadie: se dice con la palabra (y debajo, qué significa).
+        if (linea.provisional) nombre.append(el('span', 'final-punto-prov', t('ranking.provisional')));
+        fila.append(nombre, cifra, delta);
         finalPuntos.append(fila);
         cifras.push({ cifra, ...linea });
       }
       if (!cifras.length) return;
+      // Provisional, un +162 parecía un error: es que al principio se mueve mucho (como en chess.com).
+      if (cifras.some((c) => c.provisional)) finalPuntos.append(el('p', 'final-punto-nota', t('ranking.provisional.nota')));
       const empieza = performance.now() + 550;
       const paso = (now) => {
         const k = Math.max(0, Math.min(1, (now - empieza) / 1100));
