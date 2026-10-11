@@ -22,9 +22,20 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     for (const nombre of await caches.keys()) if (nombre !== CACHE) await caches.delete(nombre);
+    // La página se guardaba una vez por cada dirección con parámetros (`?v=…`, `?fbclid=…`), y al buscarla sin
+    // ellos salía la primera que se guardó: la más vieja, para siempre. Fuera esas copias (ahora se guarda sin
+    // ellos, `paginaDe`).
+    const cache = await caches.open(CACHE);
+    for (const req of await cache.keys()) {
+      const url = new URL(req.url);
+      if (url.search && (url.pathname.endsWith('/') || url.pathname.endsWith('.html'))) await cache.delete(req);
+    }
     await self.clients.claim();
   })());
 });
+
+// Una página, guardada sin sus parámetros: venga con los que venga, es la misma.
+const paginaDe = (url) => new Request(url.origin + url.pathname);
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
@@ -53,7 +64,8 @@ async function responde(event, req, url) {
   const cache = await caches.open(CACHE);
   const navega = req.mode === 'navigate';
   const codigo = navega || CODIGO.test(url.pathname);
-  const guardada = await cache.match(req, { ignoreSearch: navega });
+  const clave = navega ? paginaDe(url) : req;
+  const guardada = await cache.match(clave);
   // Por detrás, lo último de la web. El código, preguntando siempre (sin la caché de diez minutos del
   // navegador); lo demás (figuras, música), como venga.
   pendientes += 1;
@@ -61,7 +73,7 @@ async function responde(event, req, url) {
     .then(async (res) => {
       if (res.ok && res.type === 'basic') {
         if (guardada && codigo && distinto(guardada, res)) cambiado = true;
-        await cache.put(req, res.clone());
+        await cache.put(clave, res.clone());
       }
       return res;
     })
