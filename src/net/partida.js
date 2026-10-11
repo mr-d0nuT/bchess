@@ -40,6 +40,9 @@ export function createPartidaOnline({ info, yo, miNombre = '', now = 0, moves = 
     session: null, // la de `online.js`, que pone quien la crea
     // La puntuación que anunció el rival al empezar ({ r, rd }), contra la que se puntúa al acabar.
     rivalRating: info.opponentRating ?? { r: 1200, rd: 350 },
+    // Las tablas ofrecidas (`ofrezco`, `recibeOferta`…): la mía y la suya ({ n }: con cuántas jugadas se hizo), la
+    // que estoy aceptando ({ n, desde }) y con cuántas hice la última (para no volver a ofrecerlas sin jugar).
+    tablas: { mia: null, suya: null, aceptando: null, ultima: null },
 
     // Las jugadas que lleva: las hechas y, si el tablero está animando una (`enCurso`), esa también.
     jugadas(enCurso = null) {
@@ -237,6 +240,87 @@ export function decideReclamo(p, { n }, ahora, enCurso = null) {
   const reloj = { white: p.clock.remaining('white', ahora), black: p.clock.remaining('black', ahora) };
   if (llevo === n && p.position.side === p.color && !enCurso && reloj[p.color] <= 1000) return { accion: 'perder' };
   return { accion: 'corregir', reloj };
+}
+
+// ---- Las tablas, ofrecidas (punto 12 del plan de mejora) ----
+// Una oferta vale mientras quien la recibe no haya jugado desde que se hizo: jugar es decir que no (como en
+// chess.com), y quien la hace puede seguir jugando. Se apunta con cuántas jugadas llevaba la partida (`n`). Para
+// aceptarla, los dos han de ver la misma partida: quien acepta dice cuántas jugadas ve, quien la ofreció lo comprueba
+// y, si cuadra, acaba la partida (tablas, «agreement») y le manda su final; si no, le dice que ya no vale.
+export const TABLAS_ESPERA = 8000; // lo que espera quien acepta a que el otro cierre la partida
+
+// ¿Ha jugado `color` alguna desde la jugada número `n` (contando desde 0: las blancas juegan las pares)?
+export function jugoDesde(moves, color, n) {
+  for (let i = Math.max(0, n); i < moves.length; i++) if (i % 2 === (color === 'white' ? 0 : 1)) return true;
+  return false;
+}
+// La mía sigue en pie: el rival no ha jugado desde que la hice.
+export function ofertaMia(p, enCurso = null) {
+  const oferta = p.tablas.mia;
+  return Boolean(oferta) && !p.acabada && !jugoDesde(p.jugadas(enCurso), p.rival, oferta.n);
+}
+// La suya, la que puedo aceptar: en pie (no he jugado desde que la hizo) y viendo ya la posición en que la hizo.
+export function ofertaSuya(p, enCurso = null) {
+  const oferta = p.tablas.suya;
+  if (!oferta || p.acabada) return false;
+  const lista = p.jugadas(enCurso);
+  return lista.length >= oferta.n && !jugoDesde(lista, p.color, oferta.n);
+}
+// ¿Puedo ofrecerlas? No con una mía en pie, ni con una suya (esa se acepta), ni aceptando; y una vez por jugada:
+// tras ofrecerlas, hasta haber jugado no se vuelven a ofrecer (si no, un «no» detrás de otro).
+export function puedoOfrecer(p, enCurso = null) {
+  if (p.acabada || p.tablas.aceptando || ofertaMia(p, enCurso) || ofertaSuya(p, enCurso)) return false;
+  return p.tablas.ultima === null || jugoDesde(p.jugadas(enCurso), p.color, p.tablas.ultima);
+}
+// Las ofrezco: devuelve con cuántas jugadas (lo que se le dice al rival).
+export function ofrezco(p, enCurso = null) {
+  const n = p.jugadas(enCurso).length;
+  p.tablas.mia = { n };
+  p.tablas.ultima = n;
+  return n;
+}
+// Llega su oferta, hecha con `n` jugadas: se apunta si aún puede valer (no he jugado desde entonces).
+export function recibeOferta(p, n, enCurso = null) {
+  if (p.acabada || jugoDesde(p.jugadas(enCurso), p.color, n)) return false;
+  if (p.tablas.suya && p.tablas.suya.n >= n) return false; // repetida (o una vieja)
+  p.tablas.suya = { n };
+  return true;
+}
+// Acepto la suya: devuelve cuántas jugadas veo (lo que se le dice), y hasta que cierre la partida, espero.
+export function acepto(p, enCurso, now) {
+  const n = p.jugadas(enCurso).length;
+  p.tablas.aceptando = { n, desde: now };
+  return n;
+}
+// La rechazo: devuelve con cuántas la hizo (para decírselo), o null si no había.
+export function rechazo(p) {
+  const n = p.tablas.suya?.n ?? null;
+  p.tablas.suya = null;
+  return n;
+}
+// Acepta la mía viendo `n` jugadas: si sigue en pie y vemos lo mismo, 'acabar' (tablas); si no, 'nula'.
+export function decideAceptacion(p, n, enCurso = null) {
+  return ofertaMia(p, enCurso) && n === p.jugadas(enCurso).length ? 'acabar' : 'nula';
+}
+// Rechaza la mía (la que hice con `n`): ya no está en pie. Devuelve si era esa.
+export function rechazada(p, n) {
+  if (p.tablas.mia?.n !== n) return false;
+  p.tablas.mia = null;
+  return true;
+}
+// Dice que la suya que acepté ya no vale (se cruzó con una jugada): ni aceptando ni oferta. Devuelve si esperaba.
+export function anuladas(p) {
+  if (!p.tablas.aceptando) return false;
+  p.tablas.aceptando = null;
+  p.tablas.suya = null;
+  return true;
+}
+// Aceptando, y sin noticias en `espera`: ya no valen (devuelve true una vez, al caducar).
+export function aceptacionCaducada(p, now, espera = TABLAS_ESPERA) {
+  if (!p.tablas.aceptando || now - p.tablas.aceptando.desde <= espera) return false;
+  p.tablas.aceptando = null;
+  p.tablas.suya = null;
+  return true;
 }
 
 // LA PUNTUACIÓN de una partida online acabada (como en chess.com): en su ritmo (`categoryOf`), contra la puntuación

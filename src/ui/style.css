@@ -250,10 +250,44 @@ html, body {
 #pista:disabled .boton-globo { opacity: 0.5; box-shadow: none; }
 #pista.pensando { color: #ffd66b; animation: pista-piensa 0.9s ease-in-out infinite; }
 @keyframes pista-piensa { 50% { box-shadow: 0 0 14px rgba(255, 210, 90, 0.9); } }
-/* Rendirse: al primer toque se despliega en rojo y pregunta; el segundo lo confirma. */
-#rendirse .boton-texto { display: none; font: 700 14px/1 system-ui, sans-serif; white-space: nowrap; }
-#rendirse.confirma { display: flex; gap: 6px; width: auto; padding: 0 13px 0 9px; border-radius: 999px; border-color: #ff6b5b; color: #ffb3a8; box-shadow: 0 0 12px rgba(255, 80, 60, 0.6); }
-#rendirse.confirma .boton-texto { display: inline; }
+/* La bandera blanca: abre, debajo, rendirse u ofrecer tablas (cabe en el móvil: un botón más en la fila, no). */
+#rendirse[aria-expanded="true"] { border-color: #ff6b5b; color: #ffb3a8; box-shadow: 0 0 12px rgba(255, 80, 60, 0.6); }
+#bandera-menu {
+  position: absolute;
+  top: calc(max(10px, env(safe-area-inset-top)) + 46px);
+  left: max(12px, env(safe-area-inset-left)); /* el código la pone bajo la bandera */
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--borde-boton);
+  border-radius: 16px;
+  background: rgba(10, 8, 6, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  animation: bandera-entra 0.18s ease-out;
+}
+#bandera-menu[hidden] { display: none; }
+@keyframes bandera-entra { from { opacity: 0; transform: translateY(-6px); } }
+.bandera-opcion {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 16px 9px 10px;
+  border: 1px solid var(--borde-boton);
+  border-radius: 999px;
+  background: var(--fondo-boton);
+  color: var(--tinta);
+  font: 700 14px/1 system-ui, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.bandera-opcion svg { flex: none; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.bandera-opcion.rendirse { border-color: #ff6b5b; color: #ffb3a8; }
+.bandera-opcion:disabled { opacity: 0.4; cursor: default; }
 
 /* La configuración: un panel en medio, sobre un velo. */
 #ajustes-panel {

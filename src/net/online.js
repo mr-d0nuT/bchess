@@ -791,7 +791,9 @@ export function huella(moves) {
 // Cómo se puede acabar una partida: por las reglas (los dos lados lo ven solos al jugar las mismas jugadas) o por
 // lo que decide uno (sin tiempo, se rinde, se va o se anula).
 export const FINES_DE_REGLAS = ['checkmate', 'stalemate', 'fifty', 'repetition', 'material'];
-const FINES = new Set([...FINES_DE_REGLAS, 'time', 'resign', 'abandon', 'anulada']);
+const FINES = new Set([...FINES_DE_REGLAS, 'time', 'resign', 'abandon', 'agreement', 'anulada']);
+// Las tablas, ofrecidas (`net/partida.js`): la oferta, el sí, el no y el «ya no vale», cada una con sus jugadas.
+const TABLAS = new Set(['tablas', 'tablas-si', 'tablas-no', 'tablas-nula']);
 const esColor = (c) => c === 'white' || c === 'black';
 export const TERMINADA_MS = 10 * 60 * 1000; // acabada, lo que se espera a que el rival diga que se ha enterado
 
@@ -889,6 +891,7 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       case 'reclamo': return esEntero(msg.n) && msg.que === 'time';
       case 'reloj': return esEntero(msg.n) && esTiempo(msg.white) && esTiempo(msg.black);
       case 'fin': return valeFin(msg);
+      case 'tablas': case 'tablas-si': case 'tablas-no': case 'tablas-nula': return esEntero(msg.n, MAX_JUGADAS);
       default: return false;
     }
   }
@@ -974,6 +977,8 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       emit('reclamo', { n: msg.n });
     } else if (msg.k === 'reloj') {
       emit('reloj', { n: msg.n, white: msg.white, black: msg.black });
+    } else if (TABLAS.has(msg.k)) {
+      emit('tablas', { que: msg.k, n: msg.n });
     }
   });
   // Mi buzón, por mi cuenta: el «cancel» del rival llega ahí, y antes solo se oía si la sala o el
@@ -1065,6 +1070,11 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     // No acepto su reclamo: lo que de verdad marca mi reloj.
     reloj({ n, white, black }) {
       send('reloj', { n, white, black });
+    },
+    // Las tablas (`que`: 'tablas', la oferta; 'tablas-si', 'tablas-no' o 'tablas-nula'), con `n` jugadas.
+    tablas(que, n) {
+      if (!TABLAS.has(que)) throw new Error(`tablas: ${que}`);
+      send(que, { n });
     },
     // Se acabó aquí: { status, winner, flagged, moves } (status, el de todos: 'resign' es que se rinde quien no gana).
     terminar,

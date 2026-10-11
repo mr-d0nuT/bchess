@@ -28,8 +28,12 @@ import { endsOf, gridOf, pickPair, pickTurn, place } from './moves/dodge.js';
 import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
 import { createCpu } from './chess/cpu.js';
+import { aceptaTablas } from './chess/engine.js';
 import { LOST_AFTER, anunciaPuntuacion, createOnline, randomId } from './net/online.js';
-import { MAX_MALAS, createPartidaOnline, decideBandera, decideFin, decideReclamo, finDeTodos, mandaElSuyo, puntuaOnline, retrasoReclamo } from './net/partida.js';
+import {
+  MAX_MALAS, aceptacionCaducada, acepto, anuladas, createPartidaOnline, decideAceptacion, decideBandera, decideFin, decideReclamo, finDeTodos,
+  mandaElSuyo, ofertaMia, ofertaSuya, ofrezco, puedoOfrecer, puntuaOnline, rechazada, rechazo, recibeOferta, retrasoReclamo,
+} from './net/partida.js';
 import { ONLINE_KEY, identidadOnline, packOnline, packTodas, readOnline } from './net/guardadas-online.js';
 import { createOnlineUi } from './ui/online-ui.js';
 import { createLobbyUi } from './ui/lobby-ui.js';
@@ -524,20 +528,57 @@ async function start() {
     event.stopPropagation();
     undoMove();
   });
-  // Online, en el sitio de deshacer: rendirse. El primer toque pregunta y el segundo (en 3,5 s) confirma.
+  // LA BANDERA BLANCA (en cualquier partida: lo pidió el usuario). Abre, debajo, «Rendirse» u «Ofrecer tablas»
+  // (punto 12 del plan de mejora): abrirla y tocar «Rendirse» son los dos toques de antes (antes el primero
+  // preguntaba «¿Rendirte?»), y la fila de botones no crece (en el móvil, uno más no cabía).
   const resignButton = document.getElementById('rendirse');
-  let preguntaRendirse = 0;
+  const banderaMenu = document.getElementById('bandera-menu');
+  const banderaRendirse = document.getElementById('bandera-rendirse');
+  const banderaTablas = document.getElementById('bandera-tablas');
+  const banderaTablasTexto = banderaTablas?.querySelector('.bandera-tablas-texto');
+  let cierraBandera = 0;
+  function abreBandera(abrir) {
+    if (!banderaMenu || !resignButton) return;
+    clearTimeout(cierraBandera);
+    banderaMenu.hidden = !abrir;
+    resignButton.setAttribute('aria-expanded', String(abrir));
+    if (!abrir) return;
+    pintaBandera();
+    // Bajo la bandera, sin salirse por la derecha.
+    const caja = resignButton.getBoundingClientRect();
+    const izquierda = Math.min(caja.left, window.innerWidth - banderaMenu.offsetWidth - 12);
+    banderaMenu.style.left = `${Math.max(8, Math.round(izquierda))}px`;
+    banderaMenu.style.top = `${Math.round(caja.bottom + 8)}px`;
+    cierraBandera = setTimeout(() => abreBandera(false), 6000);
+  }
+  // Lo que se puede hacer ahora: rendirse, sin jugada a medias; tablas, si se pueden ofrecer (`puedeTablas`).
+  function pintaBandera() {
+    if (!banderaMenu || banderaMenu.hidden) return;
+    const quieta = !state.fighting && !game.animating && !game.moviendo;
+    if (banderaRendirse.disabled !== !quieta) banderaRendirse.disabled = !quieta;
+    const p = game.mode === 'online' ? game.partida : null;
+    const texto = p && ofertaMia(p, enCursoDe(p)) ? t('tablas.ofrecidas') : t('boton.tablas');
+    if (banderaTablasTexto.textContent !== texto) banderaTablasTexto.textContent = texto;
+    const puede = puedeTablas();
+    if (banderaTablas.disabled !== !puede) banderaTablas.disabled = !puede;
+  }
   resignButton?.addEventListener('click', (event) => {
     event.stopPropagation();
-    if (resignButton.classList.contains('confirma')) {
-      clearTimeout(preguntaRendirse);
-      resignButton.classList.remove('confirma');
-      rendirse();
-      return;
-    }
-    resignButton.querySelector('.boton-texto').textContent = t('boton.rendirse.seguro');
-    resignButton.classList.add('confirma');
-    preguntaRendirse = setTimeout(() => resignButton.classList.remove('confirma'), 3500);
+    abreBandera(banderaMenu.hidden);
+  });
+  banderaRendirse?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    abreBandera(false);
+    rendirse();
+  });
+  banderaTablas?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    abreBandera(false);
+    ofreceTablas();
+  });
+  // Tocar fuera la cierra.
+  document.addEventListener('pointerdown', (event) => {
+    if (banderaMenu?.hidden === false && !banderaMenu.contains(event.target) && !resignButton.contains(event.target)) abreBandera(false);
   });
   // LA PISTA (punto 13 del plan de mejora): la CPU piensa, a nivel alto, la mejor jugada del que mueve y la
   // marca: la flecha dorada de la casilla de salida a la de llegada, y la pieza ya elegida, que solo falta
@@ -611,12 +652,11 @@ async function start() {
     const enLinea = game.mode === 'online' && jugando;
     if (undoButton && undoButton.hidden !== enLinea) undoButton.hidden = enLinea;
     if (resignButton) {
-      // Mirando (CPU contra CPU) no hay quien se rinda.
+      // Mirando (CPU contra CPU) no hay quien se rinda ni quien ofrezca tablas.
       const rinde = jugando && !(game.mode === 'cpu' && !game.human);
       if (resignButton.hidden !== !rinde) resignButton.hidden = !rinde;
-      const puede = jugando && !state.fighting && !game.animating && !game.moviendo;
-      if (resignButton.disabled !== !puede) resignButton.disabled = !puede;
-      if (!jugando) resignButton.classList.remove('confirma');
+      if (!rinde && banderaMenu?.hidden === false) abreBandera(false);
+      pintaBandera();
     }
     if (!zoomButton) return;
     const puede = quieta && (view.zoomed || Boolean(state.selected));
@@ -1008,6 +1048,7 @@ async function start() {
   // ¿Puede tocar ahora el jugador? Ni en el menú, ni con algo moviéndose, ni en el turno de la CPU.
   function canPlay() {
     if (state.phase !== 'playing' || state.busy || state.fighting || game.animating || game.thinking || game.press) return false;
+    if (game.mode === 'online' && game.partida?.tablas.aceptando) return false; // aceptando tablas: hasta saber si valen
     return game.mode === 'pvp' || game.position.side === game.human;
   }
 
@@ -1395,6 +1436,55 @@ async function start() {
     await gameOver('resign');
   }
 
+  // OFRECER TABLAS (punto 12 del plan de mejora). Online, al rival: valen hasta que juegue (`net/partida.js`), y si
+  // las acepta viendo la misma partida, se acaba. Contra la CPU, ella decide según cómo le va (`aceptaTablas`). Uno
+  // contra uno, el otro dice sí o no en el mismo aparato (`pintaOferta`). Una vez por jugada: si no, un «no» tras otro.
+  function puedeTablas() {
+    if (state.phase !== 'playing' || game.animating || game.moviendo || state.fighting) return false;
+    if (game.mode === 'online') return Boolean(game.partida) && puedoOfrecer(game.partida, enCursoDe(game.partida));
+    if (game.tablasEn === game.moves.length) return false;
+    if (game.mode === 'cpu') return Boolean(game.human) && game.position.side === game.human && !game.thinking && !game.valorando;
+    return true;
+  }
+  async function ofreceTablas() {
+    if (!puedeTablas()) return;
+    if (game.mode === 'online') {
+      const p = game.partida;
+      p.session.tablas('tablas', ofrezco(p, enCursoDe(p)));
+      pintaOferta();
+      return;
+    }
+    const n = game.moves.length;
+    game.tablasEn = n;
+    if (game.mode === 'pvp') {
+      game.ofertaPvp = { n, lado: game.position.side };
+      pintaOferta();
+      return;
+    }
+    // La CPU mira un momento cómo le va (en su hilo: `valora` da la puntuación del que mueve, el jugador).
+    const id = game.id;
+    game.valorando = true;
+    let score = null;
+    try {
+      score = await cpu.valora({ fen: game.start, moves: game.moves.slice() });
+    } catch {
+      // sin respuesta: sigue la partida
+    }
+    game.valorando = false;
+    if (id !== game.id || state.phase !== 'playing' || game.moves.length !== n) return;
+    if (Number.isFinite(score) && aceptaTablas(-score, n)) tablasAcordadas();
+    else ui.banner(t('tablas.cpu'), { tipo: 'tablas', ms: 2200 });
+  }
+  // Tablas de mutuo acuerdo, aquí (contra la CPU o uno contra uno): se acaba la partida.
+  function tablasAcordadas() {
+    if (state.phase !== 'playing' || !tableroQuieto()) return;
+    game.ofertaPvp = null;
+    sueltaEspera();
+    cpu.cancel();
+    game.id += 1;
+    gameOver('agreement');
+  }
+
   // La jugada número `n` del rival: la que ya llegó o la próxima que llegue (null si se acaba la partida).
   function jugadaDelRival(n) {
     const ya = game.remote?.get(n);
@@ -1526,6 +1616,25 @@ async function start() {
       guardaOnline();
       p.reclamo = null;
     });
+    // LAS TABLAS (punto 12, `net/partida.js`): su oferta (si las dos se cruzan, es que sí), su sí (si vemos la misma
+    // partida, tablas; si no, se le dice que ya no valen), su no, y su «ya no valen» a las suyas que acepté.
+    session.on('tablas', ({ que, n }) => {
+      if (p.acabada) return;
+      const enCurso = enCursoDe(p);
+      if (que === 'tablas') {
+        if (!recibeOferta(p, n, enCurso)) return;
+        if (ofertaMia(p, enCurso) && ofertaSuya(p, enCurso)) aceptaTablasOnline(p);
+        else if (!activa(p)) salaUi.notify({ texto: t('aviso.tablasOfrece', { nombre: nombreRival(p) }), boton: t('aviso.ver'), accion: () => irAPartida(p) });
+      } else if (que === 'tablas-si') {
+        if (decideAceptacion(p, n, enCurso) === 'acabar') tablasOnline(p);
+        else session.tablas('tablas-nula', n);
+      } else if (que === 'tablas-no') {
+        if (rechazada(p, n) && activa(p) && state.phase === 'playing') ui.banner(t('tablas.rechaza', { nombre: nombreRival(p) }), { tipo: 'tablas', ms: 2200 });
+      } else if (que === 'tablas-nula') {
+        if (anuladas(p) && activa(p) && state.phase === 'playing') ui.banner(t('tablas.caducada'), { tipo: 'tablas', ms: 2200 });
+      }
+      if (activa(p)) pintaOferta();
+    });
     // El rival no llegó a empezarla (se había emparejado con otro, o se perdió su confirmación): fuera, aunque yo
     // ya hubiera movido, y se dice. Si estaba en el tablero: si buscaba al azar, a buscar otro; si era un reto, de
     // vuelta a la partida de antes (o al menú). Antes, con una jugada hecha se quedaba esperando a un rival que
@@ -1603,6 +1712,31 @@ async function start() {
     acabaEnEspera(p, como, flagged, { fin });
   }
 
+  // Las suyas, aceptadas: le digo cuántas jugadas veo, y hasta saber si valen, no se juega (`canPlay`).
+  function aceptaTablasOnline(p) {
+    const enCurso = enCursoDe(p);
+    if (p.acabada || !ofertaSuya(p, enCurso)) return;
+    if (activa(p)) select(null);
+    p.session.tablas('tablas-si', acepto(p, enCurso, Date.now()));
+    if (activa(p)) pintaOferta();
+  }
+  function rechazaTablasOnline(p) {
+    const n = rechazo(p);
+    if (n !== null) p.session.tablas('tablas-no', n);
+    if (activa(p)) pintaOferta();
+  }
+  // Las mías, aceptadas y comprobadas: tablas. El final sale ya hacia el rival (que espera a que lo cierre), aunque
+  // aquí se esté animando una jugada: el cartel sale al acabarla (`afterMove`, como los demás finales que llegan así).
+  function tablasOnline(p) {
+    if (p.acabada) return;
+    if (activa(p) && state.phase === 'playing' && (game.animating || game.moviendo || state.fighting)) {
+      cierraPartida(p, 'agreement', null, null);
+      p.finPendiente = { como: 'agreement', flagged: null, fin: null };
+      return;
+    }
+    seVa(p, 'agreement');
+  }
+
   function acabaEnEspera(p, status, flagged = null, { fin = null } = {}) {
     if (p.acabada) return;
     cierraPartida(p, status, p.ganador(status, flagged), flagged, fin);
@@ -1619,13 +1753,15 @@ async function start() {
   // sin esperar a la escena del mate, que dura sus segundos.
   function cierraPartida(p, status, winner, flagged, fin = null) {
     const deTodos = { status: finDeTodos(status), winner, flagged };
-    p.acabada = { status, winner, flagged, fin: deTodos, jugadas: fin ? fin.moves.length : p.moves.length, de: fin ? p.rival : p.color };
+    // Las que llevo, con la que se esté animando (el rival ya la tiene: unas tablas se cierran a media animación).
+    const lista = p.jugadas(enCursoDe(p));
+    p.acabada = { status, winner, flagged, fin: deTodos, jugadas: fin ? fin.moves.length : lista.length, de: fin ? p.rival : p.color };
     p.finPendiente = null;
     p.clock?.pause(Date.now());
     // La puntuación, ya (`puntuaOnline`): también si se acaba en espera, o si otra partida ocupa el tablero antes
     // de que salga el cartel.
     puntuaOnline(p, ratings);
-    if (!fin) p.session.terminar({ ...deTodos, moves: p.moves });
+    if (!fin) p.session.terminar({ ...deTodos, moves: lista });
     guardaOnline(); // acabada: ya no se guarda para seguirla
   }
 
@@ -1727,6 +1863,43 @@ async function start() {
     return guardadas.length;
   }
 
+  // LAS TABLAS OFRECIDAS, A LA VISTA (`ui.oferta`): online, la suya (con «Aceptar» y «Rechazar»), la que estoy
+  // aceptando o la mía; uno contra uno, la del que mueve, para el otro. Con cada turno y cada segundo.
+  function pintaOferta() {
+    if (state.phase !== 'playing') {
+      ui.oferta(null);
+      return;
+    }
+    if (game.mode === 'online') {
+      const p = game.partida;
+      const enCurso = p ? enCursoDe(p) : null;
+      if (!p || p.acabada) ui.oferta(null);
+      else if (p.tablas.aceptando) ui.oferta({ texto: t('tablas.aceptando') });
+      else if (ofertaSuya(p, enCurso)) {
+        ui.oferta({ texto: t('tablas.ofrece', { nombre: nombreRival(p) }), onAceptar: () => aceptaTablasOnline(p), onRechazar: () => rechazaTablasOnline(p) });
+      } else if (ofertaMia(p, enCurso)) ui.oferta({ texto: t('tablas.ofrecidas') });
+      else ui.oferta(null);
+      return;
+    }
+    const oferta = game.ofertaPvp;
+    if (game.mode !== 'pvp' || !oferta || oferta.n !== game.moves.length || game.enCurso) {
+      ui.oferta(null);
+      return;
+    }
+    const nombre = game.nombres[oferta.lado];
+    ui.oferta({
+      texto: nombre ? t('tablas.ofrece', { nombre }) : t(`tablas.ofrece.${oferta.lado}`),
+      onAceptar: () => {
+        if (game.ofertaPvp === oferta && oferta.n === game.moves.length) tablasAcordadas();
+      },
+      onRechazar: () => {
+        game.ofertaPvp = null;
+        pintaOferta();
+        ui.banner(t('tablas.rechazadas'), { tipo: 'tablas', ms: 1800 });
+      },
+    });
+  }
+
   // LA CONEXIÓN, A LA VISTA, debajo del turno (`ui.conexion`): si el que no tiene red soy yo, si el rival calla y
   // cuánto, y, pasado un rato según el ritmo (`retrasoReclamo`), «Reclamar la victoria» o «Esperar» (otro rato más).
   // Antes solo salía un cartel de un par de segundos y, a los dos minutos, la partida se ganaba sola sin preguntar.
@@ -1778,9 +1951,12 @@ async function start() {
     const ahora = Date.now();
     for (const p of partidasVivas()) {
       if (p.clock && (!activa(p) || relojVivo())) banderaOnline(p, ahora);
+      // Aceptando sus tablas, y él sin cerrar la partida: ya no valen.
+      if (aceptacionCaducada(p, ahora) && activa(p) && state.phase === 'playing') ui.banner(t('tablas.caducada'), { tipo: 'tablas', ms: 2200 });
     }
     pintaPartidas();
     pintaConexion();
+    pintaOferta();
     salaUi.setConexion(online.sano);
     // Y con algún reloj corriendo, a guardarlas de vez en cuando (por si la app se va sin avisar).
     vueltasReloj += 1;
@@ -2053,6 +2229,7 @@ async function start() {
     const ultima = game.moves.at(-1);
     highlights.lastMove(ultima?.slice(0, 2) ?? null, ultima?.slice(2, 4) ?? null);
     ui.turn({ side: game.position.side, mode: game.mode, human: game.human, thinking: game.thinking, hidden: state.phase !== 'playing', press: game.press, nombres: game.nombres });
+    pintaOferta();
   }
 
   function paintSettings() {
@@ -2258,6 +2435,9 @@ async function start() {
     game.human = guardada?.human ?? (mode === 'cpu' ? (color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color === 'mirar' ? null : color) : mode === 'online' ? color : 'white');
     game.thinking = false;
     game.press = null;
+    game.tablasEn = null; // con cuántas jugadas se ofrecieron tablas (contra la CPU o uno contra uno)
+    game.ofertaPvp = null;
+    game.valorando = false;
     // Los nombres: en 1 contra 1, los del menú (o los de la partida guardada); online, el mío y el del
     // rival; contra la CPU, ninguno.
     const n = guardada?.nombres ?? nombres;
@@ -2506,6 +2686,8 @@ async function start() {
     game.position = Position.fromFEN(fen);
     game.moves = [];
     game.deConsola = true; // una posición de prueba: no se guarda encima de la partida de verdad
+    game.tablasEn = null;
+    game.ofertaPvp = null;
     select(null);
     squareUp();
     settleKnights({ instant: true });

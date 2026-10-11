@@ -427,6 +427,22 @@ export function createEngine() {
   return { search, scoreMoves };
 }
 
+// CÓMO VA LA PARTIDA, para quien mueve (en centésimas de peón: positivo, le va bien), mirando unas jugadas
+// adelante: contar piezas a secas, a media captura, engaña. Para decidir si se aceptan unas tablas.
+let motorValora = null;
+export function valora(p, { engine = null, depth = 4, timeMs = 300 } = {}) {
+  engine ??= motorValora ??= createEngine();
+  return engine.search(p, { depth, timeMs }).score;
+}
+// Unas tablas que se le ofrecen a la CPU (`score`: cómo le va a ella, de `valora`; `plies`: las jugadas que
+// lleva la partida): las acepta si va perdiendo por más de dos peones, o si va igualada pasada la apertura.
+export const TABLAS_PIERDE = -200;
+export const TABLAS_IGUALADA = 30;
+export const TABLAS_DESDE = 20;
+export function aceptaTablas(score, plies) {
+  return score <= TABLAS_PIERDE || (plies >= TABLAS_DESDE && score <= TABLAS_IGUALADA);
+}
+
 // Elige entre jugadas puntuadas ({ move, score }) como un jugador de esa `temperature`: la mejor es la más
 // probable, y cada una lo es menos cuanto más pierde respecto a ella.
 export function pickLikeAPerson(scored, temperature, random = Math.random) {

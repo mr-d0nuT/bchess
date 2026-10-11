@@ -806,6 +806,40 @@ test('el reclamo de tiempo y la respuesta con el reloj van y vienen, comprobados
   assert.deepEqual(relojes, [{ n: 3, white: 5000, black: 1200 }]);
 });
 
+test('las tablas van y vienen: la oferta, el sí, el no y el «ya no vale», comprobados', async () => {
+  const { A, B } = partidaDeDos();
+  const deA = [];
+  const deB = [];
+  A.on('tablas', (m) => deA.push(m));
+  B.on('tablas', (m) => deB.push(m));
+  A.tablas('tablas', 2);
+  B.tablas('tablas-si', 2);
+  B.tablas('tablas-no', 4);
+  A.tablas('tablas-nula', 2);
+  assert.throws(() => A.tablas('tablas-quizas', 2));
+  await espera(20);
+  assert.deepEqual(deB, [{ que: 'tablas', n: 2 }, { que: 'tablas-nula', n: 2 }]);
+  assert.deepEqual(deA, [{ que: 'tablas-si', n: 2 }, { que: 'tablas-no', n: 4 }]);
+});
+
+test('unas tablas sin sentido se ignoran; y acordadas son un final sin ganador', async () => {
+  const { B, dice } = partidaDeB([]);
+  const tablas = [];
+  const fines = [];
+  B.on('tablas', (m) => tablas.push(m));
+  B.on('fin', (f) => fines.push(f));
+  dice({ k: 'tablas', n: -1 });
+  dice({ k: 'tablas-si', n: 'dos' });
+  dice({ k: 'tablas-no' });
+  dice({ k: 'fin', status: 'agreement', winner: 'white', flagged: null, moves: [] });
+  await espera(20);
+  assert.deepEqual(tablas, []);
+  assert.deepEqual(fines, []);
+  dice({ k: 'fin', status: 'agreement', winner: null, flagged: null, moves: ['e2e4', 'e7e5'] });
+  await espera(20);
+  assert.deepEqual(fines, [{ status: 'agreement', winner: null, flagged: null, moves: ['e2e4', 'e7e5'] }]);
+});
+
 // ---- Emparejar con el mismo ritmo y una puntuación parecida ----
 
 test('se empareja antes con quien busca el mismo ritmo: blitz con blitz, aunque haya una bala de por medio', async () => {

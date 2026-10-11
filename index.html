@@ -46,10 +46,9 @@
       <button id="deshacer" class="boton" type="button" aria-label="Deshacer la última jugada" title="Deshacer la última jugada" disabled data-i18n-attr="title:boton.deshacer;aria-label:boton.deshacer">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4.5 4 9.5l5 5"/><path d="M4.5 9.5h10a5.25 5.25 0 0 1 0 10.5H9"/></svg>
       </button>
-      <!-- Online, en lugar de deshacer: rendirse (un toque lo pregunta, otro lo confirma). -->
-      <button id="rendirse" class="boton" type="button" hidden aria-label="Rendirse" title="Rendirse" data-i18n-attr="title:boton.rendirse;aria-label:boton.rendirse">
+      <!-- La bandera blanca: abre un menú con rendirse u ofrecer tablas (`#bandera-menu`). -->
+      <button id="rendirse" class="boton" type="button" hidden aria-haspopup="menu" aria-expanded="false" aria-controls="bandera-menu" aria-label="Rendirse u ofrecer tablas" title="Rendirse u ofrecer tablas" data-i18n-attr="title:boton.bandera;aria-label:boton.bandera">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 21V3.5"/><path d="M5.5 4.5c2.4-1.5 4.8-1.5 7.2 0s4.8 1.5 7.3 0v9c-2.5 1.5-4.9 1.5-7.3 0s-4.8-1.5-7.2 0"/></svg>
-        <span class="boton-texto"></span>
       </button>
       <!-- La pista: la CPU sugiere una jugada (tres por partida; online, no). -->
       <button id="pista" class="boton" type="button" hidden aria-label="Pista" title="Pista">
@@ -67,6 +66,18 @@
       </button>
       <button id="pantalla" class="boton" type="button" aria-pressed="false" aria-label="Pantalla completa" title="Pantalla completa">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path class="abrir" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><path class="cerrar" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
+      </button>
+    </div>
+    <!-- Lo que abre la bandera blanca, bajo ella: rendirse (sin más preguntas: ya se ha pedido dos veces) u ofrecer
+         tablas (punto 12 del plan de mejora). -->
+    <div id="bandera-menu" role="menu" hidden>
+      <button id="bandera-rendirse" class="bandera-opcion rendirse" type="button" role="menuitem">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 21V3.5"/><path d="M5.5 4.5c2.4-1.5 4.8-1.5 7.2 0s4.8 1.5 7.3 0v9c-2.5 1.5-4.9 1.5-7.3 0s-4.8-1.5-7.2 0"/></svg>
+        <span data-i18n="boton.rendirse">Rendirse</span>
+      </button>
+      <button id="bandera-tablas" class="bandera-opcion" type="button" role="menuitem">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6 7.5 4v8"/><path d="M17.5 4 6.5 20"/><path d="M13 14.6a2.5 2.5 0 1 1 4.6 1.4L13 20h5.2"/></svg>
+        <span class="bandera-tablas-texto">Ofrecer tablas</span>
       </button>
     </div>
     <div id="aviso" role="alert" hidden></div>

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Position } from '../src/chess/position.js';
-import { chooseMove, createEngine, evaluate, levelSettings, pickLikeAPerson } from '../src/chess/engine.js';
+import { aceptaTablas, chooseMove, createEngine, evaluate, levelSettings, pickLikeAPerson, valora } from '../src/chess/engine.js';
 import { bookMoves, pickBookMove } from '../src/chess/book.js';
 
 const uci = (m) => Position.uci(m);
@@ -142,4 +142,23 @@ test('velocidad: al menos unas decenas de miles de posiciones por segundo', () =
   const s = (Date.now() - t0) / 1000;
   console.log(`   ${Math.round(nodes / s)} posiciones/s, profundidad ${depth}`);
   assert.ok(nodes / s > 20000);
+});
+
+test('la CPU acepta tablas si va perdiendo, o si va igualada pasada la apertura; si va ganando, no', () => {
+  assert.equal(aceptaTablas(-250, 6), true, 'pierde por más de dos peones: cuanto antes');
+  assert.equal(aceptaTablas(20, 24), true, 'igualada, pasada la apertura');
+  assert.equal(aceptaTablas(20, 10), false, 'igualada, pero aún en la apertura');
+  assert.equal(aceptaTablas(150, 40), false, 'va ganando');
+});
+
+test('valorar una posición: para quien mueve, y mirando las capturas que vienen', () => {
+  // Las blancas, con una dama de más: les va bien a ellas (mueven) y mal a las negras.
+  const p = Position.fromFEN('4k3/8/8/8/8/8/8/3QK3 w - - 0 1');
+  assert.ok(valora(p) > 500);
+  const q = Position.fromFEN('3qk3/8/8/8/8/8/8/4K3 w - - 0 1');
+  assert.ok(valora(q) < -500);
+  // Damas iguales, pero la blanca está colgando y mueven las negras: se la comen.
+  const r = Position.fromFEN('4k3/8/8/8/8/8/3q4/3Q3K b - - 0 1');
+  assert.ok(Math.abs(evaluate(r)) < 100, 'contando piezas, igualadas');
+  assert.ok(valora(r) > 500, 'mirando, las negras ganan una dama');
 });

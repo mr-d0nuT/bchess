@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Position } from '../src/chess/position.js';
-import { createPartidaOnline, decideBandera, decideFin, decideReclamo, estadoLocal, finDeTodos, mandaElSuyo, puntuaOnline, retrasoReclamo } from '../src/net/partida.js';
+import {
+  TABLAS_ESPERA, aceptacionCaducada, acepto, anuladas, createPartidaOnline, decideAceptacion, decideBandera, decideFin, decideReclamo, estadoLocal,
+  finDeTodos, jugoDesde, mandaElSuyo, ofertaMia, ofertaSuya, ofrezco, puedoOfrecer, puntuaOnline, rechazada, rechazo, recibeOferta, retrasoReclamo,
+} from '../src/net/partida.js';
 import { createRatings } from '../src/rating/ratings.js';
 
 // El emparejamiento visto por «bbbb» (negras): su rival, «aaaa», lleva blancas.
@@ -308,4 +311,110 @@ test('no puntúan las partidas anuladas ni las de menos de dos jugadas (no llega
 test('sin puntuación del rival (o con una sin sentido, ya cambiada por la de empezar), se puntúa contra 1200', () => {
   const p = createPartidaOnline({ info: info(), yo: 'bbbb' });
   assert.deepEqual(p.rivalRating, { r: 1200, rd: 350 });
+});
+
+// ---- Las tablas, ofrecidas (punto 12) ----
+
+test('quién ha jugado desde una jugada: las blancas, las pares', () => {
+  const lista = ['e2e4', 'e7e5', 'g1f3'];
+  assert.equal(jugoDesde(lista, 'white', 2), true, 'g1f3 es la 2');
+  assert.equal(jugoDesde(lista, 'black', 2), false);
+  assert.equal(jugoDesde(lista, 'black', 0), true);
+  assert.equal(jugoDesde(lista, 'white', 3), false, 'desde la 3, nadie');
+});
+
+test('tablas: las ofrezco, el rival las acepta viendo la misma partida, y se acaba', () => {
+  const yo = createPartidaOnline({ info: info(), yo: 'aaaa' }); // blancas
+  const el = createPartidaOnline({ info: info(), yo: 'bbbb' }); // negras
+  juega(yo, 'e2e4', 'e7e5');
+  juega(el, 'e2e4', 'e7e5');
+  assert.equal(puedoOfrecer(yo), true);
+  const n = ofrezco(yo);
+  assert.equal(n, 2);
+  assert.equal(ofertaMia(yo), true);
+  assert.equal(puedoOfrecer(yo), false, 'una a la vez');
+  assert.equal(recibeOferta(el, n), true);
+  assert.equal(ofertaSuya(el), true);
+  assert.equal(puedoOfrecer(el), false, 'la suya se acepta, no se ofrece otra');
+  const m = acepto(el, null, 1000);
+  assert.equal(m, 2);
+  assert.ok(el.tablas.aceptando);
+  assert.equal(decideAceptacion(yo, m), 'acabar');
+});
+
+test('tablas: jugar es decir que no; y una aceptación que se cruza con una jugada ya no vale', () => {
+  const yo = createPartidaOnline({ info: info(), yo: 'aaaa' }); // blancas
+  juega(yo, 'e2e4', 'e7e5');
+  const n = ofrezco(yo);
+  // Las ofrezco y juego yo: siguen en pie (el que decide es él).
+  juega(yo, 'g1f3');
+  assert.equal(ofertaMia(yo), true);
+  // Él aceptó sin haber visto mi jugada: no vemos la misma partida.
+  assert.equal(decideAceptacion(yo, n), 'nula');
+  // Él juega: es que no.
+  juega(yo, 'b8c6');
+  assert.equal(ofertaMia(yo), false);
+  assert.equal(decideAceptacion(yo, 4), 'nula');
+  // La suya, si yo ya he jugado desde que la hizo, ni se apunta.
+  const el = createPartidaOnline({ info: info(), yo: 'bbbb' });
+  juega(el, 'e2e4', 'e7e5', 'g1f3');
+  assert.equal(recibeOferta(el, 1), false, 'hecha antes de mi e7e5');
+  assert.equal(recibeOferta(el, 3), true);
+  // Y aceptarla aún sin ver la posición en que la hizo, tampoco.
+  const tarde = createPartidaOnline({ info: info(), yo: 'bbbb' });
+  juega(tarde, 'e2e4');
+  assert.equal(recibeOferta(tarde, 3), true);
+  assert.equal(ofertaSuya(tarde), false, 'su jugada aún no ha llegado');
+});
+
+test('tablas: rechazadas, no se pueden volver a ofrecer hasta haber jugado', () => {
+  const yo = createPartidaOnline({ info: info(), yo: 'aaaa' }); // blancas
+  juega(yo, 'e2e4', 'e7e5');
+  const n = ofrezco(yo);
+  const el = createPartidaOnline({ info: info(), yo: 'bbbb' });
+  juega(el, 'e2e4', 'e7e5');
+  recibeOferta(el, n);
+  assert.equal(rechazo(el), n);
+  assert.equal(ofertaSuya(el), false);
+  assert.equal(rechazada(yo, n + 1), false, 'de otra oferta: nada');
+  assert.equal(rechazada(yo, n), true);
+  assert.equal(ofertaMia(yo), false);
+  assert.equal(puedoOfrecer(yo), false, 'hasta que juegue');
+  juega(yo, 'g1f3', 'b8c6');
+  assert.equal(puedoOfrecer(yo), true);
+});
+
+test('tablas: si nadie cierra la partida a tiempo, aceptarlas caduca; y si el otro dice que ya no valen, también', () => {
+  const el = createPartidaOnline({ info: info(), yo: 'bbbb' });
+  juega(el, 'e2e4', 'e7e5');
+  recibeOferta(el, 2);
+  acepto(el, null, 1000);
+  assert.equal(aceptacionCaducada(el, 1000 + TABLAS_ESPERA), false);
+  assert.equal(aceptacionCaducada(el, 1001 + TABLAS_ESPERA), true);
+  assert.equal(el.tablas.aceptando, null);
+  assert.equal(ofertaSuya(el), false);
+  assert.equal(recibeOferta(el, 2), true, 'otra vez, la misma posición');
+  assert.equal(ofertaSuya(el), true);
+  juega(el, 'g1f3', 'b8c6');
+  assert.equal(ofertaSuya(el), false, 'he jugado yo: era que no');
+  const otra = createPartidaOnline({ info: info(), yo: 'bbbb' });
+  juega(otra, 'e2e4', 'e7e5');
+  recibeOferta(otra, 2);
+  acepto(otra, null, 0);
+  assert.equal(anuladas(otra), true);
+  assert.equal(otra.tablas.aceptando, null);
+  assert.equal(anuladas(otra), false, 'una vez');
+});
+
+test('tablas acordadas: medio punto para cada uno, y el final es el mismo en los dos lados', () => {
+  const ratings = createRatings({ storage: almacen() });
+  const p = createPartidaOnline({ info: info({ opponentRating: { r: 1200, rd: 350 } }), yo: 'bbbb' });
+  juega(p, 'e2e4', 'e7e5');
+  assert.equal(p.ganador('agreement'), null);
+  assert.equal(estadoLocal('agreement', null, 'black'), 'agreement');
+  assert.equal(finDeTodos('agreement'), 'agreement');
+  assert.deepEqual(decideFin(p, { status: 'agreement', winner: null, flagged: null, moves: ['e2e4', 'e7e5'] }), { accion: 'acabar', status: 'agreement', flagged: null });
+  p.acabada = { status: 'agreement', winner: null, flagged: null };
+  assert.ok(puntuaOnline(p, ratings));
+  assert.equal(ratings.get('blitz').draw, 1);
 });

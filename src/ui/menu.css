@@ -684,35 +684,49 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .turno.piensa .turno-texto::after { content: '…'; display: inline-block; width: 1.2em; text-align: left; animation: piensa 1.2s steps(4) infinite; overflow: hidden; vertical-align: bottom; }
 @keyframes piensa { from { width: 0; } to { width: 1.2em; } }
 @media (max-width: 480px) { .turno { top: calc(max(12px, env(safe-area-inset-top)) + 48px); } }
-/* Cómo va la conexión online, debajo del turno: ámbar si alguien no tiene red; roja, con los botones de reclamar. */
-.conexion {
+/* Debajo del turno, uno debajo de otro: la conexión online y las tablas ofrecidas. */
+.avisos-partida {
   position: absolute;
   top: calc(max(12px, env(safe-area-inset-top)) + 42px);
   left: 50%;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 8px;
   /* Su ancho, el que pida (con `left: 50%`, sin esto solo cabría en la mitad derecha y se partiría antes). */
   width: max-content;
   max-width: calc(100vw - 32px);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+/* La conexión: ámbar si alguien no tiene red; roja, con los botones de reclamar. */
+.conexion, .oferta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
   padding: 6px 12px;
   border: 1px solid rgba(255, 196, 81, 0.6);
   border-radius: 999px;
   background: rgba(40, 26, 4, 0.85);
   color: #ffe2a8;
   font: 700 13px/1.2 system-ui, sans-serif;
-  transform: translateX(-50%);
   pointer-events: auto;
 }
-.conexion[hidden] { display: none; }
+.conexion[hidden], .oferta[hidden] { display: none; }
+/* Las tablas: azules, como el turno; con botones, la caja se redondea para caber en dos líneas. */
+.oferta { flex-wrap: wrap; border-color: rgba(90, 170, 255, 0.6); border-radius: 16px; background: rgba(6, 14, 34, 0.9); color: #d6ebff; }
+.oferta .conexion-boton.principal { background: linear-gradient(180deg, #9fd2ff, #3b8fe0); color: #021428; }
+.oferta-texto { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conexion[data-estado="reclamable"] { flex-wrap: wrap; border-color: rgba(255, 90, 70, 0.75); border-radius: 16px; background: rgba(48, 8, 6, 0.9); color: #ffd0c8; }
 .conexion-texto { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conexion-botones { display: inline-flex; gap: 8px; }
+.conexion-botones[hidden] { display: none; }
 .conexion-boton { padding: 6px 12px; border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: inherit; font: 800 12.5px/1 system-ui, sans-serif; cursor: pointer; }
 .conexion-boton.principal { border: 0; background: linear-gradient(180deg, #ff9a8a, #e0402c); color: #2a0400; }
 .conexion-boton[hidden] { display: none; }
-@media (max-width: 480px) { .conexion { top: calc(max(12px, env(safe-area-inset-top)) + 90px); } }
+@media (max-width: 480px) { .avisos-partida { top: calc(max(12px, env(safe-area-inset-top)) + 90px); } }
 
 .cartel {
   position: fixed;

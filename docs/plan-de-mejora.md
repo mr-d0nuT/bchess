@@ -116,9 +116,11 @@ dorada que se apaga sola.
 **Qué:** un panel plegable con la lista de jugadas y las piezas comidas por cada bando, con la
 ventaja de material (+3, −1…).
 
-### 12. Rendirse y ofrecer tablas · S · rendirse ✔ hecho
-**Hecho:** la bandera blanca, en cualquier partida (online, contra la CPU y uno contra uno). Falta
-ofrecer tablas.
+### 12. Rendirse y ofrecer tablas · S · ✔ hecho
+**Hecho (11/10/2026):** la bandera blanca, en cualquier partida, abre «Rendirse» y «Ofrecer tablas». Online,
+el rival las acepta o las rechaza (jugar también es decir que no), y solo cuentan si los dos ven la misma
+partida; tablas de mutuo acuerdo, medio punto cada uno. Contra la CPU, esta las acepta si va perdiendo, o si va
+igualada pasada la apertura. Uno contra uno, el otro dice sí o no en el mismo aparato. Una oferta por jugada.
 **Qué:** botones en ajustes. Contra la CPU, esta acepta las tablas o no según cómo vaya la partida.
 
 ### 13. Pista · S · ✔ hecho

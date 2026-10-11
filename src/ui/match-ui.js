@@ -25,8 +25,12 @@ export function createMatchUi(root = document.getElementById('hud')) {
   turno.append(turnoPieza, turnoTexto);
   root.append(turno);
 
-  // Cómo va la conexión (online), debajo del turno: quién no tiene red, cuánto lleva callado el rival y, pasado un
-  // rato, «Reclamar la victoria» o «Esperar».
+  // Debajo del turno, lo que pasa en la partida, uno debajo de otro: la conexión y las tablas ofrecidas.
+  const avisos = el('div', 'avisos-partida');
+  root.append(avisos);
+
+  // Cómo va la conexión (online): quién no tiene red, cuánto lleva callado el rival y, pasado un rato, «Reclamar la
+  // victoria» o «Esperar».
   const conexion = el('div', 'conexion');
   conexion.setAttribute('role', 'status');
   conexion.setAttribute('aria-live', 'polite');
@@ -40,7 +44,7 @@ export function createMatchUi(root = document.getElementById('hud')) {
   const conexionBotones = el('span', 'conexion-botones');
   conexionBotones.append(reclamar, esperar);
   conexion.append(conexionTexto, conexionBotones);
-  root.append(conexion);
+  avisos.append(conexion);
   let alReclamar = null;
   let alEsperar = null;
   reclamar.addEventListener('click', (event) => {
@@ -53,6 +57,33 @@ export function createMatchUi(root = document.getElementById('hud')) {
   });
   let ultimaConexion = null;
   const minutos = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+  // Unas tablas ofrecidas (punto 12): «Ana ofrece tablas» con «Aceptar» y «Rechazar»; o, sin botones, cómo va la
+  // mía («Has ofrecido tablas»).
+  const oferta = el('div', 'oferta');
+  oferta.setAttribute('role', 'status');
+  oferta.setAttribute('aria-live', 'polite');
+  oferta.hidden = true;
+  const ofertaTexto = el('span', 'oferta-texto');
+  const aceptar = el('button', 'conexion-boton principal');
+  const rechazar = el('button', 'conexion-boton');
+  aceptar.type = 'button';
+  rechazar.type = 'button';
+  const ofertaBotones = el('span', 'conexion-botones');
+  ofertaBotones.append(aceptar, rechazar);
+  oferta.append(ofertaTexto, ofertaBotones);
+  avisos.append(oferta);
+  let alAceptar = null;
+  let alRechazar = null;
+  aceptar.addEventListener('click', (event) => {
+    event.stopPropagation();
+    alAceptar?.();
+  });
+  rechazar.addEventListener('click', (event) => {
+    event.stopPropagation();
+    alRechazar?.();
+  });
+  let ultimaOferta = null;
 
   // El cartel del jaque, en medio.
   const cartel = el('div', 'cartel');
@@ -301,18 +332,34 @@ export function createMatchUi(root = document.getElementById('hud')) {
           : t('online.rivalFuera', { nombre, tiempo: minutos(segundos) });
       if (conexionTexto.textContent !== texto) conexionTexto.textContent = texto;
       const botones = estado === 'reclamable';
-      if (reclamar.hidden !== !botones) reclamar.hidden = !botones;
-      if (esperar.hidden !== !botones) esperar.hidden = !botones;
+      if (conexionBotones.hidden !== !botones) conexionBotones.hidden = !botones; // sin ellos, ni su hueco
       if (reclamar.textContent !== t('online.reclamar')) reclamar.textContent = t('online.reclamar');
       if (esperar.textContent !== t('online.esperar')) esperar.textContent = t('online.esperar');
       alReclamar = onReclamar;
       alEsperar = onEsperar;
     },
 
+    // Las tablas ofrecidas: null (no se ve) o { texto, onAceptar, onRechazar } (sin ellas, sin botones). Se llama a
+    // menudo: solo cambia lo que cambia.
+    oferta(datos = null) {
+      ultimaOferta = datos;
+      if (oferta.hidden !== !datos) oferta.hidden = !datos;
+      if (!datos) return;
+      const { texto, onAceptar = null, onRechazar = null } = datos;
+      if (ofertaTexto.textContent !== texto) ofertaTexto.textContent = texto;
+      const botones = Boolean(onAceptar);
+      if (ofertaBotones.hidden !== !botones) ofertaBotones.hidden = !botones;
+      if (aceptar.textContent !== t('tablas.aceptar')) aceptar.textContent = t('tablas.aceptar');
+      if (rechazar.textContent !== t('tablas.rechazar')) rechazar.textContent = t('tablas.rechazar');
+      alAceptar = onAceptar;
+      alRechazar = onRechazar;
+    },
+
     // Vuelve a escribir lo que se ve (al cambiar de idioma).
     refresh() {
       if (ultimoTurno) api.turn(ultimoTurno);
       if (ultimaConexion) api.conexion(ultimaConexion);
+      if (ultimaOferta) api.oferta(ultimaOferta);
     },
 
     closeAll() {
@@ -323,6 +370,8 @@ export function createMatchUi(root = document.getElementById('hud')) {
       turno.hidden = true;
       conexion.hidden = true;
       ultimaConexion = null;
+      oferta.hidden = true;
+      ultimaOferta = null;
       cartel.classList.remove('sale');
     },
   };
