@@ -367,7 +367,8 @@ async function start() {
   // (la misma en todos los aparatos) y se sale en el ranking mundial. Sin configurar Firebase, no aparece.
   const cloud = createCloud();
   const ranking = createRankingUi({ ratings, button: document.getElementById('menu-ranking'), world: cloud.available });
-  createAuthUi({ cloud, area: ranking.accountArea });
+  // Y arriba en el menú, con quién has entrado (al tocarlo, el panel, donde está la cuenta) o «Invitado · Entrar».
+  createAuthUi({ cloud, area: ranking.accountArea, chip: document.getElementById('menu-cuenta'), onAccount: () => ranking.open() });
   // El nombre en el ranking: el que se ha puesto para jugar online; si no, el nombre de pila de la cuenta.
   const nombreEnRanking = (user) => cleanName(game.miNombre || (user?.name ?? '').split(' ')[0]) || 'Jugador';
   if (cloud.available) {
@@ -461,6 +462,12 @@ async function start() {
     salaUi.setName(game.miNombre);
   }
   ponMiNombre(menu.choice.nombres?.yo);
+  // Al entrar con la cuenta, si aún no tenía nombre para jugar online, el de la cuenta (su nombre de pila).
+  if (cloud.available) {
+    cloud.onUser((user) => {
+      if (user && !cleanName(menu.choice.nombres?.yo)) menu.ponNombre('yo', (user.name || user.email.split('@')[0]).split(' ')[0]);
+    });
+  }
   // Lo que digo de mí en la sala: disponible (en el menú o en una partida que no es online), buscando rival o
   // jugando online.
   function ponEstado(status) {

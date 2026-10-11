@@ -4,7 +4,9 @@ import { onLanguage, t } from '../i18n.js';
 // progreso se guarda solo en el aparato y el botón de entrar; con cuenta, con quién se ha entrado y el de
 // salir; con la cuenta de correo aún sin confirmar, el aviso de que mire su correo y el de volver a mandarlo.
 // Entrar abre su ventana: «Continuar con Google» o correo y contraseña (entrar, crear cuenta o recuperar la
-// contraseña). `cloud`: la de `net/cloud.js`. Sin Firebase configurado, no se enseña nada.
+// contraseña), o seguir como invitado. Y arriba en el menú (`chip`), con quién se ha entrado o «Invitado · Entrar»:
+// sin cuenta, abre la ventana; con ella, `onAccount` (el panel del ranking, donde está la cuenta). `cloud`: la de
+// `net/cloud.js`. Sin Firebase configurado, no se enseña nada.
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -28,8 +30,11 @@ const G = '<svg viewBox="0 0 48 48" aria-hidden="true">'
   + '<path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>'
   + '</svg>';
 
-export function createAuthUi({ cloud, area }) {
-  if (!cloud?.available || !area) return { refresh() {} };
+// La persona del botón de la cuenta, sin cuenta (con ella, su inicial).
+const PERSONA = '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>';
+
+export function createAuthUi({ cloud, area, chip = null, onAccount = null }) {
+  if (!cloud?.available || !area) return { refresh() {}, open() {} };
   area.hidden = false;
   let user = null;
   let aviso = '';
@@ -44,6 +49,7 @@ export function createAuthUi({ cloud, area }) {
   const titulo = el('h2', 'sala-titulo');
   const cerrar = boton('sala-cerrar', '✕', () => (fondo.hidden = true));
   cabecera.append(titulo, cerrar);
+  const porque = el('p', 'cuenta-porque');
   const google = boton('cuenta-google', '', () => entra(() => cloud.google()));
   const o = el('div', 'cuenta-o');
   const form = el('form', 'cuenta-form');
@@ -71,8 +77,10 @@ export function createAuthUi({ cloud, area }) {
   const olvido = boton('cuenta-enlace', '', () => entra(() => cloud.resetPassword(correo.value.trim()), 'cuenta.recupera'));
   const mensaje = el('p', 'cuenta-mensaje');
   mensaje.setAttribute('role', 'status');
+  // Sin cuenta también se juega: todo igual, con la puntuación guardada solo en este aparato.
+  const invitado = boton('cuenta-invitado', '', () => (fondo.hidden = true));
   form.append(nombre, correo, clave, enviar);
-  caja.append(cabecera, google, o, form, cambia, olvido, mensaje);
+  caja.append(cabecera, porque, google, o, form, cambia, olvido, mensaje, invitado);
   fondo.append(caja);
   document.body.append(fondo);
   fondo.addEventListener('pointerup', (event) => event.stopPropagation());
@@ -104,8 +112,16 @@ export function createAuthUi({ cloud, area }) {
     pinta();
   }
 
+  function abre() {
+    aviso = '';
+    fondo.hidden = false;
+    pintaVentana();
+  }
+
   function pintaVentana() {
     titulo.textContent = t('cuenta.titulo');
+    porque.textContent = t('cuenta.porque');
+    invitado.textContent = t('cuenta.seguirInvitado');
     cerrar.title = t('ajustes.cerrar');
     google.innerHTML = `${G}<span>${t('cuenta.google')}</span>`;
     o.textContent = t('cuenta.o');
@@ -122,15 +138,42 @@ export function createAuthUi({ cloud, area }) {
     for (const control of [google, enviar, cambia, olvido]) control.disabled = ocupado;
   }
 
+  // EL BOTÓN DE LA CUENTA, arriba en el menú: su inicial y su nombre de pila (con un punto si falta confirmar el
+  // correo); sin cuenta, la persona, «Invitado» y «Entrar».
+  const chipIco = chip?.querySelector('.cuenta-chip-ico');
+  const chipNombre = chip?.querySelector('.cuenta-chip-nombre');
+  const chipEntrar = chip?.querySelector('.cuenta-chip-entrar');
+  chip?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (user) onAccount?.();
+    else abre();
+  });
+  function pintaChip() {
+    if (!chip) return;
+    chip.hidden = false;
+    chip.classList.toggle('dentro', Boolean(user));
+    chip.classList.toggle('sin-confirmar', Boolean(user) && !user.verified);
+    chipEntrar.hidden = Boolean(user);
+    if (!user) {
+      chipIco.innerHTML = PERSONA;
+      chipNombre.textContent = t('cuenta.invitado');
+      chipEntrar.textContent = t('cuenta.entrar');
+      chip.title = t('cuenta.entrarOcrear');
+    } else {
+      const quien = (user.name || user.email.split('@')[0] || '?').trim();
+      chipIco.textContent = quien.charAt(0).toUpperCase();
+      chipNombre.textContent = quien.split(/\s+/)[0];
+      chip.title = user.verified ? `${t('cuenta.tuya')} · ${user.email}` : t('cuenta.verifica', { correo: user.email });
+    }
+    chip.setAttribute('aria-label', chip.title);
+  }
+
   // LA ZONA DE LA CUENTA, en el panel del ranking.
   function pinta() {
     area.replaceChildren();
+    pintaChip();
     if (!user) {
-      area.append(el('p', 'cuenta-texto', t('cuenta.sin')), boton('cuenta-boton', t('cuenta.entrarOcrear'), () => {
-        aviso = '';
-        fondo.hidden = false;
-        pintaVentana();
-      }));
+      area.append(el('p', 'cuenta-texto', t('cuenta.sin')), boton('cuenta-boton', t('cuenta.entrarOcrear'), abre));
       return;
     }
     const inicial = el('span', 'cuenta-inicial', (user.name || user.email || '?').trim().charAt(0).toUpperCase());
@@ -172,5 +215,5 @@ export function createAuthUi({ cloud, area }) {
   });
   pinta();
   pintaVentana();
-  return { refresh: pinta };
+  return { refresh: pinta, open: abre };
 }

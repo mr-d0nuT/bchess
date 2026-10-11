@@ -453,5 +453,12 @@ export function createMenu({ onShow = null, onHide = null, onChange = null } = {
     get choice() {
       return { ...eleccion };
     },
+    // Pone el nombre de `lado` ('yo': el mío online), como si se hubiera escrito (el de la cuenta, al entrar).
+    ponNombre(lado, valor) {
+      eleccion = { ...eleccion, nombres: { ...(eleccion.nombres ?? POR_DEFECTO.nombres), [lado]: cleanName(valor) } };
+      guardar(eleccion);
+      if (document.activeElement !== campos[lado]) campos[lado].value = eleccion.nombres[lado];
+      onChange?.({ ...eleccion });
+    },
   };
 }
