@@ -42,6 +42,10 @@ export function createOnlineUi() {
       if (time) partes.push(ritmoDe(time));
       if (rival) partes.push(t('online.rival', { nombre: rival }));
       texto.textContent = partes.join(' · ');
+    } else if (phase === 'retando') {
+      // La revancha pedida: esperando a que conteste.
+      titulo.textContent = t('online.retando', { nombre: rival });
+      texto.textContent = time ? `${t('online.pideRevancha')} · ${ritmoDe(time)}` : t('online.pideRevancha');
     } else if (phase === 'error') {
       titulo.textContent = t('online.error');
       texto.textContent = '';

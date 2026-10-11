@@ -100,10 +100,12 @@ export function createMatchUi(root = document.getElementById('hud')) {
   const finalTexto = el('p', 'final-texto');
   const finalBotones = el('div', 'final-botones');
   const revancha = el('button', 'final-boton principal');
+  const otro = el('button', 'final-boton'); // online: buscar otro rival (la revancha es con el mismo)
   const menu = el('button', 'final-boton');
   revancha.type = 'button';
+  otro.type = 'button';
   menu.type = 'button';
-  finalBotones.append(revancha, menu);
+  finalBotones.append(revancha, otro, menu);
   // La puntuación que cambia (el ranking): una línea por jugador, con la cifra que sube o baja contando.
   const finalPuntos = el('div', 'final-puntos');
   // Y el resumen de la partida: jugadas, piezas comidas, duración y combates.
@@ -252,30 +254,38 @@ export function createMatchUi(root = document.getElementById('hud')) {
     // `winner`, el color que gana (o null si son tablas). Devuelve 'rematch', 'menu' o, si otra cosa lo cierra
     // (`closeAll`: se ha puesto otra partida, se ha aceptado un reto), 'cerrado'.
     // `escena`: detrás está la del jaque mate (el rey de rodillas, el confeti…): el cartel va abajo y deja verla.
-    gameOver({ status, winner, mode, human, flagged = null, nombres = {}, escena = false }) {
+    // Online, `rival`: { nombre, esta } (si sigue en la sala): «Revancha» es con él (se resuelve 'revancha'), y «Buscar
+    // otro rival», con otro ('rematch', como la revancha de aquí). Si ya no está, su revancha no se puede pedir.
+    gameOver({ status, winner, mode, human, flagged = null, nombres = {}, escena = false, rival = null }) {
       cierraFinal?.('cerrado');
       pintaFinal({ status, winner, mode, human, flagged, nombres });
       finalPuntos.replaceChildren();
       finalResumen.replaceChildren();
-      revancha.textContent = mode === 'online' ? t('final.otro') : t('final.revancha'); // online, otro rival
+      const conRival = mode === 'online' && Boolean(rival);
+      revancha.textContent = conRival && !rival.esta ? t('final.noesta', { nombre: rival.nombre }) : t('final.revancha');
+      revancha.disabled = conRival && !rival.esta;
+      otro.hidden = mode !== 'online';
+      otro.textContent = t('final.otro');
       menu.textContent = t('final.menu');
       final.classList.toggle('con-escena', escena);
       final.hidden = false;
       final.classList.remove('entra');
       void final.offsetWidth;
       final.classList.add('entra');
-      setTimeout(() => revancha.focus({ preventScroll: true }), 400);
+      setTimeout(() => (revancha.disabled ? otro : revancha).focus({ preventScroll: true }), 400);
       return new Promise((resolve) => {
         const cerrar = (que) => {
           if (cierraFinal !== cerrar) return;
           cierraFinal = null;
           final.hidden = true;
           revancha.onclick = null;
+          otro.onclick = null;
           menu.onclick = null;
           resolve(que);
         };
         cierraFinal = cerrar;
-        revancha.onclick = () => cerrar('rematch');
+        revancha.onclick = () => cerrar(mode === 'online' ? 'revancha' : 'rematch');
+        otro.onclick = () => cerrar('rematch');
         menu.onclick = () => cerrar('menu');
       });
     },

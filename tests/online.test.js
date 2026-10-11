@@ -192,6 +192,33 @@ test('un reto aceptado empareja a los dos en la misma partida, con colores contr
   b.close();
 });
 
+test('la revancha: se reta al mismo rival con los colores que se piden, y él la ve como revancha, con su color', async (t) => {
+  const net = red();
+  const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: rapido });
+  const b = createLobby({ bus: net.bus('b'), me: 'b2', timers: rapido });
+  t.after(() => {
+    a.close();
+    b.close();
+  });
+  a.set({ name: 'Ana' });
+  b.set({ name: 'Bruno' });
+  await espera(60);
+  const llega = new Promise((resolve) => b.onInvite(resolve));
+  const reto = a.invite('b2', { time: 'blitz:3+2', white: 'b2', revancha: true });
+  const visto = await conPlazo(llega);
+  assert.equal(visto.revancha, true);
+  assert.equal(visto.color, 'white', 'Bruno lleva las blancas');
+  const [suyo, mio] = await conPlazo(Promise.all([b.acceptInvite(visto.game), reto.promise]));
+  assert.equal(suyo.white, 'b2');
+  assert.equal(mio.white, 'b2');
+  // Un reto normal no es revancha; y unos colores de un tercero no valen: a suertes, entre los dos.
+  const otra = new Promise((resolve) => b.onInvite(resolve));
+  a.invite('b2', { time: 'blitz:3+2', white: 'c3' });
+  const normal = await conPlazo(otra);
+  assert.equal(normal.revancha, false);
+  assert.ok(['white', 'black'].includes(normal.color));
+});
+
 test('un reto rechazado lo sabe quien retó; y uno retirado desaparece para el retado', async () => {
   const net = red();
   const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: rapido });

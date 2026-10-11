@@ -274,7 +274,9 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
     const quien = document.createElement('b');
     quien.textContent = `${reto.name || t('reto.anonimo')}${reto.rating ? ` (${shown(reto.rating)})` : ''}`;
     const que = document.createElement('span');
-    que.textContent = `${t('reto.te')} · ${relojDe(reto.time)}`;
+    // Qué es (un reto, o la revancha de la partida de antes), con qué reloj y con qué color juego.
+    const color = reto.color ? ` · ${t(`reto.color.${reto.color}`)}` : '';
+    que.textContent = `${t(reto.revancha ? 'reto.revancha' : 'reto.te')} · ${relojDe(reto.time)}${color}`;
     textos.append(quien, que);
     const si = document.createElement('button');
     si.type = 'button';

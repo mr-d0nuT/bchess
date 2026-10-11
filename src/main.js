@@ -2166,7 +2166,10 @@ async function start() {
     // revancha, online, es buscar otro rival).
     const datos = partida ? finalDe(partida) : { status, winner, mode: game.mode, human: game.human, flagged, nombres: game.nombres };
     const puntos = puntua(winner);
-    const cartelFinal = ui.gameOver({ ...datos, escena: Boolean(escena) });
+    // Online, la revancha es con el mismo rival, si sigue en la sala.
+    const rival = partida && { nombre: nombreRival(partida), esta: sala.players().some((j) => j.id === partida.opponent) };
+    const revancha = partida && { opponent: partida.opponent, time: partida.time, color: partida.color, nombre: nombreRival(partida) };
+    const cartelFinal = ui.gameOver({ ...datos, escena: Boolean(escena), rival });
     ui.showRating(puntos);
     ui.showSummary(resumenPartida());
     const que = await cartelFinal;
@@ -2181,7 +2184,8 @@ async function start() {
     // Cerrado por otra pantalla (se ha puesto otra partida, se ha aceptado un reto): ya manda ella. Antes el cartel
     // se escondía sin contestar, esto se quedaba esperando para siempre y la partida no salía nunca de la lista.
     if (que === 'cerrado') return;
-    if (que === 'rematch' && eraOnline) await jugarOnline({ time: game.control?.key ?? 'libre:libre' });
+    if (que === 'revancha' && revancha) await pideRevancha(revancha);
+    else if (que === 'rematch' && eraOnline) await jugarOnline({ time: game.control?.key ?? 'libre:libre' });
     else if (que === 'rematch') await newGame({ mode: game.mode, level: game.level, color: game.color, time: game.control?.key ?? 'libre:libre', nombres: game.nombres });
     else await toMenu();
   }
@@ -2581,8 +2585,40 @@ async function start() {
   }
 
   // Un reto aceptado (lo he aceptado yo o lo ha aceptado el retado): la partida, venga de donde venga.
+  // LA REVANCHA, online (como en chess.com): se reta al mismo rival, con los colores cambiados y el mismo ritmo.
+  // Mientras contesta, la pantalla de buscar dice que se le espera (con «Cancelar»); si acepta, a jugar
+  // (`empezarReto`); si no quiere, no contesta o ya no está, se dice, y al menú.
+  let pidiendoRevancha = null;
+  async function pideRevancha({ opponent, time, color, nombre }) {
+    if (!sala.players().some((j) => j.id === opponent)) {
+      salaUi.notify({ texto: t('final.noesta', { nombre }), icono: '⚔' });
+      await toMenu();
+      return;
+    }
+    const reto = sala.invite(opponent, { time, white: color === 'white' ? opponent : online.me, revancha: true });
+    pidiendoRevancha = reto;
+    let cancelada = false; // con «Cancelar»
+    onlineUi.show(() => {
+      cancelada = true;
+      reto.cancel();
+    });
+    onlineUi.status({ phase: 'retando', rival: nombre, time });
+    const r = await reto.promise;
+    if (pidiendoRevancha === reto) pidiendoRevancha = null;
+    if (r?.game) {
+      await empezarReto(r);
+      return;
+    }
+    if (r?.canceled && !cancelada) return; // la ha retirado otra partida que empieza: ya manda ella
+    onlineUi.hide();
+    if (r?.declined || r?.expired) salaUi.notify({ texto: t(r.declined ? 'revancha.no' : 'revancha.nocontesta', { nombre }), icono: '⚔' });
+    await toMenu();
+  }
+
   async function empezarReto(info) {
     if (state.phase === 'starting' || yaEsta(info)) return;
+    // Otra partida que empieza: la revancha que esperaba respuesta, retirada.
+    if (pidiendoRevancha && pidiendoRevancha.game !== info.game) pidiendoRevancha.cancel();
     salaUi.clearInvites();
     if (state.phase === 'menu' && menu.answer({ ...menu.choice, mode: 'online', reto: info })) return; // sigue `toMenu`
     let anterior = null; // la online del tablero: si esta no llega a empezar, se vuelve a ella

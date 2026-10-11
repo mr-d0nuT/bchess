@@ -544,10 +544,12 @@ const STATUSES = ['menu', 'seeking', 'playing'];
 // - players(): los que hay ({ id, name, status, games, rt? }), sin uno mismo; onPlayers(fn), cada vez que cambia.
 //   `rt`: sus puntuaciones por ritmo (`leePuntuaciones`), si las dice.
 // - set({ name, status, games, rt }): lo que digo de mí (`rt`: mis puntuaciones, { bala: [r, rd], … }).
-// - invite(id, { time }): reta a `id`; { promise, cancel }. La promesa da el emparejamiento ({ game, white,
-//   time, opponent, opponentName, opponentRating }) o { declined | expired | canceled: true }.
-// - onInvite(fn): los retos que llegan ({ game, from, name, time, rating, expires }) y los que se retiran
-//   ({ game, gone: true }). acceptInvite(game) da el emparejamiento (o null); declineInvite(game).
+// - invite(id, { time, white, revancha }): reta a `id`; { promise, cancel }. La promesa da el emparejamiento ({ game,
+//   white, time, opponent, opponentName, opponentRating }) o { declined | expired | canceled: true }. `white`: quién
+//   lleva las blancas (uno de los dos; si no, a suertes); `revancha`: que es la revancha de la partida de antes.
+// - onInvite(fn): los retos que llegan ({ game, from, name, time, rating, expires, color, revancha }: `color`, con el
+//   que juego yo) y los que se retiran ({ game, gone: true }). acceptInvite(game) da el emparejamiento (o null);
+//   declineInvite(game).
 export function createLobby({ bus, me, now = Date.now, random = Math.random, timers = TIMERS }) {
   const players = new Map(); // id → { id, name, status, games, seen }
   const oyentes = new Set();
@@ -624,10 +626,14 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
         white: msg.white,
         rating: leePuntuacion(msg.rt),
         expires: now() + INVITE_FOR,
+        revancha: msg.revancha === true,
       };
       reto.plazo = timers.set(() => retira(msg.game), INVITE_FOR);
       recibidos.set(msg.game, reto);
-      retoAvisa({ game: reto.game, from: reto.from, name: reto.name, time: reto.time, rating: reto.rating, expires: reto.expires });
+      retoAvisa({
+        game: reto.game, from: reto.from, name: reto.name, time: reto.time, rating: reto.rating, expires: reto.expires,
+        color: reto.white === me ? 'white' : 'black', revancha: reto.revancha,
+      });
     } else if (msg.k === 'invite-cancel') {
       retira(msg.game);
       const a = aceptando.get(msg.game);
@@ -703,10 +709,11 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
       retosOyentes.add(fn);
       return () => retosOyentes.delete(fn);
     },
-    invite(id, { time: ritmo = 'libre:libre' } = {}) {
+    invite(id, { time: ritmo = 'libre:libre', white: blancas = null, revancha = false } = {}) {
       const time = ritmoOnline(ritmo); // la diaria, online, no: sin reloj
       const game = `${me}-${id}-${Math.floor(random() * 1e9).toString(36)}`;
-      const white = random() < 0.5 ? me : id;
+      // Los colores que se piden (la revancha, cambiados), si son de uno de los dos; si no, a suertes.
+      const white = blancas === me || blancas === id ? blancas : random() < 0.5 ? me : id;
       let resolver;
       const promise = new Promise((resolve) => {
         resolver = resolve;
@@ -718,7 +725,7 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
         resolver({ expired: true });
       }, INVITE_FOR);
       enviados.set(game, { to: id, white, time, name: players.get(id)?.name ?? '', resolve: resolver, plazo });
-      to(id, { k: 'invite', pv: PV, game, white, time, name: yo.name, rt: anunciaPuntuacion(puntuacionEn(leePuntuaciones(yo.rt), time)) });
+      to(id, { k: 'invite', pv: PV, game, white, time, name: yo.name, rt: anunciaPuntuacion(puntuacionEn(leePuntuaciones(yo.rt), time)), ...(revancha ? { revancha: true } : {}) });
       return {
         game,
         promise,
@@ -757,7 +764,9 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
     },
     // Los retos que tengo sin contestar.
     invites() {
-      return [...recibidos.values()].map(({ game, from, name, time, rating, expires }) => ({ game, from, name, time, rating, expires }));
+      return [...recibidos.values()].map(({ game, from, name, time, rating, expires, white, revancha }) => ({
+        game, from, name, time, rating, expires, color: white === me ? 'white' : 'black', revancha,
+      }));
     },
     close() {
       if (cerrada) return;
