@@ -743,6 +743,8 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
   transform: translate(-50%, -50%) scale(0.4);
   white-space: nowrap;
 }
+/* Una frase que no cabe en una línea (`banner`): en dos, equilibradas, dentro de la pantalla (con el golpe de entrada). */
+.cartel.largo { width: max-content; max-width: calc((100vw - 32px) / 1.15); line-height: 1.08; text-align: center; white-space: normal; text-wrap: balance; }
 .cartel[data-tipo="jaque"] { color: #ffe0d8; text-shadow: 0 0 10px #ff2a2a, 0 0 28px #ff2a2a, 0 0 60px #ff0040, 3px 3px 0 #6a0000; }
 .cartel[data-tipo="tablas"] { color: #e0f2ff; text-shadow: 0 0 10px #2a9dff, 0 0 28px #2a7dff, 0 0 60px #4040ff, 3px 3px 0 #001a4a; }
 .cartel.sale { animation: cartel 1.5s cubic-bezier(0.2, 1.4, 0.4, 1) forwards; }

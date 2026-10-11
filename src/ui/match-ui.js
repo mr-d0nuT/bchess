@@ -14,6 +14,16 @@ function el(tag, clase, texto) {
   return e;
 }
 
+// Cómo cabe en la pantalla un cartel que, en una línea y a su tamaño, mide `ancho` (px), con `cabe` de sitio: tal cual;
+// si no, en dos líneas; y si aún no, en dos y con la letra más pequeña (`escala`). Las palabras no se parten donde se
+// quiere: en dos líneas se cuenta un poco menos del doble.
+export const CARTEL_EN_DOS = 0.9;
+export function encajaCartel(ancho, cabe) {
+  if (ancho <= cabe) return { lineas: 1, escala: 1 };
+  return { lineas: 2, escala: Math.min(1, (cabe * 2 * CARTEL_EN_DOS) / ancho) };
+}
+const CARTEL_GOLPE = 1.15; // lo que lo agranda la animación al entrar (y un poco de margen)
+
 export function createMatchUi(root = document.getElementById('hud')) {
   // El turno, arriba en el centro.
   const turno = el('div', 'turno');
@@ -199,7 +209,21 @@ export function createMatchUi(root = document.getElementById('hud')) {
       clearTimeout(cartelTimer);
       cartel.textContent = texto;
       cartel.dataset.tipo = tipo;
-      cartel.classList.remove('sale');
+      cartel.classList.remove('sale', 'largo');
+      cartel.style.fontSize = '';
+      // Es para gritos cortos («¡JAQUE!»): una frase («Bruno rechaza las tablas») se salía por los lados en el móvil.
+      // Medido con la letra de verdad del aparato: si no cabe, en dos líneas, y si aún no, más pequeña.
+      const { lineas, escala } = encajaCartel(cartel.scrollWidth, (window.innerWidth - 32) / CARTEL_GOLPE);
+      if (lineas > 1) {
+        cartel.classList.add('largo');
+        let tam = parseFloat(getComputedStyle(cartel).fontSize) * escala;
+        cartel.style.fontSize = `${tam}px`;
+        // Y si al partir por palabras han salido tres líneas, un poco más pequeña, hasta que sean dos.
+        for (let i = 0; i < 4 && cartel.scrollHeight > tam * 2.6; i++) {
+          tam *= 0.9;
+          cartel.style.fontSize = `${tam}px`;
+        }
+      }
       void cartel.offsetWidth;
       cartel.classList.add('sale');
       cartelTimer = setTimeout(() => cartel.classList.remove('sale'), ms);
