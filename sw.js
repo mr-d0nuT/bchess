@@ -79,3 +79,19 @@ async function responde(event, req, url) {
   }
   return (await red) ?? new Response('', { status: 504, statusText: 'Sin conexión' });
 }
+
+// LOS AVISOS DE «TE TOCA» (`main.js`): al tocar uno, el juego al frente y, en él, esa partida (su `tag`); si no
+// había ninguno abierto, se abre.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const abiertos = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const cliente = abiertos[0];
+    if (!cliente) {
+      await self.clients.openWindow(self.registration.scope);
+      return;
+    }
+    await cliente.focus();
+    cliente.postMessage({ tipo: 'abre-partida', partida: event.notification.tag });
+  })());
+});

@@ -36,6 +36,7 @@ import {
 } from './net/partida.js';
 import { ONLINE_KEY, identidadOnline, packOnline, packTodas, readOnline } from './net/guardadas-online.js';
 import { createOnlineUi } from './ui/online-ui.js';
+import { meToca, tituloConTurno } from './ui/te-toca.js';
 import { createLobbyUi } from './ui/lobby-ui.js';
 import { cleanName } from './names.js';
 import { createMenu, levelName, timeLabel } from './ui/menu.js';
@@ -81,7 +82,12 @@ import { pickAudience } from './combat/audience.js';
 // puede llegar antes de que el juego acabe de cargar (y lo que llega sin nadie escuchando se pierde).
 let versionNueva = false;
 const alHaberVersion = new Set();
+let abrePartida = null; // y el aviso de «te toca» tocado (`sw.js`): a esa partida, cuando el juego esté listo
 navigator.serviceWorker?.addEventListener('message', (event) => {
+  if (event.data?.tipo === 'abre-partida') {
+    abrePartida?.(event.data.partida);
+    return;
+  }
   if (event.data?.tipo !== 'nueva-version') return;
   versionNueva = true;
   for (const fn of alHaberVersion) fn();
@@ -1599,11 +1605,15 @@ async function start() {
     partidas.push(p);
     guardaOnline();
     session.on('move', ({ n, uci }) => {
-      if (p.recibe(n, uci, enCursoDe(p))) llegaAlgo(p);
+      if (!p.recibe(n, uci, enCursoDe(p))) return;
+      llegaAlgo(p);
+      avisaTeToca(p);
     });
     // Las que se perdieron por el camino: solo si la lista del rival empieza por lo que ya tenemos.
     session.on('sync', ({ moves }) => {
-      if (p.sincroniza(moves, enCursoDe(p))) llegaAlgo(p);
+      if (!p.sincroniza(moves, enCursoDe(p))) return;
+      llegaAlgo(p);
+      avisaTeToca(p);
     });
     session.on('press', (msg) => {
       p.pulsa(msg, Date.now());
@@ -1713,6 +1723,7 @@ async function start() {
     }
     if (!movio) return;
     p.aviso = true;
+    sfx.play('pieza', { rate: 1.25 });
     salaUi.notify({ texto: t('aviso.movio', { nombre: nombreRival(p) }), boton: t('aviso.ver'), accion: () => irAPartida(p) });
     pintaPartidas();
     guardaOnline();
@@ -1890,6 +1901,75 @@ async function start() {
     return guardadas.length;
   }
 
+  // «TE TOCA», AUNQUE NO SE ESTÉ MIRANDO (`ui/te-toca.js`). Con la pestaña de fondo (o la app en segundo plano), el
+  // título dice en cuántas partidas te toca («(2) ¡Te toca! · …») y la app instalada lo pone en su icono. Y si se ha
+  // dado permiso, un aviso del sistema cuando el rival mueve o te retan; al tocarlo, a esa partida. El permiso se
+  // pide una sola vez, al empezar la primera partida online, con un aviso en la partida (los navegadores solo dejan
+  // pedirlo tras un toque). En el iPhone, solo con la app instalada (iOS 16.4 o más): Safari no tiene avisos.
+  const TITULO = document.title;
+  const hayAvisos = typeof Notification === 'function';
+  const AVISOS = 'bchess.avisos';
+  let globo = 0;
+  function pintaTeToca() {
+    const fuera = document.hidden;
+    const n = fuera ? partidasVivas().filter((p) => meToca(p, enCursoDe(p))).length : 0;
+    const titulo = tituloConTurno(TITULO, n, t('titulo.tetoca'));
+    if (document.title !== titulo) document.title = titulo;
+    if (n === globo) return;
+    globo = n;
+    try {
+      const hecho = n > 0 ? navigator.setAppBadge?.(n) : navigator.clearAppBadge?.();
+      hecho?.catch?.(() => {});
+    } catch {
+      // sin globo en el icono
+    }
+  }
+  document.addEventListener('visibilitychange', pintaTeToca);
+  function preguntaAvisos() {
+    if (!hayAvisos || Notification.permission !== 'default' || leerPreferencia(AVISOS, '') === 'preguntado') return;
+    guardarPreferencia(AVISOS, 'preguntado');
+    salaUi.notify({
+      texto: t('avisos.pregunta'), boton: t('avisos.si'), dura: 15000, icono: '🔔',
+      accion: () => Notification.requestPermission().catch(() => {}),
+    });
+  }
+  async function avisaSistema(texto, tag, alTocar = null) {
+    if (!document.hidden || !hayAvisos || Notification.permission !== 'granted') return;
+    const opciones = { body: texto, tag, renotify: true, icon: 'assets/icons/icono-192.png' };
+    try {
+      // Con la web guardada en el aparato, por ella (en Android y en el iPhone no hay otra); al tocarlo, `sw.js` trae
+      // la app al frente y dice qué partida (`abrePartida`).
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (reg) {
+        await reg.showNotification(TITULO, opciones);
+        return;
+      }
+      const aviso = new Notification(TITULO, opciones);
+      aviso.onclick = () => {
+        window.focus();
+        aviso.close();
+        alTocar?.();
+      };
+    } catch {
+      // sin avisos
+    }
+  }
+  // Ha llegado jugada del rival de `p`: con la app de fondo, el título, el globo y el aviso.
+  function avisaTeToca(p) {
+    if (!document.hidden || !meToca(p, enCursoDe(p))) return;
+    pintaTeToca();
+    avisaSistema(t('aviso.movio', { nombre: nombreRival(p) }), p.id, () => irAPartida(p));
+  }
+  abrePartida = (id) => {
+    const p = partidas.find((x) => x.id === id);
+    if (p && !p.acabada) irAPartida(p);
+  };
+  // Y los retos que llegan con la app de fondo, también (caducan si nadie los ve).
+  sala.onInvite((reto) => {
+    if (reto.gone || !document.hidden) return;
+    avisaSistema(`${reto.name || t('reto.anonimo')} ${t(reto.revancha ? 'reto.revancha' : 'reto.te')}`, `reto-${reto.game}`);
+  });
+
   // LAS TABLAS OFRECIDAS, A LA VISTA (`ui.oferta`): online, la suya (con «Aceptar» y «Rechazar»), la que estoy
   // aceptando o la mía; uno contra uno, la del que mueve, para el otro. Con cada turno y cada segundo.
   function pintaOferta() {
@@ -1984,6 +2064,7 @@ async function start() {
     pintaPartidas();
     pintaConexion();
     pintaOferta();
+    pintaTeToca();
     salaUi.setConexion(online.sano);
     // Y con algún reloj corriendo, a guardarlas de vez en cuando (por si la app se va sin avisar).
     vueltasReloj += 1;
@@ -2582,9 +2663,9 @@ async function start() {
     onlineUi.hide();
     state.phase = 'playing'; // para que `activarPartida` deje en espera la que hubiera
     await activarPartida(partida);
+    preguntaAvisos();
   }
 
-  // Un reto aceptado (lo he aceptado yo o lo ha aceptado el retado): la partida, venga de donde venga.
   // LA REVANCHA, online (como en chess.com): se reta al mismo rival, con los colores cambiados y el mismo ritmo.
   // Mientras contesta, la pantalla de buscar dice que se le espera (con «Cancelar»); si acepta, a jugar
   // (`empezarReto`); si no quiere, no contesta o ya no está, se dice, y al menú.
@@ -2615,6 +2696,7 @@ async function start() {
     await toMenu();
   }
 
+  // Un reto aceptado (lo he aceptado yo o lo ha aceptado el retado): la partida, venga de donde venga.
   async function empezarReto(info) {
     if (state.phase === 'starting' || yaEsta(info)) return;
     // Otra partida que empieza: la revancha que esperaba respuesta, retirada.
