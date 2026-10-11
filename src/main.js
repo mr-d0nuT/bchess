@@ -29,7 +29,7 @@ import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
 import { createCpu } from './chess/cpu.js';
 import { aceptaTablas } from './chess/engine.js';
-import { LOST_AFTER, anunciaPuntuacion, createOnline, randomId } from './net/online.js';
+import { LOST_AFTER, anunciaPuntuacion, createOnline, randomId, ritmoOnline } from './net/online.js';
 import {
   MAX_MALAS, aceptacionCaducada, acepto, anuladas, createPartidaOnline, decideAceptacion, decideBandera, decideFin, decideReclamo, finDeTodos,
   mandaElSuyo, ofertaMia, ofertaSuya, ofrezco, puedoOfrecer, puntuaOnline, rechazada, rechazo, recibeOferta, retrasoReclamo,
@@ -451,7 +451,7 @@ async function start() {
       guardaOnlineYa();
       location.reload();
     };
-    salaUi.notify({ texto: t('version.nueva'), boton: t('version.actualizar'), accion: actualiza, dura: 0, icono: '✨' });
+    salaUi.notify({ texto: t('version.nueva'), boton: t('version.actualizar'), accion: actualiza, dura: 0, icono: '✨', clave: 'version' });
   }
   alHaberVersion.add(avisaVersion);
   const local = /^(localhost|127\.|\[::1\])/.test(location.hostname);
@@ -482,9 +482,10 @@ async function start() {
   }
   // Lo que digo de mí en la sala: disponible (en el menú o en una partida que no es online), buscando rival o
   // jugando online.
-  function ponEstado(status) {
+  // Buscando rival, también a qué ritmo (`time`): en la sala se ve qué partida quiere cada uno.
+  function ponEstado(status, time = null) {
     const vivas = partidasVivas().length;
-    sala.set({ status: status === 'seeking' ? 'seeking' : vivas ? 'playing' : status, games: vivas });
+    sala.set({ status: status === 'seeking' ? 'seeking' : vivas ? 'playing' : status, games: vivas, ...(time ? { time: ritmoOnline(time) } : {}) });
   }
   const ui = createMatchUi();
   const clockUi = createChessClockUi(document.getElementById('hud'));
@@ -2603,9 +2604,12 @@ async function start() {
       : state.phase === 'playing' ? { partida: game.mode === 'online' ? game.partida : null } : null;
     if (volver?.partida) ponEnEspera(volver.partida);
     state.phase = 'searching';
-    ponEstado('seeking');
+    ponEstado('seeking', time);
     paintTurn();
     let r = null;
+    // A quién no se le vuelve a proponer durante un rato, porque uno de los dos prefirió buscar otro: id → hasta cuándo.
+    const evitados = new Map();
+    let revivir = false;
     // Sin conexión, la pantalla lo dice y espera a un botón: «Reintentar» vuelve a probar ya (los brokers,
     // sin esperar a que toque) sin salir de aquí; el otro vuelve atrás.
     for (let intento = 0; ; intento++) {
@@ -2615,11 +2619,13 @@ async function start() {
       });
       let fase = 'connecting';
       onlineUi.show((que) => pulsado(que));
-      if (intento) online.revive();
+      if (revivir) online.revive();
+      revivir = false;
       const busca = online.find({
         time,
         name: game.miNombre,
         rating: (ritmo) => ratings.get(categoryOf({ mode: 'online', time: ritmo })), // para emparejar con alguien parecido
+        evita: (id) => (evitados.get(id) ?? 0) > Date.now(),
         onStatus: (s) => {
           fase = s.phase;
           onlineUi.status(s);
@@ -2627,11 +2633,20 @@ async function start() {
       });
       r = await Promise.race([busca, boton.then(() => null)]);
       if (state.phase !== 'searching') return; // se ha ido al menú por los ajustes: ya está allí
-      if (r && !yaEsta(r.info)) break;
+      if (r && !yaEsta(r.info)) {
+        // El rival, propuesto: si aceptan los dos, a jugar; si no, a buscar otro (a ese, un rato no).
+        const decide = await proponer(r.info);
+        if (state.phase !== 'searching') return;
+        if (decide === 'empieza') break;
+        evitados.set(r.info.opponent, Date.now() + EVITA_MS);
+        r = null;
+        continue;
+      }
       r = null;
       online.cancel();
       if (fase !== 'error' || (await boton) !== 'reintentar') break;
       if (state.phase !== 'searching') return;
+      revivir = true;
     }
     if (!r) {
       onlineUi.hide();
@@ -2648,21 +2663,53 @@ async function start() {
       }
       return;
     }
-    await empezarOnline(r.info, { origen: 'azar', anterior: volver?.partida ?? null });
+    await empezarOnline(r.info, { origen: 'azar', anterior: volver?.partida ?? null, propuesta: true });
+  }
+
+  // EL RIVAL AL AZAR, PROPUESTO (lo pidió el usuario: ver con quién, a qué ritmo y con qué color antes de jugar, y
+  // aceptar o buscar otro). Empieza si aceptan los dos (`sala.confirma`); si uno prefiere otro, o nadie contesta, se
+  // dice y a buscar. Devuelve 'empieza' u 'otro'.
+  const EVITA_MS = 2 * 60 * 1000;
+  async function proponer(info) {
+    const confirma = sala.confirma(info);
+    const nombre = info.opponentName || t('sala.anonimo');
+    const datos = { color: info.white === online.me ? 'white' : 'black', time: info.time };
+    let decide = null;
+    onlineUi.show((que) => decide?.(que));
+    onlineUi.status({ phase: 'propuesta', ...datos, rival: `${nombre} (${shown(info.opponentRating)})` });
+    for (;;) {
+      const boton = new Promise((resolve) => {
+        decide = resolve;
+      });
+      const que = await Promise.race([confirma.promise, boton]);
+      if (que === 'aceptar') {
+        confirma.acepta();
+        onlineUi.status({ phase: 'esperando', ...datos, rival: nombre });
+        continue;
+      }
+      if (que === 'otro') {
+        confirma.rechaza();
+        return 'otro';
+      }
+      if (que === 'empieza') return 'empieza';
+      // Él ha preferido otro, o no ha contestado: se dice, y a buscar.
+      salaUi.notify({ texto: t(que === 'rival' ? 'online.rivalOtro' : 'online.sinRespuesta', { nombre }), icono: '⚔', clave: 'propuesta' });
+      return 'otro';
+    }
   }
 
   // La partida online con el rival de `info` (del emparejamiento o de un reto): un momento el «¡Rival
   // encontrado!» y a jugar. `origen` y `anterior`, como en `crearPartida`.
-  async function empezarOnline(info, { origen = 'azar', anterior = null } = {}) {
+  async function empezarOnline(info, { origen = 'azar', anterior = null, propuesta = false } = {}) {
     state.phase = 'starting';
     salaUi.clearInvites();
     salaUi.close();
     const color = info.white === online.me ? 'white' : 'black';
     onlineUi.show(() => {});
-    // «Tu rival: Ana (1532)»: su puntuación en este ritmo, la que dice él.
+    // «Tu rival: Ana (1532)»: su puntuación en este ritmo, la que dice él. (Si se ha propuesto, ya se ha visto.)
     const rival = `${info.opponentName || t('sala.anonimo')} (${shown(info.opponentRating)})`;
     onlineUi.status({ phase: 'found', color, rival, time: info.time });
-    await new Promise((resolve) => setTimeout(resolve, 1700));
+    await new Promise((resolve) => setTimeout(resolve, propuesta ? 600 : 1700));
     const partida = crearPartida(info, { origen, anterior });
     if (state.phase !== 'starting') {
       cierraPartida(partida, 'resign', partida.rival, null); // se fue justo ahora: que el rival no se quede esperando

@@ -47,7 +47,12 @@ export const BROKERS = [
 // v2: el final de la partida cambió («fin» en vez de «bye»). Con otro prefijo, los aparatos que aún tengan
 // guardada la versión de antes no se cruzan con los nuevos (no se verán en la sala hasta que actualicen).
 const PREFIX = 'mrdonut-bchess/v2';
-const PV = 2; // la versión del protocolo, en lo que se anuncia: para poder entenderse con las siguientes
+const PV = 3; // la versión del protocolo, en lo que se anuncia: para poder entenderse con las siguientes
+// Desde la 3, el rival al azar se propone antes de empezar (`confirma`): con uno de antes, que empieza sin preguntar, no
+// hay manera de entenderse (él empezaba y yo esperaba su «sí»; se quedaba esperando a un rival que nunca llegaba), así
+// que al azar solo se empareja con los de la 3 en adelante. Los retos directos, igual que antes, con todos.
+const PV_PROPUESTA = 3;
+const entiendePropuesta = (msg) => Number(msg.pv) >= PV_PROPUESTA;
 export const LOBBY = `${PREFIX}/lobby`;
 export const inbox = (id) => `${PREFIX}/p/${id}`;
 export const gameTopic = (game) => `${PREFIX}/g/${game}`;
@@ -348,9 +353,10 @@ const VENTANA_CADA = 5000; // …cada tanto buscando
 // `bus`: { subscribe, publish, onMessage }. `me`: mi identificador. `time`: el reloj que he elegido.
 // `name`: mi nombre (puede ir vacío), que el rival sabe al emparejarse. `rating(time)`: mi puntuación en un ritmo
 // ({ r, rd }; o, si es la misma para todos, el objeto).
+// `evita(id)`: si a ese no se le empareja (se propuso hace poco y uno de los dos prefirió buscar otro).
 // Devuelve { found: Promise<{ game, white, time, opponent, opponentName, opponentRating }>, seekers(): cuántos
 // más buscan, stop() }.
-export function createMatchmaker({ bus, me, time, name = '', rating = null, now = Date.now, random = Math.random, timers = TIMERS }) {
+export function createMatchmaker({ bus, me, time, name = '', rating = null, evita = () => false, now = Date.now, random = Math.random, timers = TIMERS }) {
   const since = now();
   const miRitmo = ritmoOnline(time);
   const puntuacionPara = (t) => leePuntuacion(anunciaPuntuacion(typeof rating === 'function' ? rating(t) : rating));
@@ -416,7 +422,7 @@ export function createMatchmaker({ bus, me, time, name = '', rating = null, now 
     const ventana = VENTANA + VENTANA_CRECE * Math.floor(buscando / VENTANA_CADA);
     let mejor = null;
     for (const [id, s] of seekers) {
-      if (id <= me || !fresh(id)) continue;
+      if (id <= me || !fresh(id) || evita(id)) continue;
       const t = tried.get(id);
       if (t !== undefined && now() - t < RETRY_AFTER) continue;
       const otroRitmo = s.time !== miRitmo;
@@ -433,6 +439,7 @@ export function createMatchmaker({ bus, me, time, name = '', rating = null, now 
     if (state === 'matched' || state === 'stopped' || msg.from === me) return;
     if (topic === LOBBY) {
       if (msg.k === 'seek') {
+        if (!entiendePropuesta(msg)) return; // uno de antes: no nos entenderíamos
         // Su reloj puede acabar siendo el de la partida: si no es un ritmo (o es la diaria), sin reloj.
         seekers.set(msg.from, { since: Number.isFinite(msg.since) ? msg.since : now(), time: ritmoOnline(msg.time), seen: now(), ...leePuntuacion(msg.rt) });
         tick();
@@ -447,7 +454,7 @@ export function createMatchmaker({ bus, me, time, name = '', rating = null, now 
       // y trae un ritmo. Si no, es falsa o de algo roto: ni se contesta. (Con otro color, los dos creían
       // llevar las negras; con «#» por partida, uno se suscribía a todas.)
       if (!esPartidaDe(msg.game, msg.from, me) || (msg.white !== me && msg.white !== msg.from) || !esRitmo(msg.time)) return;
-      if ((state === 'seeking' || state === 'offering') && !esDiaria(msg.time)) {
+      if ((state === 'seeking' || state === 'offering') && !esDiaria(msg.time) && !evita(msg.from) && entiendePropuesta(msg)) {
         if (state === 'offering') to(pending.to, { k: 'cancel', game: pending.game });
         pending = null;
         accepted = { from: msg.from, game: msg.game, white: msg.white, time: msg.time, name: cleanName(msg.name), rating: leePuntuacion(msg.rt) };
@@ -538,6 +545,9 @@ export const PRESENCE_EVERY = 4000; // cada cuánto dice cada uno que sigue ahí
 export const PRESENT_FOR = 13000; // sin noticias suyas en este tiempo, ya no está
 export const INVITE_FOR = 60000; // lo que dura un reto sin contestar
 const GO_WAIT = 6000; // tras aceptar un reto, lo que se espera la confirmación de quien retó
+export const CONFIRMA_FOR = 30000; // lo que dura la propuesta de un rival al azar sin contestar
+const LISTO_CADA = 1500; // «listo» se repite mientras el otro no contesta (por si se pierde)
+const LISTO_OTRA = 800; // y una vez más al empezar, por si el suyo llegó y el mío no
 const STATUSES = ['menu', 'seeking', 'playing'];
 
 // `bus`, `me`: como en el emparejamiento. Devuelve:
@@ -557,13 +567,15 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
   const enviados = new Map(); // game → { to, white, time, name, resolve, plazo }
   const recibidos = new Map(); // game → { game, from, name, time, white, expires, plazo }
   const aceptando = new Map(); // game → { reto, resolve, plazo }
+  const confirmando = new Map(); // game → { opponent, llega(k) }: las propuestas de un rival al azar
+  const llegadas = new Map(); // game → { from, kinds, at }: lo que llegó de una antes de proponerla aquí
   let yo = { name: '', status: 'menu', games: 0 };
   let cerrada = false;
 
   const to = (id, msg) => bus.publish(inbox(id), { ...msg, from: me });
   const lista = () => [...players.values()]
     .filter((p) => now() - p.seen < PRESENT_FOR)
-    .map(({ id, name, status, games, rt }) => (rt ? { id, name, status, games, rt } : { id, name, status, games }))
+    .map(({ id, name, status, games, rt, time }) => ({ id, name, status, games, ...(rt ? { rt } : {}), ...(status === 'seeking' && time ? { time } : {}) }))
     .sort((a, b) => (a.name || '\uffff').localeCompare(b.name || '\uffff') || a.id.localeCompare(b.id));
   const avisa = () => {
     const l = lista();
@@ -585,22 +597,30 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
     if (topic === LOBBY) {
       const antes = players.get(msg.from);
       if (msg.k === 'here') {
+        const status = STATUSES.includes(msg.status) ? msg.status : 'menu';
+        // Buscando rival, a qué ritmo: el que dice (o el de su último «seek»).
+        const ritmo = status !== 'seeking' ? null : esRitmo(msg.time) ? ritmoOnline(msg.time) : antes?.time;
         players.set(msg.from, {
           id: msg.from,
           name: cleanName(msg.name),
-          status: STATUSES.includes(msg.status) ? msg.status : 'menu',
+          status,
           games: Math.max(0, Math.min(99, Number(msg.games) || 0)),
           seen: now(),
           ...(msg.rt !== undefined ? { rt: leePuntuaciones(msg.rt) } : {}),
+          ...(ritmo ? { time: ritmo } : {}),
         });
         avisa();
       } else if (msg.k === 'seek') {
-        // Quien busca rival al azar también está (aunque sea de antes de la sala y no diga más).
-        players.set(msg.from, { id: msg.from, games: 0, ...antes, name: cleanName(msg.name) || antes?.name || '', status: 'seeking', seen: now() });
+        // Quien busca rival al azar también está (aunque sea de antes de la sala y no diga más), con su ritmo.
+        players.set(msg.from, {
+          id: msg.from, games: 0, ...antes, name: cleanName(msg.name) || antes?.name || '', status: 'seeking', time: ritmoOnline(msg.time), seen: now(),
+        });
         avisa();
       } else if (msg.k === 'leave' && antes) {
         // Ha dejado de buscar (el latido dirá qué hace ahora).
-        players.set(msg.from, { ...antes, status: antes.status === 'seeking' ? 'menu' : antes.status });
+        const resto = { ...antes };
+        delete resto.time;
+        players.set(msg.from, { ...resto, status: antes.status === 'seeking' ? 'menu' : antes.status });
         avisa();
       } else if (msg.k === 'gone' && antes) {
         players.delete(msg.from);
@@ -609,6 +629,20 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
       return;
     }
     if (topic !== inbox(me) || typeof msg.game !== 'string') return;
+    if (msg.k === 'listo' || msg.k === 'paso') {
+      const c = confirmando.get(msg.game);
+      if (c) {
+        if (c.opponent === msg.from) c.llega(msg.k);
+        return;
+      }
+      // Aún no se ha propuesto aquí (su emparejamiento ha llegado antes que el mío): se guarda un rato.
+      for (const [game, l] of llegadas) if (now() - l.at > CONFIRMA_FOR) llegadas.delete(game);
+      if (llegadas.size > 20) return;
+      const l = llegadas.get(msg.game) ?? { from: msg.from, kinds: new Set(), at: now() };
+      if (l.from === msg.from) l.kinds.add(msg.k);
+      llegadas.set(msg.game, l);
+      return;
+    }
     if (msg.k === 'invite') {
       // Como las ofertas del emparejamiento: nombrada por quien reta, uno de los dos con blancas y un ritmo.
       if (!esPartidaDe(msg.game, msg.from, me) || (msg.white !== me && msg.white !== msg.from) || !esRitmo(msg.time)) return;
@@ -674,7 +708,10 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
 
   function anuncia() {
     if (cerrada) return;
-    bus.publish(LOBBY, { k: 'here', pv: PV, from: me, name: yo.name, status: yo.status, games: yo.games, ...(yo.rt ? { rt: yo.rt } : {}) });
+    bus.publish(LOBBY, {
+      k: 'here', pv: PV, from: me, name: yo.name, status: yo.status, games: yo.games, ...(yo.rt ? { rt: yo.rt } : {}),
+      ...(yo.status === 'seeking' && yo.time ? { time: yo.time } : {}),
+    });
     let cambio = false;
     for (const [id, p] of players) {
       if (now() - p.seen >= PRESENT_FOR) {
@@ -761,6 +798,71 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
       recibidos.delete(game);
       timers.clear(reto.plazo);
       to(reto.from, { k: 'invite-decline', game });
+    },
+    // EL RIVAL AL AZAR, PROPUESTO (lo pidió el usuario): antes de empezar, los dos ven con quién, a qué ritmo y con qué
+    // color, y cada uno dice por el buzón del otro si la quiere («listo») o busca otro («paso»). Empieza si dicen que sí
+    // los dos; si uno no quiere, o nadie contesta en `espera`, no. Devuelve { acepta(), rechaza(), promise }: la
+    // promesa da 'empieza', 'paso' (no la quise yo), 'rival' (no la quiso él) o 'tiempo'.
+    confirma(info, { espera = CONFIRMA_FOR } = {}) {
+      const { game, opponent } = info;
+      let mio = false;
+      let suyo = false;
+      let acabada = false;
+      let insiste = null;
+      let resolver;
+      const promise = new Promise((resolve) => {
+        resolver = resolve;
+      });
+      const dice = (k) => to(opponent, { k, game });
+      const termina = (como) => {
+        if (acabada) return;
+        acabada = true;
+        timers.clear(plazo);
+        if (insiste !== null) timers.stop(insiste);
+        confirmando.delete(game);
+        resolver(como);
+      };
+      const empieza = () => {
+        dice('listo');
+        timers.set(() => dice('listo'), LISTO_OTRA);
+        termina('empieza');
+      };
+      const llega = (k) => {
+        if (k === 'paso') {
+          termina('rival');
+          return;
+        }
+        suyo = true;
+        if (mio) empieza();
+      };
+      confirmando.set(game, { opponent, llega });
+      const plazo = timers.set(() => {
+        if (acabada) return;
+        dice('paso');
+        termina('tiempo');
+      }, espera);
+      const antes = llegadas.get(game);
+      llegadas.delete(game);
+      if (antes?.from === opponent) for (const k of antes.kinds) llega(k);
+      return {
+        promise,
+        acepta() {
+          if (acabada || mio) return;
+          mio = true;
+          if (suyo) {
+            empieza();
+            return;
+          }
+          dice('listo');
+          insiste = timers.every(() => dice('listo'), LISTO_CADA);
+        },
+        rechaza() {
+          if (acabada) return;
+          dice('paso');
+          timers.set(() => dice('paso'), LISTO_OTRA);
+          termina('paso');
+        },
+      };
     },
     // Los retos que tengo sin contestar.
     invites() {
@@ -1124,7 +1226,7 @@ export function createOnline({ urls = BROKERS, me = randomId() } = {}) {
       return sala;
     },
     // `rating`: mi puntuación en ese ritmo, para emparejar con alguien parecido.
-    async find({ time, name = '', rating = null, onStatus = () => {} }) {
+    async find({ time, name = '', rating = null, evita = () => false, onStatus = () => {} }) {
       busca?.stop();
       const turno = ++busquedas;
       onStatus({ phase: 'connecting', seekers: 0 });
@@ -1138,7 +1240,7 @@ export function createOnline({ urls = BROKERS, me = randomId() } = {}) {
       // Cancelada mientras conectaba: sin esto, la búsqueda empezaba igual por detrás, y quien se
       // emparejara con ella se quedaba esperando una partida que aquí nadie iba a jugar.
       if (turno !== busquedas) return null;
-      const mm = createMatchmaker({ bus: b, me, time, name: cleanName(name), rating });
+      const mm = createMatchmaker({ bus: b, me, time, name: cleanName(name), rating, evita });
       busca = mm;
       // (Con `conectado`: si se pierde la red mientras se busca, la pantalla lo dice en vez de «nadie busca».)
       const cuenta = setInterval(() => onStatus({ phase: 'searching', seekers: mm.seekers(), conectado: b.sano }), 1000);

@@ -58,6 +58,9 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
     return h;
   };
   const disponible = (p) => p.status !== 'playing';
+  // El ritmo con que se reta a alguien (y con que se ve su puntuación): si busca rival, el suyo (es la partida que
+  // quiere); si no, el elegido en el menú.
+  const ritmoDe = (p) => (p.status === 'seeking' && p.time ? p.time : time());
 
   // ---- La píldora y la tarjeta del menú ----
   function pintaMenu() {
@@ -77,7 +80,8 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
     const r = retando.get(p.id);
     if (r?.estado === 'rechaza') return t('sala.rechaza');
     if (r?.estado === 'nocontesta') return t('sala.nocontesta');
-    if (p.status === 'seeking') return t('sala.estado.seeking');
+    // Buscando rival, a qué partida: «Buscando rival · Blitz · 3 | 2».
+    if (p.status === 'seeking') return p.time ? t('sala.estado.seekingRitmo', { ritmo: relojDe(p.time) }) : t('sala.estado.seeking');
     if (p.status === 'playing') return t('sala.estado.playing');
     return t('sala.estado.menu');
   }
@@ -101,7 +105,7 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
       nombre.className = 'sala-nombre';
       // Con su puntuación en el ritmo elegido en el menú, si la dice: «Ana · 1532?» (la interrogación: aún
       // provisional). La dice cada uno de sí mismo: sin servidor, no se puede comprobar.
-      const suya = p.rt?.[categoryOf({ mode: 'online', time: time() })];
+      const suya = p.rt?.[categoryOf({ mode: 'online', time: ritmoDe(p) })];
       nombre.textContent = suya ? `${nombreDe(p)} · ${shown(suya)}` : nombreDe(p);
       const estado = document.createElement('span');
       estado.className = 'sala-estado';
@@ -131,7 +135,7 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
 
   async function reta(p) {
     if (!canChallenge()) return;
-    const reto = lobby.invite(p.id, { time: time() });
+    const reto = lobby.invite(p.id, { time: ritmoDe(p) });
     const entrada = { reto, estado: 'esperando', aviso: null };
     retando.set(p.id, entrada);
     pintaLista();

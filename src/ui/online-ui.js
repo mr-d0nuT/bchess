@@ -22,12 +22,15 @@ export function createOnlineUi() {
   reintentar.hidden = true;
   boton.before(reintentar, ' '); // con su espacio entre los dos, como en el HTML
   let alPulsar = null;
-  boton.addEventListener('click', () => alPulsar?.('cancelar'));
-  reintentar.addEventListener('click', () => alPulsar?.('reintentar'));
+  let fase = '';
+  // En la propuesta de un rival, los mismos dos botones son «Buscar otro» y «Aceptar».
+  const propone = () => fase === 'propuesta' || fase === 'esperando';
+  boton.addEventListener('click', () => alPulsar?.(propone() ? 'otro' : 'cancelar'));
+  reintentar.addEventListener('click', () => alPulsar?.(fase === 'propuesta' ? 'aceptar' : 'reintentar'));
 
   function pinta({ phase, seekers = 0, color = null, rival = '', conectado = true, time = null }) {
+    fase = phase;
     root.dataset.fase = phase;
-    root.classList.toggle('encontrado', phase === 'found');
     if (phase === 'connecting') {
       titulo.textContent = t('online.conectando');
       texto.textContent = '';
@@ -46,15 +49,24 @@ export function createOnlineUi() {
       // La revancha pedida: esperando a que conteste.
       titulo.textContent = t('online.retando', { nombre: rival });
       texto.textContent = time ? `${t('online.pideRevancha')} · ${ritmoDe(time)}` : t('online.pideRevancha');
+    } else if (phase === 'propuesta' || phase === 'esperando') {
+      // El rival al azar, antes de empezar: quién es, a qué ritmo y con qué color. Si ya he aceptado, a esperarle.
+      titulo.textContent = phase === 'propuesta' ? t('online.encontrado') : t('online.esperandoSi', { nombre: rival });
+      const partes = [];
+      if (phase === 'propuesta') partes.push(t('online.rival', { nombre: rival }));
+      if (time) partes.push(ritmoDe(time));
+      partes.push(color === 'black' ? t('online.negras') : t('online.blancas'));
+      texto.textContent = partes.join(' · ');
     } else if (phase === 'error') {
       titulo.textContent = t('online.error');
       texto.textContent = '';
     }
-    boton.textContent = phase === 'error' ? t('final.menu') : t('online.cancelar');
+    root.classList.toggle('encontrado', phase === 'found' || phase === 'propuesta');
+    boton.textContent = phase === 'error' ? t('final.menu') : propone() ? t('online.otro') : t('online.cancelar');
     boton.hidden = phase === 'found';
-    reintentar.textContent = t('reintentar');
-    reintentar.hidden = phase !== 'error';
-    if (phase === 'error') setTimeout(() => reintentar.focus({ preventScroll: true }), 50);
+    reintentar.textContent = phase === 'propuesta' ? t('online.aceptar') : t('reintentar');
+    reintentar.hidden = phase !== 'error' && phase !== 'propuesta';
+    if (phase === 'error' || phase === 'propuesta') setTimeout(() => reintentar.focus({ preventScroll: true }), 50);
   }
 
   return {

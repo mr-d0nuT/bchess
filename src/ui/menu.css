@@ -1182,12 +1182,12 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .sala-retar.esperando { background: rgba(255, 196, 81, 0.15); color: #ffd66b; box-shadow: inset 0 0 0 1px #ffc451; animation: gente-late 1.2s ease-in-out infinite; }
 .sala-vacia { margin: 6px 0; text-align: center; font-size: 14px; opacity: 0.75; }
 
-/* Los retos que llegan: arriba, encima de todo. */
+/* Los retos que llegan: arriba, encima de todo (también del dónut, que está en la esquina). */
 .retos {
   position: fixed;
   top: max(10px, env(safe-area-inset-top));
   left: 50%;
-  z-index: 990;
+  z-index: 2147482100;
   display: flex;
   flex-direction: column;
   gap: 8px;

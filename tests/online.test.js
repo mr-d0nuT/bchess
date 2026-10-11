@@ -219,6 +219,112 @@ test('la revancha: se reta al mismo rival con los colores que se piden, y él la
   assert.ok(['white', 'black'].includes(normal.color));
 });
 
+test('en la sala, quien busca rival sale con el ritmo que busca; al dejar de buscar, ya no', async (t) => {
+  const net = red();
+  const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: rapido });
+  const b = createLobby({ bus: net.bus('b'), me: 'b2', timers: rapido });
+  t.after(() => {
+    a.close();
+    b.close();
+  });
+  a.set({ name: 'Ana', status: 'seeking', time: 'blitz:3+2' });
+  await espera(60);
+  assert.deepEqual(b.players().map(({ id, status, time }) => ({ id, status, time })), [{ id: 'a1', status: 'seeking', time: 'blitz:3+2' }]);
+  a.set({ status: 'menu' });
+  await espera(60);
+  assert.equal(b.players()[0].time, undefined, 'sin buscar, sin ritmo');
+  // Y el «seek» del emparejamiento también lo dice (aunque su presencia no lo traiga).
+  const mm = createMatchmaker({ bus: net.bus('c'), me: 'c3', time: 'bala:1', name: 'Carla', timers: rapido });
+  await espera(80);
+  assert.equal(b.players().find((j) => j.id === 'c3')?.time, 'bala:1');
+  mm.stop();
+});
+
+// La propuesta de un rival al azar: los dos lados, con su emparejamiento (el de cada uno visto desde él).
+function propuesta(opciones = {}) {
+  const net = red(opciones);
+  const quieto = { set: (fn, ms) => setTimeout(fn, ms / 50), clear: clearTimeout, every: (fn, ms) => setInterval(fn, ms / 50), stop: clearInterval };
+  const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: quieto });
+  const b = createLobby({ bus: net.bus('b'), me: 'b2', timers: quieto });
+  const info = { game: 'a1-b2-x', white: 'a1', time: 'blitz:3+2' };
+  return { a, b, deA: { ...info, opponent: 'b2' }, deB: { ...info, opponent: 'a1' } };
+}
+
+test('el rival al azar se propone a los dos: la partida empieza si aceptan los dos', async (t) => {
+  const { a, b, deA, deB } = propuesta();
+  t.after(() => {
+    a.close();
+    b.close();
+  });
+  const ca = a.confirma(deA);
+  const cb = b.confirma(deB);
+  ca.acepta();
+  await espera(20);
+  cb.acepta();
+  assert.deepEqual(await conPlazo(Promise.all([ca.promise, cb.promise])), ['empieza', 'empieza']);
+});
+
+test('si uno busca otro, el otro lo sabe; y si nadie contesta, caduca para los dos', async (t) => {
+  const uno = propuesta();
+  const dos = propuesta();
+  t.after(() => {
+    for (const l of [uno.a, uno.b, dos.a, dos.b]) l.close();
+  });
+  const ca = uno.a.confirma(uno.deA);
+  const cb = uno.b.confirma(uno.deB);
+  cb.acepta();
+  ca.rechaza();
+  assert.deepEqual(await conPlazo(Promise.all([ca.promise, cb.promise])), ['paso', 'rival']);
+  const da = dos.a.confirma(dos.deA, { espera: 2000 });
+  const db = dos.b.confirma(dos.deB, { espera: 2000 });
+  assert.deepEqual(await conPlazo(Promise.all([da.promise, db.promise])), ['tiempo', 'tiempo']);
+});
+
+test('su «sí» puede llegar antes de que aquí se proponga: cuenta igual; y de un tercero, no', async (t) => {
+  const { a, b, deA, deB } = propuesta();
+  t.after(() => {
+    a.close();
+    b.close();
+  });
+  const ca = a.confirma(deA);
+  ca.acepta(); // b aún no se la ha propuesto: su «listo» espera en su buzón
+  await espera(20);
+  const cb = b.confirma(deB);
+  cb.acepta();
+  assert.deepEqual(await conPlazo(Promise.all([ca.promise, cb.promise])), ['empieza', 'empieza']);
+});
+
+test('en el emparejamiento, a quien se ha preferido evitar (buscó otro) ni se le ofrece ni se le acepta', async () => {
+  const net = red();
+  const a = createMatchmaker({ bus: net.bus('a'), me: 'a1', time: 'blitz:3+2', timers: rapido, evita: (id) => id === 'b2' });
+  const b = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'blitz:3+2', timers: rapido });
+  await espera(150);
+  assert.equal(a.state, 'seeking');
+  assert.equal(b.state, 'seeking');
+  const c = createMatchmaker({ bus: net.bus('c'), me: 'c3', time: 'blitz:3+2', timers: rapido });
+  const [conA, conC] = await conPlazo(Promise.all([a.found, c.found]));
+  assert.equal(conA.opponent, 'c3');
+  assert.equal(conC.opponent, 'a1');
+  b.stop();
+});
+
+test('al azar, solo se empareja con quien entiende la propuesta: a un buscador de una versión vieja, ni se le ofrece ni se le acepta', async (t) => {
+  const enviados = [];
+  const net = red({ drop: (m, tema) => !enviados.push({ ...m, tema }) });
+  const a = createMatchmaker({ bus: net.bus('a'), me: 'a1', time: 'blitz:3+2', timers: rapido });
+  t.after(() => a.stop());
+  const viejo = net.bus('v');
+  viejo.subscribe(inbox('v9'));
+  // Uno de antes (protocolo 2) busca; y otro de antes, con un id menor, le ofrece partida.
+  viejo.publish(LOBBY, { k: 'seek', pv: 2, from: 'v9', since: 0, time: 'blitz:3+2', name: 'Viejo' });
+  viejo.publish(inbox('a1'), { k: 'offer', pv: 2, from: '0v', game: '0v-a1-x', white: '0v', time: 'blitz:3+2', name: 'Otro viejo' });
+  await espera(100);
+  assert.equal(enviados.filter((m) => m.from === 'a1' && m.k === 'offer').length, 0, 'al viejo, ni una oferta');
+  assert.equal(enviados.filter((m) => m.from === 'a1' && m.k === 'accept').length, 0, 'su oferta, no');
+  assert.ok(enviados.some((m) => m.from === 'a1' && m.k === 'decline' && m.game === '0v-a1-x'));
+  assert.equal(a.state, 'seeking');
+});
+
 test('un reto rechazado lo sabe quien retó; y uno retirado desaparece para el retado', async () => {
   const net = red();
   const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: rapido });
@@ -301,11 +407,11 @@ test('un remitente que no es un identificador se tira: nadie acaba publicando en
   await espera(80); // conectado y suscrito
   // «~#» va detrás de «aaaa1»: si contara, se le ofrecería partida en su buzón… «…/p/~#».
   for (const from of ['~#', 'zz+z', 'a/b', '#', '', 'ZZZZ', null, 42]) {
-    broker.inyecta(LOBBY, { k: 'seek', from, since: 0, time: 'libre:libre', mid: `s${from}` });
+    broker.inyecta(LOBBY, { k: 'seek', pv: 3, from, since: 0, time: 'libre:libre', mid: `s${from}` });
     broker.inyecta(LOBBY, { k: 'here', from, name: 'Trampa', mid: `h${from}` });
   }
   broker.inyecta(LOBBY, { from: 'zzzz8', mid: 'sin-k' }); // sin decir qué es
-  broker.inyecta(LOBBY, { k: 'seek', from: 'zzzz9', since: 0, time: { a: 1 }, mid: 'bueno' }); // y uno de verdad
+  broker.inyecta(LOBBY, { k: 'seek', pv: 3, from: 'zzzz9', since: 0, time: { a: 1 }, mid: 'bueno' }); // y uno de verdad
   await espera(200);
   assert.ok(broker.publicados.length > 0);
   assert.deepEqual(broker.publicados.filter((t) => /[+#]/.test(t)), []);
@@ -327,12 +433,12 @@ test('una oferta mal nombrada, con un tercero con blancas o sin ritmo, ni se con
     { time: 'x'.repeat(40) },
     { time: null },
   ];
-  for (const m of malas) tramposo.publish(inbox('b2'), { k: 'offer', from: 'a1', game: 'a1-b2-x', white: 'a1', time: 'libre:libre', ...m });
+  for (const m of malas) tramposo.publish(inbox('b2'), { k: 'offer', pv: 3, from: 'a1', game: 'a1-b2-x', white: 'a1', time: 'libre:libre', ...m });
   await espera(60);
   assert.equal(b.state, 'seeking');
   assert.deepEqual(enviados.filter((m) => m.from === 'b2' && m.k !== 'seek'), []);
   // La buena, sí.
-  tramposo.publish(inbox('b2'), { k: 'offer', from: 'a1', game: 'a1-b2-x', white: 'a1', time: 'blitz:3+2' });
+  tramposo.publish(inbox('b2'), { k: 'offer', pv: 3, from: 'a1', game: 'a1-b2-x', white: 'a1', time: 'blitz:3+2' });
   await espera(20);
   assert.equal(b.state, 'accepted');
   b.stop();
@@ -886,7 +992,7 @@ test('de los que buscan el mismo ritmo y se conocen a la vez, primero el de punt
   const net = red();
   const A = createMatchmaker({ bus: net.bus('a'), me: 'a1', time: 'blitz:3+2', rating: { r: 1500, rd: 90 }, timers: rapido });
   // Uno que anuncia y nunca contesta: A se lo ofrece y, mientras espera respuesta, llegan dos más.
-  net.bus('x').publish(LOBBY, { k: 'seek', from: 'b0', since: 0, time: 'blitz:3+2', rt: [1500, 90] });
+  net.bus('x').publish(LOBBY, { k: 'seek', pv: 3, from: 'b0', since: 0, time: 'blitz:3+2', rt: [1500, 90] });
   await espera(20);
   assert.equal(A.state, 'offering');
   // 150 por debajo y 60 por encima (y a 210 uno del otro: entre ellos, aún no).
@@ -922,7 +1028,7 @@ test('online no hay diaria: quien la busca va sin reloj, y una oferta o un reto 
   await espera(20);
   assert.equal(enviados.find((m) => m.from === 'b2' && m.k === 'seek').time, 'libre:libre');
   const tramposo = net.bus('t');
-  tramposo.publish(inbox('b2'), { k: 'offer', from: 'a1', game: 'a1-b2-x', white: 'a1', time: 'diaria:3d' });
+  tramposo.publish(inbox('b2'), { k: 'offer', pv: 3, from: 'a1', game: 'a1-b2-x', white: 'a1', time: 'diaria:3d' });
   await espera(20);
   assert.equal(B.state, 'seeking');
   assert.ok(enviados.some((m) => m.from === 'b2' && m.k === 'decline'));
