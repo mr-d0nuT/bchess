@@ -165,6 +165,10 @@ export function createChessClockUi(root = document.body) {
     press(side) {
       hunde(side);
     },
+    // Pulsa por el que estaba esperando a pulsar (el pulsado pasa a ser automático a media espera).
+    pressWaiting() {
+      if (espera) pulsa(espera.side);
+    },
     // Ya no se espera a nadie (partida nueva, deshacer…).
     cancel() {
       const pendiente = espera;

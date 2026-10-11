@@ -757,6 +757,26 @@ async function start() {
   }
   pintaCombates();
 
+  // EL RELOJ, A MANO O AUTOMÁTICO (ajustes; lo pidió el usuario). En las partidas de aquí con reloj, el que mueve
+  // lo pulsa con su mano, como en un torneo, o se pulsa solo al acabar la jugada. Online, siempre solo (como en
+  // cualquier partida por internet). Se recuerda; la opción solo sale en las partidas con reloj que no son online.
+  const PULSAR = 'bchess.reloj.pulsar';
+  let pulsarSolo = leerPreferencia(PULSAR, 'mano') === 'solo';
+  const seccionReloj = document.getElementById('ajustes-reloj');
+  const botonesPulsar = [...document.querySelectorAll('#ajustes-pulsar button')];
+  const pintaPulsar = () => {
+    for (const boton of botonesPulsar) boton.setAttribute('aria-pressed', String((boton.dataset.pulsar === 'solo') === pulsarSolo));
+  };
+  for (const boton of botonesPulsar) {
+    boton.addEventListener('click', () => {
+      pulsarSolo = boton.dataset.pulsar === 'solo';
+      guardarPreferencia(PULSAR, pulsarSolo ? 'solo' : 'mano');
+      pintaPulsar();
+      if (pulsarSolo) clockUi.pressWaiting(); // si alguien tenía que pulsarlo ahora, ya está
+    });
+  }
+  pintaPulsar();
+
   // Saltar combates (punto 1 del plan): una partida tiene 15-30 capturas y cada combate dura de 10 a 50
   // segundos. Durante uno, un toque lo acelera y otro lo salta: la pantalla se funde a negro, el combate
   // corre por detrás a toda velocidad (como en las pruebas, con `advance`) y, al acabar, vuelve la imagen.
@@ -1380,8 +1400,8 @@ async function start() {
     // pulsa sola; el jugador, con su mano (y mientras no lo pulse, su tiempo sigue corriendo).
     if (game.clock) {
       const id = game.id;
-      // Online, el reloj se pulsa solo, como en cualquier partida por internet.
-      if ((game.mode === 'cpu' && movio !== game.human) || game.mode === 'online') {
+      // Online, el reloj se pulsa solo, como en cualquier partida por internet; aquí, si así se ha elegido (ajustes).
+      if ((game.mode === 'cpu' && movio !== game.human) || game.mode === 'online' || pulsarSolo) {
         clockUi.press(movio);
       } else {
         game.press = movio;
@@ -2245,6 +2265,8 @@ async function start() {
     let linea = game.mode === 'cpu' ? t('ajustes.cpu', { n: game.level, nombre: levelName(game.level) }) : game.mode === 'online' ? t('ajustes.online') : t('ajustes.pvp');
     if (game.control) linea += ` · ${controlName()}`;
     texto.textContent = linea;
+    // Pulsar el reloj: solo en las partidas de aquí con reloj.
+    if (seccionReloj) seccionReloj.hidden = !game.control || game.mode === 'online';
   }
 
   // El reloj en cada fotograma: corre solo mientras el que mueve puede mover (las animaciones y los

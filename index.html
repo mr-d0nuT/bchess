@@ -92,6 +92,14 @@
         <p id="ajustes-partida" class="ajustes-partida">—</p>
         <button id="ajustes-menu" type="button" class="ajustes-accion" data-i18n="ajustes.menu">Volver al menú</button>
       </section>
+      <!-- Solo en las partidas de aquí con reloj (online se pulsa solo): `main.js` la enseña. -->
+      <section id="ajustes-reloj" hidden>
+        <h3 data-i18n="ajustes.reloj">Pulsar el reloj</h3>
+        <div id="ajustes-pulsar" class="ajustes-opciones">
+          <button type="button" data-pulsar="mano" data-i18n="ajustes.reloj.mano">A mano</button>
+          <button type="button" data-pulsar="solo" data-i18n="ajustes.reloj.solo">Automático</button>
+        </div>
+      </section>
       <section>
         <h3 data-i18n="ajustes.combates">Combates</h3>
         <div id="ajustes-combates" class="ajustes-opciones">
