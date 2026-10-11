@@ -1,6 +1,7 @@
 import { t } from '../i18n.js';
 import { TIME_CONTROLS } from '../chess/timecontrol.js';
 import { timeLabel } from './menu.js';
+import { categoryOf, shown } from '../rating/ratings.js';
 
 // LA SALA, A LA VISTA. Lo pidió el usuario: que se vea cuándo hay gente para jugar online, una lista de los
 // que hay para buscarlos por nombre y retar a uno en concreto, y que el reto le llegue al otro.
@@ -97,7 +98,10 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
       datos.className = 'sala-datos';
       const nombre = document.createElement('span');
       nombre.className = 'sala-nombre';
-      nombre.textContent = nombreDe(p);
+      // Con su puntuación en el ritmo elegido en el menú, si la dice: «Ana · 1532?» (la interrogación: aún
+      // provisional). La dice cada uno de sí mismo: sin servidor, no se puede comprobar.
+      const suya = p.rt?.[categoryOf({ mode: 'online', time: time() })];
+      nombre.textContent = suya ? `${nombreDe(p)} · ${shown(suya)}` : nombreDe(p);
       const estado = document.createElement('span');
       estado.className = 'sala-estado';
       estado.textContent = estadoTexto(p);
@@ -268,7 +272,7 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
     const textos = document.createElement('span');
     textos.className = 'reto-textos';
     const quien = document.createElement('b');
-    quien.textContent = reto.name || t('reto.anonimo');
+    quien.textContent = `${reto.name || t('reto.anonimo')}${reto.rating ? ` (${shown(reto.rating)})` : ''}`;
     const que = document.createElement('span');
     que.textContent = `${t('reto.te')} · ${relojDe(reto.time)}`;
     textos.append(quien, que);

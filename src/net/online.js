@@ -1,5 +1,6 @@
 import { connectMqtt } from './mqtt.js';
 import { cleanName } from '../names.js';
+import { ONLINE_CATEGORIES, categoryOf } from '../rating/ratings.js';
 
 // LAS PARTIDAS ONLINE. Lo pidió el usuario: que cualquiera que entre pueda elegir «Online» y empiece una
 // partida con otro que también lo haya pedido, gratis y sin servidor propio. Así que todo va por brokers
@@ -324,6 +325,14 @@ export function leePuntuacion(rt) {
 }
 // Y la mía, para anunciarla: redondeada.
 export const anunciaPuntuacion = (p) => [Math.round(p?.r ?? PUNTUACION_INICIAL.r), Math.round(p?.rd ?? PUNTUACION_INICIAL.rd)];
+// Las de todos los ritmos online, en la sala: { bala: [r, rd], blitz: …, rapida: …, diaria: … }. Lo que no tenga
+// sentido, la de empezar.
+export function leePuntuaciones(rt) {
+  const todas = rt && typeof rt === 'object' && !Array.isArray(rt) ? rt : {};
+  return Object.fromEntries(ONLINE_CATEGORIES.map((c) => [c, leePuntuacion(todas[c])]));
+}
+// La de un ritmo, de una de esas listas (o la de empezar).
+export const puntuacionEn = (todas, time) => todas?.[categoryOf({ mode: 'online', time })] ?? { ...PUNTUACION_INICIAL };
 
 // Online no hay partidas «diarias» (aún: haría falta que cada uno pudiera tardar días en contestar): con ese ritmo,
 // sin reloj.
@@ -337,14 +346,16 @@ const VENTANA_CADA = 5000; // …cada tanto buscando
 
 // ---- El emparejamiento ----
 // `bus`: { subscribe, publish, onMessage }. `me`: mi identificador. `time`: el reloj que he elegido.
-// `name`: mi nombre (puede ir vacío), que el rival sabe al emparejarse. `rating`: mi puntuación en ese ritmo.
-// Devuelve { found: Promise<{ game, white, time, opponent, opponentName }>, seekers(): cuántos más
-// buscan, stop() }.
+// `name`: mi nombre (puede ir vacío), que el rival sabe al emparejarse. `rating(time)`: mi puntuación en un ritmo
+// ({ r, rd }; o, si es la misma para todos, el objeto).
+// Devuelve { found: Promise<{ game, white, time, opponent, opponentName, opponentRating }>, seekers(): cuántos
+// más buscan, stop() }.
 export function createMatchmaker({ bus, me, time, name = '', rating = null, now = Date.now, random = Math.random, timers = TIMERS }) {
   const since = now();
   const miRitmo = ritmoOnline(time);
-  const miPuntuacion = rating ? leePuntuacion(anunciaPuntuacion(rating)) : { ...PUNTUACION_INICIAL };
-  const seekers = new Map(); // id → { since, time, seen, r }
+  const puntuacionPara = (t) => leePuntuacion(anunciaPuntuacion(typeof rating === 'function' ? rating(t) : rating));
+  const miPuntuacion = puntuacionPara(miRitmo);
+  const seekers = new Map(); // id → { since, time, seen, r, rd }
   const tried = new Map(); // id → cuándo se le ofreció sin respuesta
   let state = 'seeking'; // 'offering' | 'accepted' | 'matched' | 'stopped'
   let pending = null; // la oferta que he hecho: { to, game, white, time }
@@ -373,7 +384,7 @@ export function createMatchmaker({ bus, me, time, name = '', rating = null, now 
     const reloj = s.time === miRitmo || s.since >= since ? miRitmo : s.time;
     pending = { to: id, game, white, time: reloj };
     state = 'offering';
-    to(id, { k: 'offer', pv: PV, game, white, time: reloj, name });
+    to(id, { k: 'offer', pv: PV, game, white, time: reloj, name, rt: anunciaPuntuacion(puntuacionPara(reloj)) });
     espera(() => {
       if (state === 'offering' && pending?.game === game) {
         tried.set(id, now());
@@ -423,7 +434,7 @@ export function createMatchmaker({ bus, me, time, name = '', rating = null, now 
     if (topic === LOBBY) {
       if (msg.k === 'seek') {
         // Su reloj puede acabar siendo el de la partida: si no es un ritmo (o es la diaria), sin reloj.
-        seekers.set(msg.from, { since: Number.isFinite(msg.since) ? msg.since : now(), time: ritmoOnline(msg.time), seen: now(), r: leePuntuacion(msg.rt).r });
+        seekers.set(msg.from, { since: Number.isFinite(msg.since) ? msg.since : now(), time: ritmoOnline(msg.time), seen: now(), ...leePuntuacion(msg.rt) });
         tick();
       } else if (msg.k === 'leave') {
         seekers.delete(msg.from);
@@ -439,9 +450,9 @@ export function createMatchmaker({ bus, me, time, name = '', rating = null, now 
       if ((state === 'seeking' || state === 'offering') && !esDiaria(msg.time)) {
         if (state === 'offering') to(pending.to, { k: 'cancel', game: pending.game });
         pending = null;
-        accepted = { from: msg.from, game: msg.game, white: msg.white, time: msg.time, name: cleanName(msg.name) };
+        accepted = { from: msg.from, game: msg.game, white: msg.white, time: msg.time, name: cleanName(msg.name), rating: leePuntuacion(msg.rt) };
         state = 'accepted';
-        to(msg.from, { k: 'accept', game: msg.game, name });
+        to(msg.from, { k: 'accept', game: msg.game, name, rt: anunciaPuntuacion(puntuacionPara(msg.time)) });
         const game = msg.game;
         espera(() => {
           if (state === 'accepted' && accepted?.game === game) {
@@ -461,13 +472,13 @@ export function createMatchmaker({ bus, me, time, name = '', rating = null, now 
         const go = { k: 'go', game: msg.game };
         to(msg.from, go);
         timers.set(() => to(msg.from, go), GO_AGAIN);
-        match({ game: pending.game, white: pending.white, time: pending.time, opponent: msg.from, opponentName: cleanName(msg.name) });
+        match({ game: pending.game, white: pending.white, time: pending.time, opponent: msg.from, opponentName: cleanName(msg.name), opponentRating: leePuntuacion(msg.rt) });
       } else {
         to(msg.from, { k: 'cancel', game: msg.game });
       }
     } else if (msg.k === 'go') {
       if (state === 'accepted' && accepted?.game === msg.game && accepted.from === msg.from) {
-        match({ game: accepted.game, white: accepted.white, time: accepted.time, opponent: msg.from, opponentName: accepted.name });
+        match({ game: accepted.game, white: accepted.white, time: accepted.time, opponent: msg.from, opponentName: accepted.name, opponentRating: accepted.rating });
       } else {
         to(msg.from, { k: 'cancel', game: msg.game });
       }
@@ -530,11 +541,12 @@ const GO_WAIT = 6000; // tras aceptar un reto, lo que se espera la confirmación
 const STATUSES = ['menu', 'seeking', 'playing'];
 
 // `bus`, `me`: como en el emparejamiento. Devuelve:
-// - players(): los que hay ({ id, name, status, games }), sin uno mismo; onPlayers(fn), cada vez que cambia.
-// - set({ name, status, games }): lo que digo de mí.
+// - players(): los que hay ({ id, name, status, games, rt? }), sin uno mismo; onPlayers(fn), cada vez que cambia.
+//   `rt`: sus puntuaciones por ritmo (`leePuntuaciones`), si las dice.
+// - set({ name, status, games, rt }): lo que digo de mí (`rt`: mis puntuaciones, { bala: [r, rd], … }).
 // - invite(id, { time }): reta a `id`; { promise, cancel }. La promesa da el emparejamiento ({ game, white,
-//   time, opponent, opponentName }) o { declined | expired | canceled: true }.
-// - onInvite(fn): los retos que llegan ({ game, from, name, time, expires }) y los que se retiran
+//   time, opponent, opponentName, opponentRating }) o { declined | expired | canceled: true }.
+// - onInvite(fn): los retos que llegan ({ game, from, name, time, rating, expires }) y los que se retiran
 //   ({ game, gone: true }). acceptInvite(game) da el emparejamiento (o null); declineInvite(game).
 export function createLobby({ bus, me, now = Date.now, random = Math.random, timers = TIMERS }) {
   const players = new Map(); // id → { id, name, status, games, seen }
@@ -549,7 +561,7 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
   const to = (id, msg) => bus.publish(inbox(id), { ...msg, from: me });
   const lista = () => [...players.values()]
     .filter((p) => now() - p.seen < PRESENT_FOR)
-    .map(({ id, name, status, games }) => ({ id, name, status, games }))
+    .map(({ id, name, status, games, rt }) => (rt ? { id, name, status, games, rt } : { id, name, status, games }))
     .sort((a, b) => (a.name || '\uffff').localeCompare(b.name || '\uffff') || a.id.localeCompare(b.id));
   const avisa = () => {
     const l = lista();
@@ -577,6 +589,7 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
           status: STATUSES.includes(msg.status) ? msg.status : 'menu',
           games: Math.max(0, Math.min(99, Number(msg.games) || 0)),
           seen: now(),
+          ...(msg.rt !== undefined ? { rt: leePuntuaciones(msg.rt) } : {}),
         });
         avisa();
       } else if (msg.k === 'seek') {
@@ -609,11 +622,12 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
         name: cleanName(msg.name),
         time: msg.time,
         white: msg.white,
+        rating: leePuntuacion(msg.rt),
         expires: now() + INVITE_FOR,
       };
       reto.plazo = timers.set(() => retira(msg.game), INVITE_FOR);
       recibidos.set(msg.game, reto);
-      retoAvisa({ game: reto.game, from: reto.from, name: reto.name, time: reto.time, expires: reto.expires });
+      retoAvisa({ game: reto.game, from: reto.from, name: reto.name, time: reto.time, rating: reto.rating, expires: reto.expires });
     } else if (msg.k === 'invite-cancel') {
       retira(msg.game);
       const a = aceptando.get(msg.game);
@@ -631,7 +645,7 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
         const go = { k: 'invite-go', game: msg.game };
         to(msg.from, go);
         timers.set(() => to(msg.from, go), GO_AGAIN);
-        s.resolve({ game: msg.game, white: s.white, time: s.time, opponent: msg.from, opponentName: cleanName(msg.name) || s.name });
+        s.resolve({ game: msg.game, white: s.white, time: s.time, opponent: msg.from, opponentName: cleanName(msg.name) || s.name, opponentRating: leePuntuacion(msg.rt) });
       } else {
         to(msg.from, { k: 'invite-cancel', game: msg.game });
       }
@@ -647,14 +661,14 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
       if (a && a.reto.from === msg.from) {
         aceptando.delete(msg.game);
         timers.clear(a.plazo);
-        a.resolve({ game: a.reto.game, white: a.reto.white, time: a.reto.time, opponent: a.reto.from, opponentName: a.reto.name });
+        a.resolve({ game: a.reto.game, white: a.reto.white, time: a.reto.time, opponent: a.reto.from, opponentName: a.reto.name, opponentRating: a.reto.rating });
       }
     }
   });
 
   function anuncia() {
     if (cerrada) return;
-    bus.publish(LOBBY, { k: 'here', pv: PV, from: me, name: yo.name, status: yo.status, games: yo.games });
+    bus.publish(LOBBY, { k: 'here', pv: PV, from: me, name: yo.name, status: yo.status, games: yo.games, ...(yo.rt ? { rt: yo.rt } : {}) });
     let cambio = false;
     for (const [id, p] of players) {
       if (now() - p.seen >= PRESENT_FOR) {
@@ -704,7 +718,7 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
         resolver({ expired: true });
       }, INVITE_FOR);
       enviados.set(game, { to: id, white, time, name: players.get(id)?.name ?? '', resolve: resolver, plazo });
-      to(id, { k: 'invite', pv: PV, game, white, time, name: yo.name });
+      to(id, { k: 'invite', pv: PV, game, white, time, name: yo.name, rt: anunciaPuntuacion(puntuacionEn(leePuntuaciones(yo.rt), time)) });
       return {
         game,
         promise,
@@ -723,7 +737,7 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
       if (!reto) return Promise.resolve(null);
       recibidos.delete(game);
       timers.clear(reto.plazo);
-      to(reto.from, { k: 'invite-accept', game, name: yo.name });
+      to(reto.from, { k: 'invite-accept', game, name: yo.name, rt: anunciaPuntuacion(puntuacionEn(leePuntuaciones(yo.rt), reto.time)) });
       return new Promise((resolve) => {
         const plazo = timers.set(() => {
           // Su confirmación no ha llegado: se le dice, que él sí la habrá empezado (y si no, se quedaba esperando).
@@ -743,7 +757,7 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
     },
     // Los retos que tengo sin contestar.
     invites() {
-      return [...recibidos.values()].map(({ game, from, name, time, expires }) => ({ game, from, name, time, expires }));
+      return [...recibidos.values()].map(({ game, from, name, time, rating, expires }) => ({ game, from, name, time, rating, expires }));
     },
     close() {
       if (cerrada) return;

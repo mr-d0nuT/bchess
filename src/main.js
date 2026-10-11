@@ -28,8 +28,8 @@ import { endsOf, gridOf, pickPair, pickTurn, place } from './moves/dodge.js';
 import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
 import { createCpu } from './chess/cpu.js';
-import { LOST_AFTER, createOnline, randomId } from './net/online.js';
-import { MAX_MALAS, createPartidaOnline, decideBandera, decideFin, decideReclamo, finDeTodos, mandaElSuyo, retrasoReclamo } from './net/partida.js';
+import { LOST_AFTER, anunciaPuntuacion, createOnline, randomId } from './net/online.js';
+import { MAX_MALAS, createPartidaOnline, decideBandera, decideFin, decideReclamo, finDeTodos, mandaElSuyo, puntuaOnline, retrasoReclamo } from './net/partida.js';
 import { ONLINE_KEY, identidadOnline, packOnline, packTodas, readOnline } from './net/guardadas-online.js';
 import { createOnlineUi } from './ui/online-ui.js';
 import { createLobbyUi } from './ui/lobby-ui.js';
@@ -40,7 +40,7 @@ import { createChessClockUi } from './ui/chess-clock.js';
 import { createHistoryUi } from './ui/history-ui.js';
 import { gameRecord } from './chess/notation.js';
 import { createRankingUi } from './ui/ranking-ui.js';
-import { categoryOf, cpuRating, createRatings, isProvisional } from './rating/ratings.js';
+import { ONLINE_CATEGORIES, categoryOf, cpuRating, createRatings, isProvisional, shown } from './rating/ratings.js';
 import { createCloud } from './net/cloud.js';
 import { createAuthUi } from './ui/auth-ui.js';
 import { createChessClock, findTimeControl } from './chess/timecontrol.js';
@@ -399,6 +399,11 @@ async function start() {
   // LA SALA (`net/online.js`, `ui/lobby-ui.js`): se conecta al arrancar, para ver quién hay online (y que los
   // demás vean que estoy), retar a uno en concreto y recibir sus retos, estés donde estés.
   const sala = online.lobby();
+  // Y en ella digo mis puntuaciones online (una por ritmo), cada vez que cambian: los demás las ven junto a mi nombre
+  // y el emparejamiento busca a alguien parecido.
+  const misPuntuaciones = () => Object.fromEntries(ONLINE_CATEGORIES.map((c) => [c, anunciaPuntuacion(ratings.get(c))]));
+  sala.set({ rt: misPuntuaciones() });
+  ratings.onChange(() => sala.set({ rt: misPuntuaciones() }));
   // Al volver al primer plano (el iPhone suspende la página y deja sus conexiones muertas sin avisar) o al
   // volver la red: se comprueba ya, sin esperar al latido ni a que toque volver a probar (hasta un minuto).
   const aviva = () => {
@@ -1601,7 +1606,10 @@ async function start() {
   function acabaEnEspera(p, status, flagged = null, { fin = null } = {}) {
     if (p.acabada) return;
     cierraPartida(p, status, p.ganador(status, flagged), flagged, fin);
-    salaUi.notify({ texto: avisoFinal(p), boton: t('aviso.ver'), accion: () => irAPartida(p) });
+    // Con lo que ha cambiado su puntuación, si cuenta: «Has ganado a Ana · +12».
+    const d = p.puntos?.delta;
+    const puntos = Number.isFinite(d) ? ` · ${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(d)}` : '';
+    salaUi.notify({ texto: `${avisoFinal(p)}${puntos}`, boton: t('aviso.ver'), accion: () => irAPartida(p) });
     pintaPartidas();
     ponEstado(state.phase === 'searching' ? 'seeking' : 'menu');
   }
@@ -1614,6 +1622,9 @@ async function start() {
     p.acabada = { status, winner, flagged, fin: deTodos, jugadas: fin ? fin.moves.length : p.moves.length, de: fin ? p.rival : p.color };
     p.finPendiente = null;
     p.clock?.pause(Date.now());
+    // La puntuación, ya (`puntuaOnline`): también si se acaba en espera, o si otra partida ocupa el tablero antes
+    // de que salga el cartel.
+    puntuaOnline(p, ratings);
     if (!fin) p.session.terminar({ ...deTodos, moves: p.moves });
     guardaOnline(); // acabada: ya no se guarda para seguirla
   }
@@ -1973,9 +1984,10 @@ async function start() {
   }
 
   // LA PUNTUACIÓN al acabar (como en chess.com): contra la CPU cuenta en «Contra la CPU», según su nivel; en
-  // el uno contra uno con nombres, en el ranking local, para los dos. Las partidas casi sin jugar (menos de
-  // dos jugadas) no cuentan, como las que allí se anulan; ni las posiciones de prueba de la consola. Devuelve
-  // las líneas para el cartel: [{ label, from, to, delta, provisional }].
+  // el uno contra uno con nombres, en el ranking local, para los dos; online, en el ritmo de la partida, contra la
+  // puntuación que dijo el rival al empezar. Las partidas casi sin jugar (menos de dos jugadas) no cuentan, como
+  // las que allí se anulan; ni las anuladas online, ni las posiciones de prueba de la consola. Devuelve las
+  // líneas para el cartel: [{ label, from, to, delta, provisional }].
   function puntua(winner) {
     if (game.deConsola || game.moves.length < 2) return [];
     const linea = (label, r) => ({ label, from: Math.round(r.before.r), to: Math.round(r.after.r), delta: r.delta, provisional: isProvisional(r.after) });
@@ -1990,7 +2002,10 @@ async function start() {
       const r = ratings.local.record({ white, black, score: !winner ? 0.5 : winner === 'white' ? 1 : 0 });
       return r ? [linea(white, r.white), linea(black, r.black)] : [];
     }
-    return []; // online: con el protocolo nuevo, cada uno manda la suya al rival
+    // Online, la de la partida (se puntuó al acabar, `puntuaOnline`): en su ritmo, contra la puntuación que dijo
+    // el rival.
+    const r = game.mode === 'online' ? game.partida?.puntos : null;
+    return r ? [linea(t(`tiempo.${r.category}`), r)] : [];
   }
 
   // EL JAQUE MATE DE PELÍCULA (`scene/finale.js`): el rey de `winner` ha dado mate. Devuelve cuándo sacar el
@@ -2301,7 +2316,7 @@ async function start() {
       const busca = online.find({
         time,
         name: game.miNombre,
-        rating: ratings.get(categoryOf({ mode: 'online', time })), // para emparejar con alguien parecido
+        rating: (ritmo) => ratings.get(categoryOf({ mode: 'online', time: ritmo })), // para emparejar con alguien parecido
         onStatus: (s) => {
           fase = s.phase;
           onlineUi.status(s);
@@ -2341,7 +2356,9 @@ async function start() {
     salaUi.close();
     const color = info.white === online.me ? 'white' : 'black';
     onlineUi.show(() => {});
-    onlineUi.status({ phase: 'found', color, rival: info.opponentName, time: info.time });
+    // «Tu rival: Ana (1532)»: su puntuación en este ritmo, la que dice él.
+    const rival = `${info.opponentName || t('sala.anonimo')} (${shown(info.opponentRating)})`;
+    onlineUi.status({ phase: 'found', color, rival, time: info.time });
     await new Promise((resolve) => setTimeout(resolve, 1700));
     const partida = crearPartida(info, { origen, anterior });
     if (state.phase !== 'starting') {

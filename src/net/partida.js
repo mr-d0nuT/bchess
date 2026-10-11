@@ -1,6 +1,7 @@
 import { INITIAL_FEN, Position } from '../chess/position.js';
 import { createChessClock, findTimeControl } from '../chess/timecontrol.js';
 import { cleanName } from '../names.js';
+import { categoryOf } from '../rating/ratings.js';
 
 // A la tercera jugada del rival que no vale aquí, la partida ya no es la misma en los dos lados: se anula.
 export const MAX_MALAS = 3;
@@ -11,7 +12,7 @@ export const MAX_MALAS = 3;
 // animar. Aquí no hay tablero ni red (los mensajes los lleva `online.js`): así se puede probar todo sin
 // navegador. Los tiempos (`now`) son los del reloj de la partida, en milisegundos.
 //
-// `info`: el emparejamiento ({ game, white, time, opponent, opponentName }); `yo`: mi identificador en la
+// `info`: el emparejamiento ({ game, white, time, opponent, opponentName, opponentRating }); `yo`: mi identificador en la
 // partida; `miNombre`: el mío. Para seguir una partida guardada (`guardadas-online.js`): sus `moves` (ya
 // comprobadas), su `reloj` ({ white, black }, como va ahora) y sus `nombres`.
 export function createPartidaOnline({ info, yo, miNombre = '', now = 0, moves = [], reloj = null, nombres = null }) {
@@ -37,6 +38,8 @@ export function createPartidaOnline({ info, yo, miNombre = '', now = 0, moves = 
     acabada: null, // { status, winner, flagged } al acabar
     aviso: false, // ha movido mientras esperaba: se marca en la lista
     session: null, // la de `online.js`, que pone quien la crea
+    // La puntuación que anunció el rival al empezar ({ r, rd }), contra la que se puntúa al acabar.
+    rivalRating: info.opponentRating ?? { r: 1200, rd: 350 },
 
     // Las jugadas que lleva: las hechas y, si el tablero está animando una (`enCurso`), esa también.
     jugadas(enCurso = null) {
@@ -234,4 +237,16 @@ export function decideReclamo(p, { n }, ahora, enCurso = null) {
   const reloj = { white: p.clock.remaining('white', ahora), black: p.clock.remaining('black', ahora) };
   if (llevo === n && p.position.side === p.color && !enCurso && reloj[p.color] <= 1000) return { accion: 'perder' };
   return { accion: 'corregir', reloj };
+}
+
+// LA PUNTUACIÓN de una partida online acabada (como en chess.com): en su ritmo (`categoryOf`), contra la puntuación
+// que anunció el rival al empezar, con lo que he sacado (1, 0,5 o 0). No cuentan las anuladas ni las que no
+// llegaron a empezar (menos de dos jugadas). Una sola vez por partida; devuelve lo de `ratings.record` (o null).
+export function puntuaOnline(p, ratings) {
+  if (p.puntos !== undefined) return p.puntos;
+  if (!p.acabada || p.acabada.status === 'anulada' || p.moves.length < 2) return null;
+  const { winner } = p.acabada;
+  const score = !winner ? 0.5 : winner === p.color ? 1 : 0;
+  p.puntos = ratings.record({ category: categoryOf({ mode: 'online', time: p.time }), opponent: p.rivalRating, score });
+  return p.puntos;
 }

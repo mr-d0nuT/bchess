@@ -6,7 +6,7 @@ import { createSession } from '../src/net/online.js';
 
 // Una partida de «aaaa» (blancas, yo) contra «bbbb», a blitz 3|2, con unas jugadas hechas.
 function partida({ jugadas = ['e2e4', 'e7e5', 'g1f3'], now = 0 } = {}) {
-  const info = { game: 'aaaa-bbbb-x7', white: 'aaaa', time: 'blitz:3+2', opponent: 'bbbb', opponentName: 'Bruno' };
+  const info = { game: 'aaaa-bbbb-x7', white: 'aaaa', time: 'blitz:3+2', opponent: 'bbbb', opponentName: 'Bruno', opponentRating: { r: 1532, rd: 80 } };
   const p = createPartidaOnline({ info, yo: 'aaaa', miNombre: 'Ana', now });
   for (const uci of jugadas) {
     p.position.playUci(uci);
@@ -20,7 +20,7 @@ test('una partida online guardada se recupera igual: con quién, colores, nombre
   const p = partida();
   const texto = packTodas([packOnline(p, { now: 1000 })]);
   const [g] = readOnline(texto, 1000);
-  assert.deepEqual(g.info, { game: 'aaaa-bbbb-x7', white: 'aaaa', time: 'blitz:3+2', opponent: 'bbbb', opponentName: 'Bruno' });
+  assert.deepEqual(g.info, { game: 'aaaa-bbbb-x7', white: 'aaaa', time: 'blitz:3+2', opponent: 'bbbb', opponentName: 'Bruno', opponentRating: { r: 1532, rd: 80 } });
   assert.equal(g.yo, 'aaaa');
   assert.equal(g.origen, 'reto');
   assert.deepEqual(g.nombres, { white: 'Ana', black: 'Bruno' });

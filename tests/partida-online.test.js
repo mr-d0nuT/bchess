@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Position } from '../src/chess/position.js';
-import { createPartidaOnline, decideBandera, decideFin, decideReclamo, estadoLocal, finDeTodos, mandaElSuyo, retrasoReclamo } from '../src/net/partida.js';
+import { createPartidaOnline, decideBandera, decideFin, decideReclamo, estadoLocal, finDeTodos, mandaElSuyo, puntuaOnline, retrasoReclamo } from '../src/net/partida.js';
+import { createRatings } from '../src/rating/ratings.js';
 
 // El emparejamiento visto por «bbbb» (negras): su rival, «aaaa», lleva blancas.
 const info = (cambios = {}) => ({ game: 'aaaa-bbbb-x', white: 'aaaa', time: 'blitz:3+2', opponent: 'aaaa', opponentName: '  Ana ', ...cambios });
@@ -251,4 +252,60 @@ test('el silencio que hace falta para reclamar la victoria, según el ritmo: bal
   assert.equal(retrasoReclamo('rapida:10'), 60000);
   assert.equal(retrasoReclamo('libre:libre'), 60000);
   assert.equal(retrasoReclamo(undefined), 60000);
+});
+
+// ---- La puntuación online ----
+
+// Un almacén de mentira, como `localStorage`.
+const almacen = () => {
+  const datos = new Map();
+  return { getItem: (k) => datos.get(k) ?? null, setItem: (k, v) => datos.set(k, String(v)) };
+};
+
+test('una partida online acabada puntúa en su ritmo, contra la puntuación que dijo el rival, y una sola vez', () => {
+  const ratings = createRatings({ storage: almacen(), now: () => 1000 });
+  const p = createPartidaOnline({ info: info({ opponentRating: { r: 1800, rd: 60 } }), yo: 'bbbb' }); // blitz, yo negras
+  juega(p, 'e2e4', 'e7e5');
+  p.acabada = { status: 'rivalResigned', winner: 'black', flagged: null };
+  const r = puntuaOnline(p, ratings);
+  assert.equal(r.category, 'blitz');
+  assert.ok(r.delta > 0);
+  assert.equal(ratings.get('blitz').games, 1);
+  assert.equal(ratings.get('bala').games, 0, 'solo en su ritmo');
+  assert.equal(puntuaOnline(p, ratings), r, 'una vez');
+  assert.equal(ratings.get('blitz').games, 1);
+  // Contra un rival más flojo, ganar da menos.
+  const otros = createRatings({ storage: almacen(), now: () => 1000 });
+  const q = createPartidaOnline({ info: info({ opponentRating: { r: 1000, rd: 60 } }), yo: 'bbbb' });
+  juega(q, 'e2e4', 'e7e5');
+  q.acabada = { status: 'rivalResigned', winner: 'black', flagged: null };
+  assert.ok(puntuaOnline(q, otros).delta < r.delta);
+  // Unas tablas por las reglas cuentan medio punto; sin reloj, en «rápida».
+  const tablas = createPartidaOnline({ info: info({ time: 'libre:libre', opponentRating: { r: 1200, rd: 350 } }), yo: 'bbbb' });
+  juega(tablas, 'e2e4', 'e7e5');
+  tablas.acabada = { status: 'stalemate', winner: null, flagged: null };
+  const t = puntuaOnline(tablas, otros);
+  assert.equal(t.category, 'rapida');
+  assert.equal(otros.get('rapida').draw, 1);
+});
+
+test('no puntúan las partidas anuladas ni las de menos de dos jugadas (no llegaron a empezar)', () => {
+  const ratings = createRatings({ storage: almacen() });
+  const anulada = createPartidaOnline({ info: info(), yo: 'bbbb' });
+  juega(anulada, 'e2e4', 'e7e5');
+  anulada.acabada = { status: 'anulada', winner: null, flagged: null };
+  assert.equal(puntuaOnline(anulada, ratings), null);
+  const corta = createPartidaOnline({ info: info(), yo: 'bbbb' });
+  juega(corta, 'e2e4');
+  corta.acabada = { status: 'resign', winner: 'white', flagged: null };
+  assert.equal(puntuaOnline(corta, ratings), null);
+  const viva = createPartidaOnline({ info: info(), yo: 'bbbb' });
+  juega(viva, 'e2e4', 'e7e5');
+  assert.equal(puntuaOnline(viva, ratings), null, 'sin acabar, nada');
+  assert.equal(ratings.get('blitz').games, 0);
+});
+
+test('sin puntuación del rival (o con una sin sentido, ya cambiada por la de empezar), se puntúa contra 1200', () => {
+  const p = createPartidaOnline({ info: info(), yo: 'bbbb' });
+  assert.deepEqual(p.rivalRating, { r: 1200, rd: 350 });
 });

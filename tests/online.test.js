@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { connectPacket, encodeLength, publishPacket, readPublish, splitPackets, PUBLISH } from '../src/net/mqtt.js';
-import { LOBBY, createBus, createLobby, createMatchmaker, createSession, finTopic, gameTopic, huella, inbox, leePuntuacion } from '../src/net/online.js';
+import { LOBBY, createBus, createLobby, createMatchmaker, createSession, finTopic, gameTopic, huella, inbox, leePuntuacion, leePuntuaciones } from '../src/net/online.js';
 import { cleanName } from '../src/names.js';
 
 test('la longitud de MQTT va de 7 en 7 bits', () => {
@@ -885,4 +885,45 @@ test('la puntuación que anuncia cada uno se toma si tiene sentido; si no, la de
   for (const malo of [null, 'x', [], [99, 80], [3501, 80], [1500, 44], [1500, 351], ['1500', 80], [Number.NaN, 80], [1500, Infinity], { r: 1500 }]) {
     assert.deepEqual(leePuntuacion(malo), { r: 1200, rd: 350 });
   }
+});
+
+// ---- La puntuación de cada uno, en la red ----
+
+test('en la sala cada uno dice sus puntuaciones por ritmo; lo que no tiene sentido queda en la de empezar', async () => {
+  const net = red();
+  const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: rapido });
+  const b = createLobby({ bus: net.bus('b'), me: 'b2', timers: rapido });
+  b.set({ name: 'Bruno', rt: { bala: [1532, 80], blitz: ['1700', 80], rapida: [5000, 80], otra: [1700, 80] } });
+  await espera(60);
+  const [bruno] = a.players();
+  assert.deepEqual(bruno.rt, { bala: { r: 1532, rd: 80 }, blitz: { r: 1200, rd: 350 }, rapida: { r: 1200, rd: 350 }, diaria: { r: 1200, rd: 350 } });
+  assert.deepEqual(leePuntuaciones('nada'), leePuntuaciones({}));
+  a.close();
+  b.close();
+});
+
+test('al emparejarse al azar, cada uno sabe la puntuación del otro en ese ritmo', async () => {
+  const net = red();
+  const A = createMatchmaker({ bus: net.bus('a'), me: 'a1', time: 'blitz:3+2', rating: (t) => (t === 'blitz:3+2' ? { r: 1610, rd: 70 } : { r: 999, rd: 99 }), timers: rapido });
+  const B = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'blitz:3+2', rating: { r: 1550, rd: 90 }, timers: rapido });
+  const [fa, fb] = await conPlazo(Promise.all([A.found, B.found]));
+  assert.deepEqual(fa.opponentRating, { r: 1550, rd: 90 });
+  assert.deepEqual(fb.opponentRating, { r: 1610, rd: 70 });
+});
+
+test('en un reto, el retado ve la puntuación de quien reta, y al aceptarlo los dos saben la del otro', async () => {
+  const net = red();
+  const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: rapido });
+  const b = createLobby({ bus: net.bus('b'), me: 'b2', timers: rapido });
+  a.set({ name: 'Ana', rt: { blitz: [1700, 60] } });
+  b.set({ name: 'Bruno', rt: { blitz: [1400, 100] } });
+  const llega = new Promise((resolve) => b.onInvite(resolve));
+  const reto = a.invite('b2', { time: 'blitz:3+2' });
+  const visto = await conPlazo(llega);
+  assert.deepEqual(visto.rating, { r: 1700, rd: 60 });
+  const [suyo, mio] = await conPlazo(Promise.all([b.acceptInvite(visto.game), reto.promise]));
+  assert.deepEqual(mio.opponentRating, { r: 1400, rd: 100 });
+  assert.deepEqual(suyo.opponentRating, { r: 1700, rd: 60 });
+  a.close();
+  b.close();
 });

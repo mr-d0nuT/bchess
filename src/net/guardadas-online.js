@@ -1,6 +1,7 @@
 import { INITIAL_FEN, Position } from '../chess/position.js';
 import { findTimeControl } from '../chess/timecontrol.js';
 import { cleanName } from '../names.js';
+import { anunciaPuntuacion, leePuntuacion } from './online.js';
 
 // LAS PARTIDAS ONLINE, GUARDADAS EN EL APARATO. El iPhone suele tirar las pestañas pesadas que se quedan de fondo
 // y las recarga al volver, y «Actualizar» (la versión nueva) también recarga: antes, al recargar se perdían todas
@@ -36,6 +37,7 @@ export function packOnline(p, { enCurso = null, now }) {
     origen: p.origen === 'reto' ? 'reto' : 'azar',
     moves: [...p.jugadas(enCurso)],
     reloj: p.clock ? { white: p.clock.remaining('white', now), black: p.clock.remaining('black', now), at: now } : null,
+    rt: anunciaPuntuacion(p.rivalRating), // la del rival al empezar: al acabar se puntúa contra ella
   };
 }
 
@@ -43,8 +45,9 @@ export function packOnline(p, { enCurso = null, now }) {
 export const packTodas = (lista) => JSON.stringify({ v: VERSION, partidas: lista });
 
 // Las partidas guardadas (el texto de `localStorage`), comprobadas y listas para seguir: [{ info, yo, origen,
-// nombres, moves, reloj }], con `reloj` ({ white, black }) como va ahora, a la hora `now`: al que le tocaba se le ha
-// gastado el tiempo que ha pasado. Lo que no cuadra, o una partida ya acabada, no se devuelve.
+// nombres, moves, reloj }] (en `info`, también la puntuación del rival), con `reloj` ({ white, black }) como va
+// ahora, a la hora `now`: al que le tocaba se le ha gastado el tiempo que ha pasado. Lo que no cuadra, o una
+// partida ya acabada, no se devuelve.
 export function readOnline(raw, now) {
   let datos;
   try {
@@ -95,7 +98,7 @@ function leeUna(g, now) {
   const suColor = miColor === 'white' ? 'black' : 'white';
   const nombres = { white: cleanName(g.nombres?.white), black: cleanName(g.nombres?.black) };
   return {
-    info: { game: g.game, white: g.white, time: g.time, opponent: g.rival, opponentName: nombres[suColor] },
+    info: { game: g.game, white: g.white, time: g.time, opponent: g.rival, opponentName: nombres[suColor], opponentRating: leePuntuacion(g.rt) },
     yo: g.yo,
     origen: g.origen === 'reto' ? 'reto' : 'azar',
     nombres,
