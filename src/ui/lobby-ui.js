@@ -33,6 +33,7 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
   const partidasCaja = root.querySelector('#sala-partidas-caja');
   const partidasLista = root.querySelector('#sala-partidas');
   let partidas = [];
+  let firmaPartidas = '';
   let jugadores = [];
   let miNombre = '';
   let conRed = true;
@@ -131,9 +132,11 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
   async function reta(p) {
     if (!canChallenge()) return;
     const reto = lobby.invite(p.id, { time: time() });
-    retando.set(p.id, { reto, estado: 'esperando' });
+    const entrada = { reto, estado: 'esperando', aviso: null };
+    retando.set(p.id, entrada);
     pintaLista();
     const r = await reto.promise;
+    entrada.aviso?.quita(); // el de «Retando a Ana… · Cancelar», si se cerró la sala
     if (r?.game) {
       retando.delete(p.id);
       cerrar();
@@ -143,6 +146,8 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
     if (r?.canceled) retando.delete(p.id);
     else retando.set(p.id, { estado: r?.declined ? 'rechaza' : 'nocontesta' });
     pintaLista();
+    // Con la sala cerrada, la respuesta se dice en un aviso (si no, no se enteraba).
+    if (!r?.canceled && root.hidden) notifica({ texto: `${nombreDe(p)}: ${t(r?.declined ? 'sala.rechaza' : 'sala.nocontesta')}`, icono: '⚔' });
     if (!r?.canceled) {
       setTimeout(() => {
         if (retando.get(p.id)?.estado !== 'esperando') retando.delete(p.id);
@@ -207,6 +212,11 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
 
   function abrir() {
     root.hidden = false;
+    // Los retos pendientes ya se ven en la lista: fuera sus avisos.
+    for (const r of retando.values()) {
+      r.aviso?.quita();
+      r.aviso = null;
+    }
     pintaPartidas();
     root.classList.remove('entra');
     void root.offsetWidth;
@@ -216,8 +226,13 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
   }
   function cerrar() {
     root.hidden = true;
-    // Los retos que dejo sin contestar al cerrar, se retiran.
-    for (const r of retando.values()) if (r.estado === 'esperando') r.reto.cancel();
+    // Los retos que dejo sin contestar siguen en pie (antes, cerrar la sala los retiraba): un aviso dice a quién se
+    // está retando, con «Cancelar», hasta que conteste.
+    for (const [id, r] of retando) {
+      if (r.estado !== 'esperando' || r.aviso) continue;
+      const nombre = nombreDe(jugadores.find((j) => j.id === id) ?? { name: '' });
+      r.aviso = notifica({ texto: t('sala.retandoA', { nombre }), boton: t('online.cancelar'), accion: () => r.reto.cancel(), dura: 0, icono: '⚔' });
+    }
   }
   pildora?.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -257,7 +272,7 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
       quitaAviso(reto.game);
       return;
     }
-    // A media partida online no se puede: se le dice que no, sin molestar.
+    // Mientras empieza una partida (un instante), no se puede: se le dice que no, sin molestar.
     if (!canChallenge()) {
       lobby.declineInvite(reto.game);
       return;
@@ -305,12 +320,24 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
     });
     avisos.set(reto.game, el);
     retosCaja.append(el);
-    setTimeout(() => si.focus({ preventScroll: true }), 50);
+    // A «Aceptar», solo si no se está escribiendo: en el iPhone, quitar el foco del campo cerraba el teclado a media
+    // palabra, y con el teclado un Intro aceptaba el reto sin querer.
+    setTimeout(() => {
+      const activo = document.activeElement;
+      if (!activo || activo === document.body || activo.tagName === 'CANVAS') si.focus({ preventScroll: true });
+    }, 50);
   });
 
   // Un aviso arriba (el rival ha movido en una partida en espera, o se ha acabado), con un botón.
-  // `dura`: lo que se queda (en ms; 0, hasta que se toque). `icono`: el dibujo de la izquierda.
-  function notifica({ texto, boton, accion, dura = 8000, icono: dibujo = '♞' }) {
+  // `dura`: lo que se queda (en ms; 0, hasta que se toque). `icono`: el dibujo de la izquierda. `clave`: la de su
+  // partida: uno nuevo de la misma quita el de antes (antes se apilaban, uno por jugada). Como mucho, tres a la vista:
+  // con el cuarto, se va el más viejo. Devuelve { quita }.
+  const porClave = new Map();
+  const MAX_AVISOS = 3;
+  function notifica({ texto, boton, accion, dura = 8000, icono: dibujo = '♞', clave = null }) {
+    if (clave) porClave.get(clave)?.quita();
+    const vistos = [...retosCaja.querySelectorAll('.reto.aviso:not(.sale):not(.fijo)')]; // los fijos («Actualizar»), no
+    for (const viejo of vistos.slice(0, Math.max(0, vistos.length - MAX_AVISOS + 1))) viejo.quitaAviso?.();
     const el = document.createElement('div');
     el.className = 'reto aviso';
     el.setAttribute('role', 'status');
@@ -325,9 +352,14 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
     textos.append(b);
     el.append(icono, textos);
     const quita = () => {
+      if (el.classList.contains('sale')) return;
       el.classList.add('sale');
       setTimeout(() => el.remove(), 300);
+      if (clave && porClave.get(clave)?.el === el) porClave.delete(clave);
     };
+    el.quitaAviso = quita;
+    if (dura <= 0) el.classList.add('fijo');
+    if (clave) porClave.set(clave, { el, quita });
     if (boton && accion) {
       const ver = document.createElement('button');
       ver.type = 'button';
@@ -347,11 +379,15 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
       setTimeout(quita, dura);
     }
     retosCaja.append(el);
+    return { quita };
   }
 
   return {
     // Tus partidas online: [{ id, rival, rivalId, color, jugada, aqui, toca, aviso, acabada, desconectado, reloj }].
     setGames(lista) {
+      const firma = JSON.stringify(lista);
+      if (firma === firmaPartidas) return; // llega cada segundo: solo si ha cambiado algo (un reloj que corre, sí)
+      firmaPartidas = firma;
       partidas = lista;
       if (!root.hidden) pintaPartidas();
     },

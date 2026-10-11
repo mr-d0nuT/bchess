@@ -462,11 +462,17 @@ async function start() {
     navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((reg) => reg.unregister())).catch(() => {});
   }
 
+  // Se anuncia en la sala al dejar de escribir (antes, una vez por tecla: «A», «An», «Ana»…).
+  let anunciaNombre = 0;
   function ponMiNombre(nombre) {
     game.miNombre = cleanName(nombre);
-    sala.set({ name: game.miNombre });
-    salaUi.setName(game.miNombre);
+    clearTimeout(anunciaNombre);
+    anunciaNombre = setTimeout(() => {
+      sala.set({ name: game.miNombre });
+      salaUi.setName(game.miNombre);
+    }, NOMBRE_ESPERA);
   }
+  const NOMBRE_ESPERA = 400;
   ponMiNombre(menu.choice.nombres?.yo);
   // Al entrar con la cuenta, si aún no tenía nombre para jugar online, el de la cuenta (su nombre de pila).
   if (cloud.available) {
@@ -1661,7 +1667,7 @@ async function start() {
       if (que === 'tablas') {
         if (!recibeOferta(p, n, enCurso)) return;
         if (ofertaMia(p, enCurso) && ofertaSuya(p, enCurso)) aceptaTablasOnline(p);
-        else if (!activa(p)) salaUi.notify({ texto: t('aviso.tablasOfrece', { nombre: nombreRival(p) }), boton: t('aviso.ver'), accion: () => irAPartida(p) });
+        else if (!activa(p)) salaUi.notify({ texto: t('aviso.tablasOfrece', { nombre: nombreRival(p) }), boton: t('aviso.ver'), accion: () => irAPartida(p), clave: p.id });
       } else if (que === 'tablas-si') {
         if (decideAceptacion(p, n, enCurso) === 'acabar') tablasOnline(p);
         else session.tablas('tablas-nula', n);
@@ -1724,7 +1730,7 @@ async function start() {
     if (!movio) return;
     p.aviso = true;
     sfx.play('pieza', { rate: 1.25 });
-    salaUi.notify({ texto: t('aviso.movio', { nombre: nombreRival(p) }), boton: t('aviso.ver'), accion: () => irAPartida(p) });
+    salaUi.notify({ texto: t('aviso.movio', { nombre: nombreRival(p) }), boton: t('aviso.ver'), accion: () => irAPartida(p), clave: p.id });
     pintaPartidas();
     guardaOnline();
   }
@@ -1781,7 +1787,7 @@ async function start() {
     // Con lo que ha cambiado su puntuación, si cuenta: «Has ganado a Ana · +12».
     const d = p.puntos?.delta;
     const puntos = Number.isFinite(d) ? ` · ${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(d)}` : '';
-    salaUi.notify({ texto: `${avisoFinal(p)}${puntos}`, boton: t('aviso.ver'), accion: () => irAPartida(p) });
+    salaUi.notify({ texto: `${avisoFinal(p)}${puntos}`, boton: t('aviso.ver'), accion: () => irAPartida(p), clave: p.id });
     pintaPartidas();
     ponEstado(state.phase === 'searching' ? 'seeking' : 'menu');
   }
@@ -1807,7 +1813,7 @@ async function start() {
   function cambiaFinal(p, { status, winner, flagged }, fin) {
     p.acabada = { status, winner, flagged, fin: { status: fin.status, winner: fin.winner, flagged: fin.flagged }, jugadas: fin.moves.length, de: p.rival };
     if (activa(p)) ui.cambiaFinal(finalDe(p));
-    else salaUi.notify({ texto: avisoFinal(p), boton: t('aviso.ver'), accion: () => irAPartida(p) });
+    else salaUi.notify({ texto: avisoFinal(p), boton: t('aviso.ver'), accion: () => irAPartida(p), clave: p.id });
     pintaPartidas();
   }
 
@@ -2154,6 +2160,9 @@ async function start() {
     const status = game.position.status();
     highlights.check(status === 'check' ? squareName(game.position.kings[game.position.turn >> 3]) : null);
     paintTurn();
+    // Lo que ha jugado el rival mientras tanto, a la vista: su última jugada, con la flecha dorada un rato.
+    const ultima = p.moves.at(-1);
+    if (ultima && !p.acabada && p.position.side === p.color) highlights.trail(ultima.slice(0, 2), ultima.slice(2, 4));
     paintSettings();
     pintaPartidas();
     ponEstado('playing');
