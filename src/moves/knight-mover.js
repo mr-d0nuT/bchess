@@ -316,6 +316,7 @@ export function createKnightMover({ knight, owner, pieces, board, dust, fx, cloc
     };
     cutGesture = false;
     looseLegs();
+    sfx.play('relincho_reposo'); // ¡iiiiiih! (lo pidió el usuario)
     knight.fidgeting = true;
     knight.resting = false; // el gesto lleva la altura del caballo; la respiración, después
     gesturing = (async () => {

@@ -27,6 +27,7 @@ const SOUNDS = {
   mecha: { volume: 0.45 }, // la mecha, chisporroteando hasta que explota («FUSE», 80913)
   bomba_vuela: { volume: 0.5 }, // silbato que baja, mientras la bomba vuela («Cartoon Slide Whistle Down 1», 176647)
   relincho: { volume: 0.6 }, // el caballo se encabrita («Horse Neigh», 390297)
+  relincho_reposo: { volume: 0.5, variants: 4 }, // y cuando se encabrita en reposo («Horse Neigh» 123780, 261131 y 515279; «Horse Whinny 01», 372255)
   hielo: { volume: 0.6 }, // la escarcha que trepa («ice freezing», 445024)
   hielo_rompe: { volume: 0.85 }, // el hielo estalla en esquirlas («Shattering Ice», 454251)
   fuego: { volume: 0.8 }, // bolas de fuego («Fireball Whoosh 1», 179125)

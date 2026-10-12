@@ -29,6 +29,11 @@ SONIDOS = {
     'mecha':          ('pixabay/mecha/80913-fuse.mp3', 0.1, 2.6, 0.05, 0.3),
     'bomba_vuela':    ('pixabay/bomba_vuela/176647-slide-whistle-down-1.mp3', 0.0, 0.9, 0.01, 0.25),
     'relincho':       ('pixabay/caballo/390297-horse-neigh-ds.mp3', 0.05, 1.55, 0.01, 0.2),
+    # Y los del caballo que se encabrita en reposo (su gesto, `knight-mover.js`), que no suene siempre el mismo.
+    'relincho_reposo-1': ('pixabay/caballo/123780-horse-neigh.mp3', 0.15, 1.75, 0.01, 0.45),
+    'relincho_reposo-2': ('pixabay/caballo/261131-horse-neigh.mp3', 0.15, 1.75, 0.01, 0.45),
+    'relincho_reposo-3': ('pixabay/caballo/372255-horse-whinny-01.mp3', 0.1, 2.4, 0.02, 0.6),
+    'relincho_reposo-4': ('pixabay/caballo/515279-horse-neigh.mp3', 0.0, 2.0, 0.01, 0.45),
     'hielo':          ('pixabay/magia/445024-ice-freezing.mp3', 0.15, 2.4, 0.1, 0.3),
     'hielo_rompe':    ('pixabay/magia/454251-shattering-ice.mp3', 0.0, 2.2, 0.003, 0.6),
     'fuego':          ('pixabay/magia/179125-fireball-whoosh-1.mp3', 0.08, 1.3, 0.01, 0.4),
