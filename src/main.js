@@ -39,7 +39,7 @@ import { createOnlineUi } from './ui/online-ui.js';
 import { meToca, tituloConTurno } from './ui/te-toca.js';
 import { createHaptico } from './ui/haptico.js';
 import { preguntaNivel } from './ui/nivel-ui.js';
-import { createLobbyUi } from './ui/lobby-ui.js';
+import { createLobbyUi, invitacionDe } from './ui/lobby-ui.js';
 import { cleanName } from './names.js';
 import { createMenu, levelName, timeLabel } from './ui/menu.js';
 import { createMatchUi } from './ui/match-ui.js';
@@ -451,6 +451,7 @@ async function start() {
   window.addEventListener('online', () => online.revive());
   const salaUi = createLobbyUi({
     lobby: sala,
+    me: online.me,
     time: () => menu.choice.time,
     canChallenge: () => state.phase !== 'starting',
     onGame: (id) => {
@@ -465,6 +466,38 @@ async function start() {
     // Desde el menú, como JUGAR con «Online»; a mitad de partida, la búsqueda directamente.
     onQuick: () => menu.answer({ ...menu.choice, mode: 'online' }) || jugarOnline({ time: menu.choice.time }),
   });
+  // UNA INVITACIÓN (`?reta=…`, el enlace de «Invitar a un amigo»). Se quita de la dirección (recargar no vuelve a
+  // retar) y, en cuanto quien invita aparece en la sala, se le reta con su ritmo; si en un rato no aparece, se dice.
+  const INVITA_ESPERA_MS = 20000;
+  const invitacion = invitacionDe(location.search);
+  if (invitacion) {
+    history.replaceState(null, '', location.pathname + location.hash);
+    if (invitacion.id !== online.me) esperaAlQueInvita(invitacion);
+  }
+  function esperaAlQueInvita(inv) {
+    const nombre = cleanName(inv.name) || t('reto.anonimo');
+    const aviso = salaUi.notify({ texto: t('sala.invitado.busca', { nombre }), dura: 0, icono: '🔗', clave: 'invitacion' });
+    let hecho = false;
+    let deja = null;
+    const acaba = () => {
+      hecho = true;
+      deja?.();
+      aviso.quita();
+    };
+    deja = sala.onPlayers((jugadores) => {
+      if (hecho) return;
+      const quien = jugadores.find((x) => x.id === inv.id);
+      if (!quien) return;
+      acaba();
+      salaUi.retaA({ id: quien.id, name: quien.name || cleanName(inv.name), time: inv.time ?? menu.choice.time });
+    });
+    if (hecho) deja?.();
+    setTimeout(() => {
+      if (hecho) return;
+      acaba();
+      salaUi.notify({ texto: t('sala.invitado.fuera', { nombre }), icono: '🔗', dura: 10000 });
+    }, INVITA_ESPERA_MS);
+  }
   // LA WEB, GUARDADA EN EL MÓVIL (`sw.js`, punto 3 del plan de mejora): carga al instante, funciona sin
   // conexión y avisa cuando hay versión nueva. En la web publicada; en local, solo con `?sw` (si no, al
   // programar se vería lo guardado y no lo último). El aviso, en el menú: actualizar recarga la página, y a

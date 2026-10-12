@@ -1437,3 +1437,7 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .cuenta-boton.secundario { background: rgba(255, 255, 255, 0.08); color: #dfe8ff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2); }
 .cuenta-acciones { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
 .cuenta-alerta { align-self: center; font-size: 12px; color: #ffd66b; }
+
+/* Invitar a un amigo (la sala): un enlace que, al abrirlo, le reta directamente. */
+.sala-invitar { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; }
+.sala-invitar svg { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

@@ -20,7 +20,7 @@ import { categoryOf, shown } from '../rating/ratings.js';
 // `onMatch(info)`: un reto aceptado (por mí o por el otro), con el emparejamiento. `onQuick()`: «Buscar
 // rival al azar». `time()`: el reloj elegido en el menú. `onGame(id)`: ir a una de tus partidas;
 // `onDismissGame(id)`: quitar de la lista una acabada.
-export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch, onQuick, onGame, onDismissGame }) {
+export function createLobbyUi({ lobby, me = '', time, canChallenge = () => true, onMatch, onQuick, onGame, onDismissGame }) {
   const pildora = document.getElementById('menu-sala');
   const numero = document.getElementById('menu-sala-n');
   const tarjeta = document.querySelector('.modo[data-modo="online"]');
@@ -133,12 +133,38 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
     yoTexto.textContent = miNombre ? t('sala.yo', { nombre: miNombre }) : t('sala.sinnombre');
   }
 
+  // INVITAR A UN AMIGO (el «Qué» del punto 20 del plan: jugar con un amigo a distancia con un enlace). El enlace lleva
+  // mi identificador de la sala, el ritmo elegido y mi nombre; quien lo abre me reta directamente (`invitacionDe` y
+  // `retaA`). Se comparte con lo que tenga el aparato (WhatsApp, correo…) o, si no, se copia.
+  const invitarBoton = root.querySelector('#sala-invitar');
+  invitarBoton?.addEventListener('click', async () => {
+    if (!me) return;
+    const enlace = enlaceDeInvitacion({ base: location.origin + location.pathname, me, time: time(), name: miNombre });
+    const texto = t('sala.invitar.texto', { ritmo: relojDe(time()) });
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'BChess', text: texto, url: enlace });
+        return;
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') return; // lo cerró sin compartir
+    }
+    try {
+      await navigator.clipboard.writeText(`${texto} ${enlace}`);
+      notifica({ texto: t('sala.invitar.copiado'), icono: '🔗' });
+    } catch {
+      window.prompt(t('sala.invitar.copia'), enlace); // sin portapapeles: que lo copie a mano
+    }
+  });
+
   async function reta(p) {
     if (!canChallenge()) return;
     const reto = lobby.invite(p.id, { time: ritmoDe(p) });
     const entrada = { reto, estado: 'esperando', aviso: null };
     retando.set(p.id, entrada);
     pintaLista();
+    // Con la sala cerrada (el reto de un enlace de invitación), un aviso dice a quién se reta, con «Cancelar».
+    if (root.hidden) entrada.aviso = notifica({ texto: t('sala.retandoA', { nombre: nombreDe(p) }), boton: t('online.cancelar'), accion: () => reto.cancel(), dura: 0, icono: '⚔' });
     const r = await reto.promise;
     entrada.aviso?.quita(); // el de «Retando a Ana… · Cancelar», si se cerró la sala
     if (r?.game) {
@@ -411,6 +437,10 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
     },
     open: abrir,
     close: cerrar,
+    // Reta a alguien que no hace falta ver en la lista (el que me ha invitado con su enlace): `p`, { id, name, time }.
+    retaA(p) {
+      return reta({ status: 'seeking', ...p });
+    },
     // Se ha empezado una partida (o vuelto al menú): los retos pendientes ya no.
     clearInvites() {
       for (const game of [...avisos.keys()]) {
@@ -423,4 +453,22 @@ export function createLobbyUi({ lobby, time, canChallenge = () => true, onMatch,
       if (!root.hidden) pintaLista();
     },
   };
+}
+
+// El enlace de una invitación: la página, con quién reta (`reta`), con qué ritmo y, si lo tiene, su nombre.
+export function enlaceDeInvitacion({ base, me, time, name = '' }) {
+  const url = new URL(base);
+  url.searchParams.set('reta', me);
+  if (time) url.searchParams.set('ritmo', time);
+  if (name) url.searchParams.set('de', name);
+  return url.href;
+}
+
+// La invitación de un enlace (`location.search`), o null: { id, time, name }.
+export function invitacionDe(search) {
+  const q = new URLSearchParams(search);
+  const id = q.get('reta');
+  if (!id || !/^[\w-]{3,64}$/.test(id)) return null;
+  const time = q.get('ritmo');
+  return { id, time: time && /^[a-z]+:[\w+]+$/.test(time) ? time : null, name: (q.get('de') ?? '').slice(0, 24) };
 }

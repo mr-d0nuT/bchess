@@ -1094,3 +1094,12 @@ test('en un reto, el retado ve la puntuación de quien reta, y al aceptarlo los 
   a.close();
   b.close();
 });
+
+test('invitar a un amigo: el enlace lleva quién reta, el ritmo y el nombre, y se lee igual', async () => {
+  const { enlaceDeInvitacion, invitacionDe } = await import('../src/ui/lobby-ui.js');
+  const enlace = enlaceDeInvitacion({ base: 'https://mr-d0nut.github.io/bchess/', me: 'f6j5d0u1g3l7', time: 'blitz:3+2', name: 'Ana' });
+  const url = new URL(enlace);
+  assert.deepEqual(invitacionDe(url.search), { id: 'f6j5d0u1g3l7', time: 'blitz:3+2', name: 'Ana' });
+  assert.equal(invitacionDe('?reta=x'), null); // identificador raro: nada
+  assert.equal(invitacionDe('?reta=abcdef&ritmo=<script>').time, null);
+});
