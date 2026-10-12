@@ -1116,7 +1116,7 @@ async function start() {
         if (style) {
           candidatos.push({
             clave: 'duelo', peso: 1 - pawnThrowsBomb.chance,
-            jugar: () => { state.lastStyle = style; return runCombat({ attacker, defender, board, clock, fx, cinema, hud, style, obstacles }); },
+            jugar: () => { state.lastStyle = style; return runCombat({ attacker, defender, board, clock, fx, cinema, hud, bubbles, style, obstacles }); },
           });
         }
       }

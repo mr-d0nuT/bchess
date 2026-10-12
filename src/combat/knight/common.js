@@ -91,6 +91,29 @@ export function shout(bubbles, text, anchor) {
   return bubbles.say(text, point ? () => point : anchor, { seconds: SHOUT_SECONDS, shout: true, lift: 0.3 });
 }
 
+// LA PROVOCACIÓN. Antes de pelear, el que va a pegar se enfada (su clip de provocar)… o, si es un peón y le da por
+// ahí, suelta la patada de Bruce Lee al aire con su «¡HIIIYAAA!» (lo pidió el usuario: «úsala alguna vez, que queda
+// muy gracioso»; salió por un error, lanzando la bomba con ella). Devuelve qué ha hecho: 'kungfu', 'taunt' o null.
+export const KUNG_FU_CHANCE = 0.35;
+const KUNG_FU_CLIP = 'front_kick_01';
+// Si esta vez toca patada (se echa a suertes una vez, antes, para decidir lo demás: el molinete, por ejemplo).
+export function wantsKungFu(entry, random = Math.random) {
+  return entry.kind === 'pawn' && Boolean(fighterOf(entry)?.hasClip?.('attack', KUNG_FU_CLIP)) && random() < KUNG_FU_CHANCE;
+}
+export async function taunt(entry, { bubbles = null, random = Math.random, kungfu = wantsKungFu(entry, random) } = {}) {
+  const piece = fighterOf(entry);
+  if (kungfu) {
+    grita(entry, 'grito');
+    if (bubbles && boneOf(piece, 'Head')) shout(bubbles, '¡HIIIYAAA!', bonePosition(piece, 'Head').setY(bonePosition(piece, 'Head').y + 0.35));
+    await piece.playOnce('attack', { clip: KUNG_FU_CLIP, fade: 0.12 });
+    piece.play('idle', { fade: 0.3 });
+    return 'kungfu';
+  }
+  if (!piece.has('taunt')) return null;
+  await piece.playOnce('taunt', { fade: 0.15 });
+  return 'taunt';
+}
+
 // Empieza el golpe `key` y lo deja con el arma en alto, a WIND_UP del momento del golpe. Devuelve la
 // acción, en pausa.
 export async function windUp({ clock, fighter, key }) {

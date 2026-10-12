@@ -3,7 +3,7 @@ import { grita } from '../audio/voces.js';
 import { sfx } from '../audio/sfx.js';
 import { afterImpact } from './fight.js';
 import { charring } from './burn.js';
-import { boneOf, facingTo, rightOf, shout, topple, victoryLap } from './knight/common.js';
+import { boneOf, facingTo, rightOf, shout, taunt, topple, victoryLap } from './knight/common.js';
 import { chestOf, faceAttacker, horseBolts, stepDown, victimOf } from './royal/royal.js';
 
 // EL PEÓN GRANADERO. Idea del usuario: el peón no se acerca a pegar. Se planta, se enfada, saca una
@@ -21,6 +21,7 @@ const FLIGHT_SECONDS = 0.65;
 const FLIGHT_HEIGHT = 0.9;
 const ROLL = 0.18; // lo que rueda al caer
 const THROW_LEAD = 0.9; // lo que se ve del directo antes de soltarla (entero tarda 2,3 s en llegar)
+const FOLLOW_SECONDS = 0.3; // lo que se ve del remate del directo tras soltarla
 const SPEAR_ASIDE = 0.14; // la lanza se clava un poco por fuera de la mano: que el brazo no la atraviese
 // Donde se para, a los pies del rival: a esto de su centro (antes, a medio metro por delante).
 const AT_FEET = 0.25;
@@ -29,12 +30,15 @@ const STARE_SECONDS = 0.45; // lo que el rival se la queda mirando
 const SMOKE_SECONDS = 0.9; // tiznado y humeando, antes de caer
 const BOMB_CHANCE = 0.3; // entre peones, cada cuánto hay bomba en vez de duelo (lo decide `capture`)
 
-// El puñetazo con la mano que no lleva el escudo (la derecha), o el que haya.
+// El puñetazo con la mano que no lleva el escudo (la derecha), o el que haya: el que más llega. El primero que
+// saliera no valía: la patada lateral del peón, que hacia delante apenas llega, se medía con la mano de la lanza
+// por delante del pie, y lanzaba la bomba con ella (lo vio el usuario: una patada a un lado, donde no había nadie).
 function throwStrike(pawn) {
   const keys = (pawn.attacks ?? []).map((attack) => attack.key).filter((key) => pawn.strikes?.[key]?.body);
-  const derecha = keys.find((key) => /R_Hand|RightHand/.test(pawn.strikes[key].body.bone));
-  const mano = keys.find((key) => /Hand/.test(pawn.strikes[key].body.bone));
-  return derecha ?? mano ?? null;
+  const masLejos = (lista) => lista.sort((a, b) => pawn.strikes[b].body.reach - pawn.strikes[a].body.reach)[0] ?? null;
+  const derecha = masLejos(keys.filter((key) => /R_Hand|RightHand/.test(pawn.strikes[key].body.bone)));
+  const mano = masLejos(keys.filter((key) => /Hand/.test(pawn.strikes[key].body.bone)));
+  return derecha ?? mano;
 }
 
 // Clava la lanza junto a la mano que la lleva, un poco por fuera, y la deja ahí: esa mano queda libre.
@@ -71,7 +75,7 @@ export const pawnThrowsBomb = {
     await horseBolts(defender, center, home); // al caballero, su caballo lo tira y se va
 
     // 2. Se enfada, clava la lanza a su lado, saca la bomba y enciende la mecha.
-    if (pawn.has('taunt')) await pawn.playOnce('taunt', { fade: 0.15 });
+    await taunt(attacker, { bubbles }); // se enfada, o la patada de Bruce Lee al aire
     pawn.play('idle', { fade: 0.2 });
     const clavada = /R_Hand|RightHand/.test(strike.body.bone) && plantBeside(pawn, facing);
     const bomba = fx.bomb(hand, { size: BOMB_SIZE });
@@ -94,10 +98,15 @@ export const pawnThrowsBomb = {
     const hacia = new THREE.Vector3(pies.x - home.x, 0, pies.z - home.z).normalize();
     const cae = { x: pies.x - hacia.x * (AT_FEET + ROLL), z: pies.z - hacia.z * (AT_FEET + ROLL) };
     sfx.play('bomba_vuela');
-    await bomba.throwTo(cae, { seconds: FLIGHT_SECONDS, height: FLIGHT_HEIGHT, roll: { x: hacia.x * ROLL, z: hacia.z * ROLL } });
-    await lanzando;
-    pawn.play('idle', { fade: 0.2 });
+    const vuelo = bomba.throwTo(cae, { seconds: FLIGHT_SECONDS, height: FLIGHT_HEIGHT, roll: { x: hacia.x * ROLL, z: hacia.z * ROLL } });
+    // Remata el directo y vuelve a reposo mientras la bomba vuela: el clip sigue, después del golpe, con una patada
+    // de artes marciales hacia un lado donde no hay nadie (lo vio el usuario). (`lanzando` no se espera: con el
+    // reposo encima ya no acabará.)
+    void lanzando;
+    await clock.wait(FOLLOW_SECONDS);
+    pawn.play('idle', { fade: 0.35 });
     pawn.setSpearPose(null);
+    await vuelo;
 
     // 4. El rival se la queda mirando, y el peón se tapa los oídos (o se encoge).
     const cabeza = () => chestOf(defender).setY(chestOf(defender).y + 0.55);

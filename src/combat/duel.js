@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { sfx } from '../audio/sfx.js';
 import { TORSO, aimedSlide, fightSpots, gripSlideForReach, planExchanges, shieldOf, usableStrikes } from './plan.js';
 import { twirl } from './twirl.js';
-import { rightOf, victoryLap } from './knight/common.js';
+import { rightOf, taunt, victoryLap, wantsKungFu } from './knight/common.js';
 
 // Director del combate entre dos peones (diseño en docs/superpowers/specs/
 // 2026-09-14-bchess-combate-peones-design.md). Gana siempre el atacante.
@@ -195,7 +195,7 @@ function knockBack({ clock, figure, u, distance, seconds }) {
 }
 
 // `obstacles` son las posiciones {x, z} de las demás piezas, para que la cámara no quede tapada.
-export async function runCombat({ attacker, defender, board, clock, fx, cinema, hud, style, obstacles = [], random = Math.random }) {
+export async function runCombat({ attacker, defender, board, clock, fx, cinema, hud, bubbles = null, style, obstacles = [], random = Math.random }) {
   const a = attacker.piece;
   const d = defender.piece;
   const target = defender.mover.square;
@@ -217,8 +217,10 @@ export async function runCombat({ attacker, defender, board, clock, fx, cinema, 
   ]);
   // El atacante hace girar la lanza sobre el puño mientras provoca: un molinete no sirve para nada
   // en una pelea, y por eso mismo se hace —es decirle al otro que tiene tiempo de sobra.
-  const opening = [framing, twirl(a, { clock, turns: TWIRL_TURNS, seconds: TWIRL_SECONDS })];
-  if (a.has('taunt')) opening.push(a.playOnce('taunt'));
+  // O la patada de Bruce Lee al aire (`taunt`): entonces sin molinete, que la patada ya es el número.
+  const kungfu = wantsKungFu(attacker, random);
+  const opening = [framing, taunt(attacker, { bubbles, kungfu })];
+  if (!kungfu) opening.push(twirl(a, { clock, turns: TWIRL_TURNS, seconds: TWIRL_SECONDS }));
   if (random() < 0.5 && d.hasClip('fidget', 'frightened')) opening.push(d.playOnce('fidget', { clip: 'frightened' }));
   await Promise.all(opening);
   await Promise.all([
