@@ -1,4 +1,4 @@
-import { runningAudioContext } from './context.js';
+import { audioOut, runningAudioContext } from './context.js';
 
 // LOS EFECTOS DE SONIDO (punto 2 del plan de mejora). Cada sonido se carga una vez, ya descomprimido, y
 // suena las veces que haga falta, cada vez un pelín más agudo o más grave, que no parezca un disco rayado.
@@ -179,7 +179,7 @@ export const sfx = {
     if (!master || master.context !== context) {
       master = context.createGain();
       master.gain.value = this.volume;
-      master.connect(context.destination);
+      master.connect(audioOut() ?? context.destination); // por el volumen general (el altavoz)
     }
     const source = context.createBufferSource();
     source.buffer = pick(sound);

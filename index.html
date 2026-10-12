@@ -68,6 +68,22 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path class="abrir" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><path class="cerrar" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
       </button>
     </div>
+    <!-- El altavoz, arriba a la derecha (en el móvil, en la fila de la izquierda ya no cabe otro botón): un toque abre,
+         debajo, el volumen general y el silencio, para la música, los efectos y las voces a la vez. El icono dice cómo
+         está: con ondas según el volumen, o tachado si está en silencio. -->
+    <button id="sonido" class="boton" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="sonido-panel" aria-label="Sonido" title="Sonido" data-i18n-attr="title:boton.sonido;aria-label:boton.sonido">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="altavoz" d="M3.8 9.4h3.4l4.6-3.9v13l-4.6-3.9H3.8z"/><path class="onda1" d="M15 9.6a3.6 3.6 0 0 1 0 4.8"/><path class="onda2" d="M17.6 7.1a7.1 7.1 0 0 1 0 9.8"/><path class="tachado" d="M15.2 9.6l5 4.8M20.2 9.6l-5 4.8"/></svg>
+    </button>
+    <div id="sonido-panel" role="dialog" aria-labelledby="sonido-titulo" hidden>
+      <span id="sonido-titulo" class="sonido-titulo" data-i18n="sonido.volumen">Volumen</span>
+      <div class="sonido-fila">
+        <button id="sonido-silencio" type="button" aria-pressed="false" data-i18n-attr="title:sonido.silenciar;aria-label:sonido.silenciar" title="Silenciar" aria-label="Silenciar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="altavoz" d="M3.8 9.4h3.4l4.6-3.9v13l-4.6-3.9H3.8z"/><path class="onda1" d="M15 9.6a3.6 3.6 0 0 1 0 4.8"/><path class="onda2" d="M17.6 7.1a7.1 7.1 0 0 1 0 9.8"/><path class="tachado" d="M15.2 9.6l5 4.8M20.2 9.6l-5 4.8"/></svg>
+        </button>
+        <input id="sonido-volumen" type="range" min="0" max="100" step="1" value="100" dir="ltr" data-i18n-attr="aria-label:sonido.volumen" aria-label="Volumen">
+        <output id="sonido-valor" for="sonido-volumen">100</output>
+      </div>
+    </div>
     <!-- Lo que abre la bandera blanca, bajo ella: rendirse (sin más preguntas: ya se ha pedido dos veces) u ofrecer
          tablas (punto 12 del plan de mejora). -->
     <div id="bandera-menu" role="menu" hidden>

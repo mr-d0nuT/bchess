@@ -1,4 +1,4 @@
-import { audioContext } from './context.js';
+import { audioContext, audioOut, master } from './context.js';
 
 // La música. Mientras carga suena la melodía de la intro; al acabar la carga se funde y empiezan las
 // canciones del juego, una detrás de otra y en orden aleatorio (al volver a barajar, la que acaba de
@@ -58,7 +58,7 @@ export function createMusic({ onNeedGesture = () => {}, onGesture = () => {} } =
       const source = context.createMediaElementSource(t.audio);
       t.gain = context.createGain();
       t.gain.gain.value = t.audio.volume;
-      source.connect(t.gain).connect(context.destination);
+      source.connect(t.gain).connect(audioOut() ?? context.destination); // por el volumen general (el altavoz)
     } catch { /* ya estaba montada, o el navegador no deja: se queda con el volumen del elemento */ }
   }
 
@@ -84,7 +84,17 @@ export function createMusic({ onNeedGesture = () => {}, onGesture = () => {} } =
   function setVolume(t, value) {
     if (t.gain) t.gain.gain.value = value;
     else t.audio.volume = value;
+    silencia(t);
   }
+  // La pista que no pasa por Web Audio (no se pudo montar) no oye al volumen general: el altavoz, al menos, la
+  // calla (`muted`, que en el iPhone sí funciona, al revés que el volumen).
+  function silencia(t) {
+    if (!t.gain) t.audio.muted = master.gain === 0;
+  }
+  master.onChange(() => {
+    silencia(intro);
+    if (song) silencia(song);
+  });
 
   async function play(t, base, fadeIn = 0) {
     wire(t);

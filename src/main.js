@@ -1,7 +1,7 @@
 import { DefaultLoadingManager, Vector3 } from 'three';
 import { pickQuality, qualityFromQuery } from './quality.js';
 import { createMusic } from './audio/music.js';
-import { unlockAudioOnGesture } from './audio/context.js';
+import { master, unlockAudioOnGesture } from './audio/context.js';
 import { sfx } from './audio/sfx.js';
 import { alGritar, grita, voicesFor } from './audio/voces.js';
 import { createLoading } from './ui/loading.js';
@@ -630,6 +630,75 @@ async function start() {
   document.addEventListener('pointerdown', (event) => {
     if (banderaMenu?.hidden === false && !banderaMenu.contains(event.target) && !resignButton.contains(event.target)) abreBandera(false);
   });
+  // EL ALTAVOZ (lo pidió el usuario: activar y desactivar el sonido y regular el volumen desde la partida, mejor en
+  // un solo icono). Un toque abre, debajo, el volumen general y el botón de silencio; tocar fuera, o dejarlo un
+  // rato, lo cierra. Es el volumen de todo a la vez (`master`): el de la música y el de los efectos, cada uno en la
+  // configuración, siguen como estaban.
+  const sonidoBoton = document.getElementById('sonido');
+  const sonidoPanel = document.getElementById('sonido-panel');
+  const sonidoSilencio = document.getElementById('sonido-silencio');
+  const sonidoRango = document.getElementById('sonido-volumen');
+  const sonidoValor = document.getElementById('sonido-valor');
+  const SONIDO_CIERRA_MS = 5000;
+  const SONIDO_BAJO = 0.4; // por debajo, el icono lleva una sola onda
+  let cierraSonido = 0;
+  function pintaSonido() {
+    const mudo = master.muted || master.volume === 0;
+    const pct = Math.round(master.volume * 100);
+    sonidoBoton?.classList.toggle('mudo', mudo);
+    sonidoBoton?.classList.toggle('bajo', !mudo && master.volume < SONIDO_BAJO);
+    sonidoPanel?.classList.toggle('mudo', mudo);
+    if (sonidoSilencio) {
+      sonidoSilencio.setAttribute('aria-pressed', String(mudo));
+      const texto = t(mudo ? 'sonido.activar' : 'sonido.silenciar');
+      sonidoSilencio.title = texto;
+      sonidoSilencio.setAttribute('aria-label', texto);
+    }
+    if (sonidoRango && document.activeElement !== sonidoRango) sonidoRango.value = String(pct);
+    if (sonidoValor) sonidoValor.textContent = String(pct);
+  }
+  function abreSonido(abrir) {
+    if (!sonidoPanel || !sonidoBoton) return;
+    clearTimeout(cierraSonido);
+    sonidoPanel.hidden = !abrir;
+    sonidoBoton.setAttribute('aria-expanded', String(abrir));
+    if (abrir) {
+      pintaSonido();
+      cierraSonido = setTimeout(() => abreSonido(false), SONIDO_CIERRA_MS);
+    }
+  }
+  // Mientras se toca, que no se cierre solo.
+  const sigueAbierto = () => {
+    clearTimeout(cierraSonido);
+    cierraSonido = setTimeout(() => abreSonido(false), SONIDO_CIERRA_MS);
+  };
+  sonidoBoton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    abreSonido(sonidoPanel.hidden);
+  });
+  sonidoSilencio?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    sigueAbierto();
+    // Quitarle el silencio con el volumen a cero no se oiría: vuelve a un volumen que se oiga.
+    if (master.muted || master.volume === 0) {
+      if (master.volume === 0) master.volume = 0.6;
+      master.muted = false;
+    } else {
+      master.muted = true;
+    }
+  });
+  sonidoRango?.addEventListener('input', () => {
+    sigueAbierto();
+    master.volume = Number(sonidoRango.value) / 100;
+  });
+  sonidoRango?.addEventListener('change', () => sfx.play('pieza')); // al soltar, cómo suena ahora
+  master.onChange(pintaSonido);
+  onLanguage(pintaSonido);
+  pintaSonido();
+  document.addEventListener('pointerdown', (event) => {
+    if (sonidoPanel?.hidden === false && !sonidoPanel.contains(event.target) && !sonidoBoton.contains(event.target)) abreSonido(false);
+  });
+
   // LA PISTA (punto 13 del plan de mejora): la CPU piensa, a nivel alto, la mejor jugada del que mueve y la
   // marca: la flecha dorada de la casilla de salida a la de llegada, y la pieza ya elegida, que solo falta
   // tocar adónde va. Tres por partida, contra la CPU o uno contra uno; online, ninguna (sería hacer trampa).

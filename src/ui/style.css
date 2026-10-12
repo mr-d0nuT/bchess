@@ -29,7 +29,8 @@ html, body {
   font: 12px/1 ui-monospace, Menlo, monospace;
 }
 /* En el móvil, la fila de botones (con el dónut delante) llega a la derecha: los fps, debajo de ella. */
-@media (max-width: 480px) { #fps { top: calc(max(10px, env(safe-area-inset-top)) + 46px); } }
+/* Bajo el altavoz (`#sonido`), que se queda la esquina. */
+#fps { top: calc(max(10px, env(safe-area-inset-top)) + 48px); }
 
 
 #aviso {
@@ -294,6 +295,64 @@ html body #dnt-badge { top: max(10px, env(safe-area-inset-top)); bottom: auto; }
 .bandera-opcion svg { flex: none; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .bandera-opcion.rendirse { border-color: #ff6b5b; color: #ffb3a8; }
 .bandera-opcion:disabled { opacity: 0.4; cursor: default; }
+
+/* EL ALTAVOZ, arriba a la derecha, y su panel debajo: el volumen general y el silencio. */
+#sonido {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+}
+#sonido .tachado, #sonido-silencio .tachado { display: none; }
+#sonido.mudo .onda1, #sonido.mudo .onda2, #sonido-silencio[aria-pressed="true"] .onda1, #sonido-silencio[aria-pressed="true"] .onda2 { display: none; }
+#sonido.mudo .tachado, #sonido-silencio[aria-pressed="true"] .tachado { display: inline; }
+#sonido.bajo .onda2 { display: none; } /* poco volumen: una onda */
+#sonido.mudo { color: #ffb3a8; border-color: #ff6b5b; }
+#sonido[aria-expanded="true"] { border-color: #ffd66b; color: #ffe9a8; box-shadow: 0 0 12px rgba(255, 200, 80, 0.55); }
+#sonido-panel {
+  position: absolute;
+  top: calc(max(10px, env(safe-area-inset-top)) + 48px);
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--borde-boton);
+  border-radius: 16px;
+  background: rgba(10, 8, 6, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  color: var(--tinta);
+  pointer-events: auto;
+  animation: bandera-entra 0.18s ease-out;
+}
+#sonido-panel[hidden] { display: none; }
+.sonido-titulo { font: 700 12px/1 system-ui, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; }
+.sonido-fila { display: flex; align-items: center; gap: 10px; }
+#sonido-silencio {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--borde-boton);
+  border-radius: 50%;
+  background: var(--fondo-boton);
+  color: var(--tinta);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+#sonido-silencio[aria-pressed="true"] { border-color: #ff6b5b; color: #ffb3a8; }
+#sonido-silencio svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+#sonido-volumen { width: min(170px, 46vw); accent-color: #ffd66b; touch-action: none; }
+#sonido-panel.mudo #sonido-volumen { opacity: 0.45; }
+#sonido-valor { min-width: 3ch; font: 700 14px/1 system-ui, sans-serif; text-align: right; font-variant-numeric: tabular-nums; }
+/* En el móvil la fila de la izquierda llega casi al borde: el altavoz, una fila más abajo (y su panel y los fps, con él). */
+@media (max-width: 430px) {
+  #sonido { top: calc(max(10px, env(safe-area-inset-top)) + 46px); width: 35px; height: 35px; }
+  #sonido-panel { top: calc(max(10px, env(safe-area-inset-top)) + 90px); }
+  #fps { top: calc(max(10px, env(safe-area-inset-top)) + 90px); }
+}
 
 /* La configuración: un panel en medio, sobre un velo. */
 #ajustes-panel {
