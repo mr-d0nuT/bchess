@@ -38,6 +38,7 @@ import { ONLINE_KEY, identidadOnline, packOnline, packTodas, readOnline } from '
 import { createOnlineUi } from './ui/online-ui.js';
 import { meToca, tituloConTurno } from './ui/te-toca.js';
 import { createHaptico } from './ui/haptico.js';
+import { preguntaNivel } from './ui/nivel-ui.js';
 import { createLobbyUi } from './ui/lobby-ui.js';
 import { cleanName } from './names.js';
 import { createMenu, levelName, timeLabel } from './ui/menu.js';
@@ -2875,8 +2876,13 @@ async function start() {
     if (enEspera) await activarPartida(enEspera);
     else if (guardada) await newGame({ ...guardada, guardada });
     else if (eleccion.reto) await empezarOnline(eleccion.reto, { origen: 'reto' });
-    else if (elegida.mode === 'online') await jugarOnline(elegida);
-    else await newGame(elegida);
+    else {
+      // La primera partida que puntúa (contra la CPU, jugando uno, u online): antes, el nivel de salida.
+      const puntua = elegida.mode === 'online' || (elegida.mode === 'cpu' && elegida.color !== 'mirar');
+      if (puntua && ratings.necesitaNivel()) ratings.ponNivel(await preguntaNivel());
+      if (elegida.mode === 'online') await jugarOnline(elegida);
+      else await newGame(elegida);
+    }
   }
   // (Y las online: en el iPhone, cambiar de app no avisa con `pagehide`, solo con `visibilitychange`.)
   const alEsconderse = () => {

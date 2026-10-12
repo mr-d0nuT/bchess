@@ -14,6 +14,10 @@ import { ageDeviation, expectedScore, rate } from './glicko2.js';
 // almacenamiento, que se le pasa.
 
 export const START = { r: 1200, rd: 350, vol: 0.06 };
+// EL NIVEL DE SALIDA (como al crear la cuenta en chess.com): la primera vez que se va a jugar una partida que
+// puntúa, se pregunta, y la puntuación de cada ritmo aún sin partidas empieza ahí (provisional igual: con las
+// primeras partidas se ajusta). Así, quien juega bien no tiene que subir desde 1200 a base de saltos.
+export const NIVELES = { principiante: 800, intermedio: 1200, avanzado: 1600, experto: 2000 };
 export const PROVISIONAL_RD = 110; // por encima, provisional (como lichess)
 export const ONLINE_CATEGORIES = ['bala', 'blitz', 'rapida', 'diaria'];
 export const CATEGORIES = [...ONLINE_CATEGORIES, 'cpu'];
@@ -106,7 +110,8 @@ export function createRatings({ storage = globalThis.localStorage, now = () => D
       const name = clean(entry?.name);
       if (name && nameKey(name) === key) local[key] = { ...sane(entry), name };
     }
-    return { v: VERSION, ratings, local, updated: Number.isFinite(raw.updated) ? raw.updated : 0 };
+    const nivel = Object.hasOwn(NIVELES, raw.nivel) ? raw.nivel : null;
+    return { v: VERSION, ratings, local, nivel, updated: Number.isFinite(raw.updated) ? raw.updated : 0 };
   }
 
   function guarda() {
@@ -167,12 +172,27 @@ export function createRatings({ storage = globalThis.localStorage, now = () => D
       avisos.add(fn);
       return () => avisos.delete(fn);
     },
+    // El nivel de salida: hace falta preguntarlo si aún no se ha dicho y no se ha jugado nada que puntúe.
+    get nivel() {
+      return data.nivel;
+    },
+    necesitaNivel() {
+      return !data.nivel && CATEGORIES.every((c) => data.ratings[c].games === 0);
+    },
+    // Lo pone (`clave` de NIVELES): la puntuación de cada ritmo sin partidas empieza ahí; lo jugado no se toca.
+    ponNivel(clave) {
+      if (!Object.hasOwn(NIVELES, clave)) return;
+      data.nivel = clave;
+      for (const c of CATEGORIES) if (data.ratings[c].games === 0) data.ratings[c] = { ...data.ratings[c], r: NIVELES[clave] };
+      guarda();
+    },
     // Para la nube: todo, y traerlo de vuelta (se queda con lo más reciente de cada categoría).
     export() {
       return JSON.parse(JSON.stringify(data));
     },
     import(raw) {
       const otro = normaliza(raw ?? {});
+      data.nivel ??= otro.nivel;
       for (const c of CATEGORIES) if (otro.ratings[c].last > data.ratings[c].last) data.ratings[c] = otro.ratings[c];
       for (const [key, entry] of Object.entries(otro.local)) {
         if (!data.local[key] || entry.last > data.local[key].last) data.local[key] = entry;

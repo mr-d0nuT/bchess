@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ageDeviation, expectedScore, rate } from '../src/rating/glicko2.js';
-import { START, applyGame, categoryOf, cpuRating, createRatings, isProvisional, shown } from '../src/rating/ratings.js';
+import { CATEGORIES, NIVELES, START, applyGame, categoryOf, cpuRating, createRatings, isProvisional, shown } from '../src/rating/ratings.js';
 
 const cerca = (a, b, tol) => Math.abs(a - b) <= tol;
 
@@ -109,4 +109,36 @@ test('lo que viene de la nube: de cada categoría se queda con lo más reciente'
   // Lo que venga roto no rompe nada.
   a.import({ ratings: { blitz: { r: 'x', rd: -5 } }, local: { zz: { name: 'otro' } } });
   assert.equal(a.get('blitz').loss, 1);
+});
+
+test('el nivel de salida (como al crear la cuenta en chess.com): se pregunta una vez, y la puntuación empieza ahí', () => {
+  const datos = new Map();
+  const storage = { getItem: (k) => datos.get(k) ?? null, setItem: (k, v) => datos.set(k, String(v)) };
+  const ratings = createRatings({ storage, now: () => 1000 });
+  assert.equal(ratings.necesitaNivel(), true);
+  ratings.ponNivel('avanzado');
+  assert.equal(ratings.necesitaNivel(), false);
+  assert.equal(ratings.nivel, 'avanzado');
+  for (const c of CATEGORIES) assert.equal(ratings.get(c).r, NIVELES.avanzado);
+  assert.ok(isProvisional(ratings.get('blitz')), 'sigue siendo provisional: aún no ha jugado');
+  // Se recuerda.
+  assert.equal(createRatings({ storage, now: () => 2000 }).nivel, 'avanzado');
+  // Con partidas jugadas, ni se pregunta ni se toca lo jugado.
+  const otro = createRatings({ storage: { getItem: () => null, setItem: () => {} }, now: () => 1000 });
+  otro.record({ category: 'cpu', opponent: cpuRating(30), score: 1 });
+  assert.equal(otro.necesitaNivel(), false);
+  const cpu = otro.get('cpu').r;
+  otro.ponNivel('principiante');
+  assert.equal(otro.get('cpu').r, cpu, 'lo jugado no se toca');
+  assert.equal(otro.get('blitz').r, NIVELES.principiante, 'lo que no, empieza ahí');
+});
+
+test('el nivel de salida viaja con la nube', () => {
+  const vacio = () => ({ getItem: () => null, setItem: () => {} });
+  const a = createRatings({ storage: vacio(), now: () => 1000 });
+  a.ponNivel('experto');
+  const b = createRatings({ storage: vacio(), now: () => 2000 });
+  b.import(a.export());
+  assert.equal(b.nivel, 'experto');
+  assert.equal(b.necesitaNivel(), false);
 });
