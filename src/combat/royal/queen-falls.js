@@ -51,7 +51,7 @@ export const queenFalls = {
       //    gigante, el peón baja de su peana.
       await bringUp(attacker, { at: spots.attacker, facing: spots.attackerFacing, random });
       // Con lanza, la pone de punta hacia ella antes de que empiece a conjurar.
-      await aimBlow(fighter, blow, { clock, distance: gapTo(fighter, center), torso: torsoOf(defender) });
+      await aimBlow(fighter, blow, { clock, distance: gapTo(fighter, center), torso: torsoOf(defender), target: defender });
 
       // 3. Ella conjura: alza las manos, su sello se abre a sus pies y la energía se le junta en las
       //    manos, hasta el instante del golpe.

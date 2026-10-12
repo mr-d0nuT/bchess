@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { TORSO, bestStrike, gripSlideForReach, shieldOf } from './plan.js';
+import { TORSO, aimedSlide, bestStrike, gripSlideForReach, shieldOf } from './plan.js';
+import { targetsOf } from './fight.js';
 import { bladeStrikes, bonePosition, dismountMode, fighterOf } from './knight/common.js';
 
 // Lo que comparten los combates en que cualquiera (peón, caballero o torre) se acerca a pegar a una
@@ -8,9 +9,15 @@ import { bladeStrikes, bonePosition, dismountMode, fighterOf } from './knight/co
 
 export const HIT_GAP = 0.05; // lo que queda entre el golpe y el rival
 const HORSE_BACK = 0.6; // lo que se queda atrás el caballo del que llega montado, antes de desmontar
-// A qué distancia (de centro a centro) se planta quien pega con lanza: la estocada llega a casi 2,5 y
-// la lanza resbala en la mano lo que falte (`aimBlow`); más cerca, habría que agarrarla casi por la punta.
-const THRUST_STAND = 1.8;
+// A qué distancia (de centro a centro) se planta quien pega con lanza, como mucho y como poco: lo que llega
+// su estocada tal como se midió, con la lanza cogida por en medio. Antes se plantaba siempre a 1,8 y la lanza
+// resbalaba en la mano lo que faltase; con el puño fijo por en medio (`hold`), ya no puede resbalar tanto y la
+// punta se le metía dentro al alfil o se quedaba corta (lo vio el usuario).
+const THRUST_STAND_MIN = 1.5;
+const THRUST_STAND_MAX = 2.3;
+// La estocada, al cuerpo: a esta altura de la figura del rival, y hundiéndose esto en su ropa.
+const THRUST_HEIGHT = 0.6;
+const SPEAR_BITE = 0.03;
 const GRIP_SETTLE = 0.35; // lo que tarda la lanza en ponerse de punta y resbalar, antes de la estocada
 // Lo que se ve de la estocada antes de que llegue: la del peón (box_02) tarda 2,3 s en soltarse, con mucho
 // baile de pies antes. Se empieza el clip lo que sobre más adelante (`lead`).
@@ -63,7 +70,8 @@ function spearThrustOf(fighter) {
   const lead = Math.max(0, measure.t - THRUST_LEAD);
   return {
     key: attack.key,
-    reach: THRUST_STAND - TORSO - HIT_GAP, // `blowDistance` le suma el cuerpo del rival y el respiro
+    // `blowDistance` le suma el cuerpo del rival y el respiro.
+    reach: Math.min(THRUST_STAND_MAX, Math.max(THRUST_STAND_MIN, measure.reach + TORSO + HIT_GAP)) - TORSO - HIT_GAP,
     t: measure.t - lead, // desde que arranca (en `lead`) hasta que llega
     lead,
     spear: measure,
@@ -74,11 +82,34 @@ function spearThrustOf(fighter) {
 // Antes de pegar, quieto: quien pega con lanza la pone de punta hacia el rival y la hace resbalar en la
 // mano lo justo para que la punta se le quede en el pecho (como en el duelo). Girándola y resbalándola ya
 // atacando, la punta le atravesaría. `distance`, de centro a centro; `torso`, el del rival.
-export async function aimBlow(fighter, blow, { clock, distance, torso = TORSO }) {
+// Con `target` (la pieza del rival), además, la estocada va APUNTADA (`aimSpear`): del puño, donde estará al
+// dar, a la superficie de su cuerpo a la altura del pecho, buscada con un rayo contra su malla. Sin apuntar, la
+// lanza seguía al antebrazo mientras el peón daba sus saltitos antes de soltarla, y daba bandazos hasta
+// clavarse en el suelo; y la punta acababa dentro del alfil, cuya túnica abulta más que el pecho medido.
+export async function aimBlow(fighter, blow, { clock, distance, torso = TORSO, target = null }) {
   if (!blow.spear) return;
   fighter.setSpearPose('forward');
-  fighter.setGripSlide(gripSlideForReach({ reach: blow.spear.reach, distance, torso }));
+  const aim = target && blow.spear.fist && fighter.aimSpear ? aimAt(fighter, blow.spear, target, torso) : null;
+  fighter.aimSpear?.(aim?.point ?? null);
+  fighter.setGripSlide(aim ? aim.slide : gripSlideForReach({ reach: blow.spear.reach, distance, torso }));
   await clock.wait(GRIP_SETTLE);
+}
+
+// Adónde va la estocada y cuánto resbala la lanza para que la punta llegue justo ahí (ver `aimBlow`).
+function aimAt(fighter, spear, target, torso) {
+  const fist = fighter.figure.localToWorld(new THREE.Vector3(spear.fist.x, spear.fist.y, spear.fist.z));
+  const tip = fighter.figure.localToWorld(new THREE.Vector3(spear.side, spear.height, spear.reach));
+  const piece = fighterOf(target) ?? target.piece;
+  const at = piece.figure.getWorldPosition(new THREE.Vector3());
+  const chest = at.clone();
+  chest.y += (piece.height - (piece.pedestalHeight ?? 0)) * THRUST_HEIGHT;
+  const dir = chest.clone().sub(fist);
+  const lejos = dir.length();
+  dir.normalize();
+  piece.object.updateMatrixWorld(true);
+  const hit = new THREE.Raycaster(fist, dir, 0, lejos + 0.5).intersectObjects(targetsOf(piece), false)[0];
+  const point = hit ? hit.point.clone().addScaledVector(dir, SPEAR_BITE) : chest.addScaledVector(dir, -torso);
+  return { point, slide: aimedSlide({ fist, tipToFist: tip.distanceTo(fist), target: point }) };
 }
 
 // Lanza el golpe (tras `aimBlow`). Con lanza, de punta y agarrada donde la dejó `aimBlow`; al acabar,
@@ -88,6 +119,7 @@ export function playBlow(fighter, blow) {
   const golpe = fighter.playOnce('attack', { clip: blow.key, fade: 0.15, from: blow.lead ?? 0 });
   if (blow.spear) {
     return golpe.finally(() => {
+      fighter.aimSpear?.(null);
       fighter.setSpearPose(null);
       fighter.setGripSlide(0);
     });

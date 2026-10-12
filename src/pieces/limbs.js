@@ -89,8 +89,9 @@ export function createDebris(scene) {
   const items = [];
 
   // `lie`: una función que devuelve, en el mundo, el eje a lo largo del cual ha de quedar tumbado
-  // al posarse (el filo de la espada que sigue en la mano del brazo cortado).
-  function throwPiece(object, { velocity, obstacles = () => [], lie = null }) {
+  // al posarse (el filo de la espada que sigue en la mano del brazo cortado). `spin`: alrededor de qué eje
+  // (del mundo) da vueltas mientras vuela; si no, uno al azar.
+  function throwPiece(object, { velocity, obstacles = () => [], lie = null, spin = null }) {
     scene.attach(object); // conserva su sitio en el mundo aunque colgara de una mano
     items.push({
       object,
@@ -99,7 +100,7 @@ export function createDebris(scene) {
       lying: null,
       scale: object.scale.clone(),
       fade: null,
-      spin: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(),
+      spin: spin ? spin.clone().normalize() : new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(),
       body: {
         position: { x: object.position.x, y: Math.max(object.position.y, REST_RADIUS), z: object.position.z },
         velocity: { ...velocity },

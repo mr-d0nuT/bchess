@@ -15,6 +15,8 @@ import {
 
 const SPELL = 'cast_a_spell';
 const FIZZLE_SECONDS = 0.9; // lo que se queda mirando el báculo apagado
+const STAFF_FLY = 1.5; // lo que sale volando el báculo hacia atrás (por segundo)…
+const STAFF_UP = 2.4; // …y hacia arriba
 const FALL_SPREAD = Math.PI / 4;
 const DUST_Y = 0.05;
 
@@ -59,7 +61,7 @@ export const bishopSpellFizzles = {
     await clock.wait(FIZZLE_SECONDS);
 
     // 3. El otro le arrea, a cámara lenta (con lanza, antes la pone de punta hacia él).
-    await aimBlow(fighter, blow, { clock, distance: gapTo(fighter, center), torso: torsoOf(defender) });
+    await aimBlow(fighter, blow, { clock, distance: gapTo(fighter, center), torso: torsoOf(defender), target: defender });
     const hitting = playBlow(fighter, blow);
     await slowToImpact(clock, blow.t);
     const fist = blow.point();
@@ -70,10 +72,15 @@ export const bishopSpellFizzles = {
     grita(defender, 'dolor');
     sfx.play('punetazo');
     if (bishop.props.spear?.visible) {
+      // El báculo sale hacia atrás, lejos del que pega, y volteándose hacia atrás (la voluta por delante):
+      // con un giro al azar, la voluta, larga, se volteaba hacia el peón, le atravesaba la lanza y caía a
+      // sus pies (lo vio el usuario). Lo lleva en guardia, por delante, y ha de alejarse más que antes.
+      const atras = new THREE.Vector3(-Math.sin(facing), 0, -Math.cos(facing));
       debris.throwPiece(bishop.props.spear, {
-        velocity: { x: Math.sin(facing) * -0.8, y: 2.2, z: Math.cos(facing) * -0.8 },
+        velocity: { x: atras.x * STAFF_FLY, y: STAFF_UP, z: atras.z * STAFF_FLY },
         obstacles: () => crowd.obstacles([attacker, defender]),
         lie: shaftOf(bishop.props.spear),
+        spin: new THREE.Vector3(0, 1, 0).cross(atras),
       });
     }
     await afterImpact(clock);
