@@ -1,4 +1,4 @@
-import { audioContext, audioOut, master } from './context.js';
+import { audioContext, audioOut, master, runningAudioContext } from './context.js';
 
 // La música. Mientras carga suena la melodía de la intro; al acabar la carga se funde y empiezan las
 // canciones del juego, una detrás de otra y en orden aleatorio (al volver a barajar, la que acaba de
@@ -48,17 +48,22 @@ export function createMusic({ onNeedGesture = () => {}, onGesture = () => {} } =
     audio.preload = loop ? 'auto' : 'none'; // las del juego, que no le quiten conexión a la carga
     audio.loop = loop;
     audio.src = src;
-    return { audio, gain: null };
+    return { audio, gain: null, level: 0 }; // `level`: su volumen, sin contar el general (`master`)
   }
 
-  // Web Audio, montado dentro de un toque (fuera de él, el navegador lo deja mudo).
+  // Web Audio, con el contexto ya en marcha (fuera de un toque, el navegador lo deja mudo). Desde aquí la pista
+  // pasa por su nodo de ganancia y por el volumen general (el altavoz de la partida).
   function wire(t) {
+    context ??= runningAudioContext(); // el mismo que los efectos (`context.js`), si ya suena
     if (!context || t.gain) return;
     try {
       const source = context.createMediaElementSource(t.audio);
       t.gain = context.createGain();
-      t.gain.gain.value = t.audio.volume;
-      source.connect(t.gain).connect(audioOut() ?? context.destination); // por el volumen general (el altavoz)
+      t.gain.gain.value = t.level;
+      source.connect(t.gain).connect(audioOut() ?? context.destination);
+      clearInterval(t.timer);
+      t.audio.volume = 1; // el volumen, ya en el nodo
+      t.audio.muted = false;
     } catch { /* ya estaba montada, o el navegador no deja: se queda con el volumen del elemento */ }
   }
 
@@ -66,34 +71,44 @@ export function createMusic({ onNeedGesture = () => {}, onGesture = () => {} } =
   function fade(t, to, seconds) {
     if (t.gain) {
       const now = context.currentTime;
+      t.level = to;
       t.gain.gain.cancelScheduledValues(now);
       t.gain.gain.setValueAtTime(t.gain.gain.value, now);
       t.gain.gain.linearRampToValueAtTime(to, now + seconds);
       return;
     }
-    const from = t.audio.volume;
+    const from = t.level;
     const start = performance.now();
     clearInterval(t.timer);
     t.timer = setInterval(() => {
       const k = Math.min(1, (performance.now() - start) / (seconds * 1000));
-      t.audio.volume = from + (to - from) * k;
+      t.level = from + (to - from) * k;
+      aplica(t);
       if (k >= 1) clearInterval(t.timer);
     }, 50);
   }
 
   function setVolume(t, value) {
+    t.level = value;
     if (t.gain) t.gain.gain.value = value;
-    else t.audio.volume = value;
-    silencia(t);
+    else aplica(t);
   }
-  // La pista que no pasa por Web Audio (no se pudo montar) no oye al volumen general: el altavoz, al menos, la
-  // calla (`muted`, que en el iPhone sí funciona, al revés que el volumen).
-  function silencia(t) {
-    if (!t.gain) t.audio.muted = master.gain === 0;
+  // La pista que aún no pasa por Web Audio (el navegador la dejó sonar sola, sin esperar a un toque: en el Mac,
+  // a menudo) no oye al nodo del volumen general: se le pone a mano en el elemento —su volumen por el general, y
+  // callada si está en silencio, que en el iPhone el volumen no se puede cambiar y `muted` sí—. Antes solo le
+  // llegaba el silencio, y la barra del altavoz no le cambiaba el volumen (lo vio el usuario).
+  function aplica(t) {
+    if (t.gain) return;
+    t.audio.volume = Math.max(0, Math.min(1, t.level * master.gain));
+    t.audio.muted = master.gain === 0;
   }
+  // Tocar el altavoz es un toque: si el contexto ya suena, la pista que sonaba suelta se monta en él.
   master.onChange(() => {
-    silencia(intro);
-    if (song) silencia(song);
+    for (const t of [intro, song]) {
+      if (!t) continue;
+      wire(t);
+      aplica(t);
+    }
   });
 
   async function play(t, base, fadeIn = 0) {
@@ -202,6 +217,8 @@ export function createMusic({ onNeedGesture = () => {}, onGesture = () => {} } =
         phase,
         waiting,
         intro: !intro.audio.paused,
+        // Cómo suena: por Web Audio (`web`, con su ganancia) o suelta (el volumen del elemento).
+        salida: [intro, song].filter(Boolean).map((t) => (t.gain ? `web ${t.gain.gain.value.toFixed(2)}` : `suelta ${t.audio.volume.toFixed(2)}${t.audio.muted ? ' muda' : ''}`)),
         song: song ? { src: song.audio.src.split('/').pop(), playing: !song.audio.paused, time: Math.round(song.audio.currentTime) } : null,
         next: order.map((src) => src.split('/').pop()),
       };
