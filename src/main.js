@@ -2319,7 +2319,10 @@ async function start() {
     // En el mate, cuando empieza la fiesta (`escenaMate`).
     const fanfarria = !winner ? 'tablas' : (game.mode === 'cpu' || game.mode === 'online') && game.human && winner !== game.human ? 'derrota' : 'victoria';
     const escena = status === 'checkmate' ? escenaMate(winner, fanfarria) : null;
-    if (!escena) sfx.play(fanfarria);
+    if (!escena) {
+      sfx.play(fanfarria);
+      if (fanfarria === 'victoria') sfx.play('ovacion'); // y el público la aclama
+    }
     if (!['abandon', 'abandonada', 'rivalResigned', 'resign', 'anulada'].includes(status)) {
       ui.banner(cartel, { tipo: winner ? 'jaque' : 'tablas', ms: 1700 });
       await (escena ?? new Promise((resolve) => setTimeout(resolve, 1700)));

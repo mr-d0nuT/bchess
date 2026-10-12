@@ -257,8 +257,9 @@ export function createFinale({ clock, cinema, camera, confetti, dust, onFocus = 
     await clock.wait(Math.max(0, PARTY_AT - KNEEL_AT - KNEEL_SECONDS - SLUMP_SECONDS));
     if (s.undone) return;
 
-    // LA FIESTA.
+    // LA FIESTA. Y si es tuya, el público la aclama.
     sfx.play(s.fanfare);
+    if (s.fanfare === 'victoria') sfx.play('ovacion');
     confetti.rain(center, { colors: COLORS[s.color], radius: CONFETTI_RADIUS, count: CONFETTI_COUNT, seconds: 3 });
     // La grúa: sube y lo va rodeando, y luego sigue dándole vueltas.
     const look = new THREE.Vector3(center.x, CRANE_LOOK, center.z);

@@ -61,6 +61,10 @@ const SOUNDS = {
   amartillar: { volume: 0.7 }, // («Pistol Cock», 6014)
   trueno: { volume: 0.8, variants: 2 }, // el rayo del rey (Thunder clap, big thunder clap)
   martillazo: { volume: 0.9, variants: 2 }, // el gigante contra el suelo (Boulder Impact, Ground Impact)
+  // El público (lo pidió el usuario: «sonidos de júbilo»): las piezas que miran jalean a la que gana un combate o
+  // corona, y al ganar la partida hay ovación bajo la fanfarria. Gente animando, sin palabras.
+  jubilo: { volume: 0.4, variants: 6 }, // (Short crowd cheer 236776, Crowd Cheer 406646, Short Crowd Cheer 2 88701, Short Crowd Cheer 6713, Crowd of Boys Cheering 102732, Group Yay Cheer 101509)
+  ovacion: { volume: 0.45 }, // (Short Crowd Cheer 2, 88701, entero)
 
   // LAS VOCES (`voz: true`: se callan aparte, con su propio interruptor). Sin palabras: el juego habla siete
   // idiomas. Quién dice qué, en `voces.js`. De dónde sale cada una, en `tools/prepara-sonidos.py`.
@@ -72,13 +76,13 @@ const SOUNDS = {
   ay_comico: { volume: 0.7, voz: true }, // ¡ay! cómico (Comical Character Ouch)
   huh: { volume: 0.6, variants: 2, voz: true }, // ¿eh? (huh, Confused Male Voice Huh)
   decepcion: { volume: 0.55, voz: true }, // ooooh… (AWW)
-  victoria_h: { volume: 0.6, variants: 7, voz: true }, // ¡yahoo!, ¡woohoo!, ¡hurra!, risas
+  victoria_h: { volume: 0.6, variants: 10, voz: true }, // ¡yahoo!, ¡woohoo!, ¡hurra!, risas, ¡yeah! (Shouting Yeah, YEAOH!, Victory Shouts)
   risa_malvada: { volume: 0.6, variants: 3, voz: true }, // las negras ganan riéndose como villanos
   grito_m: { volume: 0.55, variants: 5, voz: true }, // la reina, al conjurar (Female Battle Cries, Angry Female)
   ataque_m: { volume: 0.5, variants: 4, voz: true },
   dolor_m: { volume: 0.55, variants: 3, voz: true }, // (ow, female-hurt-2, Cartoon Angry Woman Scream)
   caida_m: { volume: 0.5, variants: 3, voz: true }, // (Female Scream, Scared Woman Scream)
-  victoria_m: { volume: 0.6, variants: 3, voz: true }, // ¡woo!, ¡woohoo!, risa
+  victoria_m: { volume: 0.6, variants: 6, voz: true }, // ¡woo!, ¡woohoo!, risa, ¡ya!, ¡yay! (Woman Excited Cheers)
   risa_bruja: { volume: 0.6, variants: 2, voz: true }, // la reina negra (Witch Laugh, Evil Witch Laugh)
   rugido: { volume: 0.6, variants: 5, voz: true }, // el gigante de la torre (Scary Monster Growl Roar, Monster Roar…)
   gigante_dolor: { volume: 0.6, variants: 3, voz: true }, // (Monster Growl Roar 1 y 6, Low Monster Roar)

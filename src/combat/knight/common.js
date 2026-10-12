@@ -175,6 +175,7 @@ export async function victoryLap({ entry, clock, cinema, obstacles = [], move })
   }
   await cinema.closeUp(clock, entry.piece, obstacles); // primer plano, de frente, del que ha ganado
   cinema.follow(figure, ORBIT); // y la cámara lo va rodeando mientras lo celebra
+  sfx.play('jubilo'); // y el público lo jalea
   try {
     await celebrate(entry, clock);
   } finally {
@@ -192,7 +193,9 @@ export async function victoryLap({ entry, clock, cinema, obstacles = [], move })
 //
 // Y la alza cogida por abajo, cerca del regatón (`RAISED_GRIP`): la animación sube el puño por encima de la
 // cabeza, y con la lanza cogida por el medio, el trozo que quedaba por debajo de la mano le pasaba por la
-// cara (lo vio el usuario). Así queda entera por encima del puño, que es como se alza una lanza.
+// cara (lo vio el usuario). Así queda entera por encima del puño, que es como se alza una lanza. El peón,
+// que la lleva siempre por en medio (`holdsSpearMiddle`, lo pidió el usuario), la alza inclinada: la punta
+// por encima de la cabeza y el regatón por fuera del hombro (`'raised'`).
 const RAISED_GRIP = -0.42;
 
 // `shout`: si lo grita (en el jaque mate lo celebran todas a la vez, y gritan solo unas pocas).
@@ -204,7 +207,8 @@ export async function celebrate(entry, clock, { shout = true } = {}) {
     fighter.setSpearPose('upright');
     if (clock) await twirl(fighter, { clock, turns: 2, seconds: 0.6, ease: FRENA });
     fighter.setGripSlide?.(RAISED_GRIP);
-    fighter.setSpearPose('body'); // y si la animación lo dobla, la lanza se inclina con él
+    // Y si la animación lo dobla, la lanza se inclina con él.
+    fighter.setSpearPose(fighter.holdsSpearMiddle ? 'raised' : 'body');
   }
   const victory = entry.kind === 'knight' && entry.piece.mounted && fighter.has('victoryMounted') ? 'victoryMounted' : 'victory';
   if (fighter.has(victory)) {

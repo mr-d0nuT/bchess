@@ -61,6 +61,15 @@ SONIDOS = {
     'torre':          ('pixabay/torre/304550-rock-stone-slide.mp3', 0.05, 1.44, 0.01, 0.3),
     'corona':         ('pixabay/corona/191997-level-up.mp3', 0.04, 1.5, 0.003, 0.4),
     'mareo':          ('voces/varios/7120-cartoon-spin.mp3', 0.06, 1.95, 0.005, 0.3),
+    # EL PÚBLICO: el júbilo de los que miran cuando una pieza gana su combate (cortos, que se van apagando), y
+    # la ovación del final de la partida, bajo la fanfarria.
+    'jubilo-1':       ('pixabay/jubilo/236776-short-crowd-cheer.mp3', 0.05, 2.4, 0.03, 0.5),
+    'jubilo-2':       ('pixabay/jubilo/406646-crowd-cheer.mp3', 0.0, 3.0, 0.02, 1.0),
+    'jubilo-3':       ('pixabay/jubilo/88701-short-crowd-cheer-2.mp3', 0.03, 3.0, 0.03, 0.9),
+    'jubilo-4':       ('pixabay/jubilo/6713-short-crowd-cheer.mp3', 0.25, 3.2, 0.05, 0.9),
+    'jubilo-5':       ('pixabay/jubilo/102732-crowd-of-boys-cheering.mp3', 0.15, 3.2, 0.1, 0.9),
+    'jubilo-6':       ('pixabay/jubilo/101509-group-yay-cheer.mp3', 0.05, 1.7, 0.02, 0.4),
+    'ovacion':        ('pixabay/jubilo/88701-short-crowd-cheer-2.mp3', 0.03, 7.0, 0.05, 2.2),
     # La reina blanca: el rayo de escarcha que corre por el suelo (crece hasta el impacto) y el hielo que
     # encierra al rival.
     'hielo_rayo':     ('pixabay/hielo2/499662-frost-spell-impact.mp3', 0.75, 3.5, 0.02, 0.6),
@@ -116,6 +125,9 @@ SONIDOS = {
     'victoria_h-5':   ('voces/h_victoria/36461-hooray.mp3', 0.27, 1.62, 0.01, 0.3),
     'victoria_h-6':   ('voces/h_victoria/104848-yell-laugh.mp3', 0.12, 1.77, 0.01, 0.3),
     'victoria_h-7':   ('voces/h_victoria/242763-silly-laugh-man.mp3', 0.11, 1.65, 0.01, 0.3),
+    'victoria_h-8':   ('voces/h_victoria/7043-shouting-yeah.mp3', 0.06, 0.6, 0.005, 0.12),
+    'victoria_h-9':   ('voces/h_victoria/82662-yeaoh.mp3', 0.08, 1.2, 0.01, 0.2),
+    'victoria_h-10':  ('voces/h_victoria/310503-victory-shouts-demo.mp3', 0.12, 1.0, 0.01, 0.15),
     # y de las negras: risas de villano
     'risa_malvada-1': ('voces/h_victoria/89423-evil-laugh.mp3', 0.14, 2.85, 0.01, 0.5),
     'risa_malvada-2': ('voces/h_victoria/83217-muahaha-evil-laughter.mp3', 0.15, 2.3, 0.01, 0.4),
@@ -140,6 +152,9 @@ SONIDOS = {
     'victoria_m-1':   ('voces/m_victoria/186736-woman-says-woo.mp3', 0.03, 1.15, 0.01, 0.25),
     'victoria_m-2':   ('voces/m_victoria/186739-woman-says-woohoo.mp3', 1.23, 2.37, 0.01, 0.25),
     'victoria_m-3':   ('voces/m_victoria/149491-girl-laugh.mp3', 0.49, 2.27, 0.01, 0.4),
+    'victoria_m-4':   ('voces/m_victoria/186742-woman-ya-1.mp3', 0.03, 1.05, 0.01, 0.2),
+    'victoria_m-5':   ('voces/m_victoria/186745-woman-yay-1.mp3', 0.02, 0.95, 0.01, 0.2),
+    'victoria_m-6':   ('voces/m_victoria/186747-woman-yay-3.mp3', 0.04, 1.95, 0.01, 0.35),
     'risa_bruja-1':   ('voces/m_victoria/401713-witch-laugh.mp3', 0.01, 0.95, 0.005, 0.2),
     'risa_bruja-2':   ('voces/m_victoria/140135-evil-witch-laugh.mp3', 0.04, 2.4, 0.01, 0.4),
 

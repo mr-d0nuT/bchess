@@ -134,6 +134,7 @@ export function createCoronation({ scene, camera, cinema, clock, fx, dust, confe
   // La pose de la pieza recién coronada.
   async function pose(entry, color) {
     const piece = entry.piece;
+    sfx.play('jubilo'); // el público, que la jalea
     if (entry.kind === 'queen') {
       grita(entry, 'victoria');
       const reposo = restPoseOf(piece);

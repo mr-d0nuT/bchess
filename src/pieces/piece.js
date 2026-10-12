@@ -370,10 +370,16 @@ export function spawnPiece(kit) {
   const thrustingAlongArm = () => Boolean(armThrust) && spearPoseName() === 'forward';
   function applySpearPose() {
     const name = spearPoseName();
-    const pose = name === 'body' ? bodyPose : name === 'forward' && armThrust ? armPose : SPEAR_POSES[name];
+    const pose = name === 'body' ? bodyPose : name === 'raised' ? raisedPose : name === 'forward' && armThrust ? armPose : SPEAR_POSES[name];
     if (pose) spearPose = pose;
     spearTarget = pose ? 1 : 0;
   }
+  // 'raised': como 'body', pero con la punta inclinada hacia el otro lado de la mano que la lleva (por encima de
+  // la cabeza) y el regatón hacia fuera. Para alzarla al celebrar cogida por en medio (`hold`): derecha, con el
+  // puño por encima de la cabeza, la mitad de abajo le pasaba por la cara.
+  const RAISED_TILT = THREE.MathUtils.degToRad(35);
+  const raisedPose = new THREE.Quaternion();
+  const raisedTilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), (spec.spear?.hand === 'left' ? 1 : -1) * RAISED_TILT);
   // La de 'body', con la postura de ahora: del eje del cuerpo (cadera → cabeza) en el sistema del modelo.
   let bodyAxis = null;
   const bodyUp = new THREE.Vector3(0, 1, 0);
@@ -1662,6 +1668,10 @@ export function spawnPiece(kit) {
     } else {
       // Fuera de la mano, la orientación de la lanza se fija respecto a la figura.
       if (spearPoseName() === 'body') followBody();
+      if (spearPoseName() === 'raised') {
+        followBody();
+        raisedPose.copy(raisedTilt).multiply(bodyPose);
+      }
       const alongArm = thrustingAlongArm();
       if (alongArm) followArm();
       poseNow.rotateTowards(spearPose, (alongArm ? ARM_TURN_SPEED : POSE_TURN_SPEED) * dt);
@@ -2077,6 +2087,10 @@ export function spawnPiece(kit) {
     thrustAlongArm(options) {
       armThrust = options ? { grip: options.grip ?? 0 } : null;
       applySpearPose();
+    },
+    // Si lleva la lanza cogida por en medio (`hold`): el puño no resbala hasta el regatón.
+    get holdsSpearMiddle() {
+      return Boolean(spearHoldRange);
     },
     // Adónde va la estocada (un punto del mundo; null, a lo largo del antebrazo). Ver `followArm`.
     aimSpear(point) {
