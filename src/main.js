@@ -288,7 +288,7 @@ async function start() {
   }
   const quality = currentQuality();
   const stage = createStage(document.getElementById('escena'), quality);
-  const board = createBoard();
+  const board = createBoard({ detail: quality.name === 'movil' ? 'movil' : 'alta' });
   stage.scene.add(board.group);
   const highlights = createHighlights(stage.scene, board);
   const dust = createDust(stage.scene);
@@ -807,6 +807,7 @@ async function start() {
     if (!cinema.active && !attract.active) stage.controls.update();
     cinema.update(dt);
     attract.update(dt);
+    board.orient(stage.camera.position);
     bubbles.update();
     paintViewButtons();
     tickClock();

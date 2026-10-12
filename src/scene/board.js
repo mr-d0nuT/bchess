@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { squareToPosition, positionToSquare } from './squares.js';
+import { createCoordinates } from './coordinates.js';
 
 // Tablero 8×8 de chapa de madera (roble claro y palisandro oscuro) con marco y mesa.
 // La cara superior de las casillas está en y = 0. Unidad: 1 = una casilla.
@@ -33,7 +34,7 @@ function tileGeometry(offsetU, offsetV) {
   return geometry;
 }
 
-export function createBoard() {
+export function createBoard({ detail = 'alta' } = {}) {
   const loader = new THREE.TextureLoader();
   const light = woodMaterial(loader, 'oak_veneer_01');
   const dark = woodMaterial(loader, 'rosewood_veneer1');
@@ -65,6 +66,10 @@ export function createBoard() {
   frame.receiveShadow = true;
   group.add(frame);
 
+  // Las letras y los números, de oro y en relieve, en el borde del marco (`coordinates.js`).
+  const coordinates = createCoordinates({ detail });
+  group.add(coordinates.group);
+
   // La mesa, negra del todo: sin luz que la saque de marrón, el tablero flota sobre el vacío y el
   // borde de la mesa no se distingue del fondo.
   const table = new THREE.Mesh(
@@ -83,6 +88,10 @@ export function createBoard() {
     },
     worldToSquare(point) {
       return positionToSquare(point.x, point.z);
+    },
+    // Las coordenadas, derechas para el lado desde el que mira la cámara (cada fotograma).
+    orient(cameraPosition) {
+      coordinates.orient(cameraPosition);
     },
   };
 }
