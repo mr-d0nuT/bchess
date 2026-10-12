@@ -3,7 +3,7 @@ import { pickQuality, qualityFromQuery } from './quality.js';
 import { createMusic } from './audio/music.js';
 import { unlockAudioOnGesture } from './audio/context.js';
 import { sfx } from './audio/sfx.js';
-import { grita, voicesFor } from './audio/voces.js';
+import { alGritar, grita, voicesFor } from './audio/voces.js';
 import { createLoading } from './ui/loading.js';
 import { createStage } from './scene/stage.js';
 import { addLighting } from './scene/lighting.js';
@@ -71,7 +71,7 @@ import { canFight, runCombat } from './combat/duel.js';
 import { canSmash, runSmash } from './combat/smash.js';
 import { battleName, battlesFor, runGagBattle, testing } from './combat/battles.js';
 import { pawnThrowsBomb } from './combat/pawn-bomb.js';
-import { pickAudience } from './combat/audience.js';
+import { pickAudience, pickSpectators } from './combat/audience.js';
 
 // Arranque: la pantalla de carga, el menú (uno contra uno o contra la CPU, y su nivel) y la partida,
 // con las reglas del ajedrez enteras (`chess/position.js`): empiezan las blancas, se mueve por turnos
@@ -300,7 +300,13 @@ async function start() {
     },
   };
   // Al devolver la cámara al usuario, fuera el desenfoque: si no, se quedaba un momento sobre el tablero entero.
-  const cinema = createCinema(stage, { onShake: (size) => vibra(size), onRestore: () => focus.off() });
+  const cinema = createCinema(stage, {
+    onShake: (size) => {
+      vibra(size);
+      asustaPublico(size);
+    },
+    onRestore: () => focus.off(),
+  });
   const rubble = createRubble(stage.scene);
   const debris = createDebris(stage.scene);
   // El jaque mate de película: el rey vencido de rodillas, confeti, fuegos y la cámara dando vueltas.
@@ -999,9 +1005,18 @@ async function start() {
     let hubo = false; // si ha habido combate de verdad (no una captura rápida), para el público
     try {
       const obstacles = pieces.filter((entry) => entry !== attacker && entry !== defender).map((entry) => board.squareToWorld(entry.mover.square));
-      // Las que no pelean, translúcidas: si alguna queda delante de la cámara, no tapa el combate. Y
-      // la que tape a los que pelean (o al que celebra), ni eso: se apaga del todo mientras tape.
-      fade.dim(pieces.filter((entry) => entry !== attacker && entry !== defender).map(describe));
+      // EL PÚBLICO, DURANTE (punto 9): una o dos de las que lo ven de cerca se quedan casi enteras y se asustan con
+      // los golpes fuertes (`asustaPublico`).
+      const espectadores = testing.active ? [] : pickSpectators({
+        pieces: pieces.filter((entry) => entry !== attacker && entry !== defender).map((entry) => ({ kind: entry.kind, square: entry.mover.square, entry })),
+        at: target,
+      });
+      const miran = new Set(espectadores.map((v) => v.entry));
+      // Las demás, translúcidas: si alguna queda delante de la cámara, no tapa el combate. Y la que tape a los que
+      // pelean (o al que celebra), ni eso: se apaga del todo mientras tape (también las que miran).
+      fade.dim(pieces.filter((entry) => entry !== attacker && entry !== defender && !miran.has(entry)).map(describe));
+      fade.dim(espectadores.map((v) => describe(v.entry)), { opacity: ESPECTADOR_OPACIDAD });
+      publico = { espectadores, ultimo: -Infinity };
       const enPie = () => [attacker, defender].filter((entry) => pieces.includes(entry) && entry.piece.object.visible);
       fade.watch(() => enPie().map(describe));
       // Y la cámara enfoca a los que pelean: el resto del tablero se queda borroso. El punto se pide
@@ -1062,6 +1077,7 @@ async function start() {
       }
       attacker.mover.placeOn(target);
     } finally {
+      publico = null;
       if (pieces.includes(defender)) removePiece(defender);
       focus.off();
       cinema.watch(null);
@@ -1073,6 +1089,28 @@ async function start() {
       finSalto();
       if (hubo && !saltado) reaccionaPublico(attacker, target);
     }
+  }
+
+  // Un golpe (el grito de dolor o la caída de uno de los que pelean, o un temblor fuerte de la cámara): las que miran
+  // el combate de cerca se asustan, cada una con su gesto (`pickSpectators`); como mucho cada un par de segundos (un
+  // combate tiene muchos golpes). Al acelerar o saltar el combate, no.
+  const ESPECTADOR_OPACIDAD = 0.9;
+  const SUSTO_DESDE = 0.15;
+  const SUSTO_CADA_MS = 2200;
+  let publico = null; // { espectadores: [{ entry, clip }], ultimo }: los que miran el combate de ahora
+  alGritar((entry, momento) => {
+    if (publico && (momento === 'dolor' || momento === 'caida') && !publico.espectadores.some((v) => v.entry === entry)) asustaPublico();
+  });
+  function asustaPublico(size = 1) {
+    if (!publico || size < SUSTO_DESDE || salto.saltando) return;
+    const ahora = performance.now();
+    if (ahora - publico.ultimo < SUSTO_CADA_MS) return;
+    publico.ultimo = ahora;
+    publico.espectadores.forEach(({ entry, clip }, i) => {
+      clock.wait(0.08 + i * 0.14).then(() => {
+        if (publico && pieces.includes(entry) && !entry.mover.busy) entry.mover.fidget?.({ clip });
+      });
+    });
   }
 
   // EL PÚBLICO (`combat/audience.js`, punto 9 del plan de mejora): al acabar un combate, las que lo han visto

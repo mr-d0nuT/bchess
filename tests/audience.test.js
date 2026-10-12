@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CHEER_MAX, NEAR, pickAudience } from '../src/combat/audience.js';
+import { CHEER_MAX, NEAR, SPECTATORS_MAX, pickAudience, pickSpectators } from '../src/combat/audience.js';
 
 // Un azar que se repite: cada llamada, el siguiente de la lista (y vuelta a empezar).
 const serie = (...valores) => {
@@ -38,4 +38,17 @@ test('si nadie lo ha visto de cerca, nadie reacciona', () => {
   const lejos = [{ kind: 'pawn', color: 'white', square: 'a1' }, { kind: 'pawn', color: 'black', square: 'h8' }];
   assert.equal(pickAudience({ pieces: lejos, at: 'e4', winner: 'white', random: () => 0.1 }), null);
   assert.equal(NEAR, 2);
+});
+
+test('durante el combate, miran (y se asustan) una o dos de las cercanas que saben asustarse: peones y alfiles', () => {
+  const vistos = pickSpectators({ pieces: piezas, at: 'e4', random: () => 0.5 });
+  assert.ok(vistos.length >= 1 && vistos.length <= SPECTATORS_MAX);
+  for (const v of vistos) {
+    assert.ok(['pawn', 'bishop'].includes(v.kind), 'el caballo no: anda a su manera');
+    assert.notEqual(v.square, 'a1', 'lejos, no lo ve');
+    assert.equal(v.clip, v.kind === 'pawn' ? 'frightened' : 'afraid');
+  }
+  // Las más cercanas primero: e5 y d3/e3 están a una casilla; f2, a dos.
+  assert.ok(vistos.every((v) => v.square !== 'f2'));
+  assert.deepEqual(pickSpectators({ pieces: [{ kind: 'queen', color: 'black', square: 'e5' }], at: 'e4' }), [], 'la reina no tiene gesto de susto');
 });

@@ -550,10 +550,12 @@ export function spawnPiece(kit) {
   // Gesto suelto en reposo (rascarse, mirar alrededor…). Devuelve qué versión hace, o null
   // si ahora no puede. No bloquea: si mientras tanto se pide otro movimiento, al terminar el
   // gesto no vuelve a reposo.
-  function fidget({ avoid } = {}) {
+  // `clip`: uno en concreto (el susto, durante un combate que se ve de cerca).
+  function fidget({ avoid, clip } = {}) {
     const idle = variants.idle?.[0]?.action;
     if (!variants.fidget?.length || current !== idle) return null;
-    const running = play('fidget', { loop: false, fade: 0.3, avoid });
+    if (clip && !variants.fidget.some((variant) => variant.key === clip)) return null;
+    const running = play('fidget', { loop: false, fade: 0.3, avoid, clip });
     const index = lastVariant.fidget;
     const count = playCount;
     const done = (event) => {

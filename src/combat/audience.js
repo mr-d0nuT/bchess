@@ -27,6 +27,19 @@ function shuffle(list, random) {
   return out;
 }
 
+// Y DURANTE el combate (la segunda parte del punto 9): una o dos de las que lo ven de cerca se quedan a la vista
+// (casi enteras, mientras las demás se vuelven translúcidas) y se asustan con los golpes fuertes. Solo las que tienen
+// gesto de susto: el peón («frightened») y el alfil («afraid»); las más cercanas primero. Puro: [{ …pieza, clip }].
+export const SPECTATORS_MAX = 2;
+const SCARED = { pawn: 'frightened', bishop: 'afraid' };
+export function pickSpectators({ pieces, at, random = Math.random }) {
+  const cerca = pieces.filter((p) => SCARED[p.kind] && p.square && distance(p.square, at) <= NEAR);
+  return shuffle(cerca, random)
+    .sort((a, b) => distance(a.square, at) - distance(b.square, at))
+    .slice(0, SPECTATORS_MAX)
+    .map((p) => ({ ...p, clip: SCARED[p.kind] }));
+}
+
 // Quién reacciona a un combate en `at` (casilla) que ha ganado `winner` (color): `pieces` = [{ kind, color,
 // square }] (sin el que ha ganado). Devuelve { cheer: [...] (de las del ganador, las más cercanas antes),
 // sigh: pieza o null (una del que pierde) }, o null si esta vez nadie.

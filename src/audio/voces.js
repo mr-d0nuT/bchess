@@ -25,6 +25,13 @@ const PAUSA = { ataque: 0.5, dolor: 0.35 }; // segundos que ha de callar una pie
 const ultima = new WeakMap(); // pieza → { momento: instante }
 
 // Que diga lo suyo en ese `momento`. `entry` es la pieza ({ kind, color }); devuelve el sonido o null.
+// Quien quiera enterarse de cada grito que suena (el público: con los de dolor de un combate, se asusta).
+const oyentes = new Set();
+export function alGritar(fn) {
+  oyentes.add(fn);
+  return () => oyentes.delete(fn);
+}
+
 export function grita(entry, momento, { volume = 1 } = {}) {
   if (!entry) return null;
   const voz = VOZ[entry.kind] ?? 'h';
@@ -39,6 +46,7 @@ export function grita(entry, momento, { volume = 1 } = {}) {
   if (PAUSA[momento] && ahora - (suyas[momento] ?? -Infinity) < PAUSA[momento]) return null;
   suyas[momento] = ahora;
   ultima.set(entry, suyas);
+  for (const fn of oyentes) fn(entry, momento);
   return sfx.play(sonido, { volume, rate: TONO[entry.kind] ?? 1 });
 }
 
