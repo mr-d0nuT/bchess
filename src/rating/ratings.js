@@ -3,7 +3,7 @@ import { ageDeviation, expectedScore, rate } from './glicko2.js';
 // LA PUNTUACIÓN DEL JUGADOR (el «ranking», como en chess.com). Una por ritmo de juego, como allí, porque no
 // se juega igual a un minuto que a treinta:
 // - online, contra personas: bala, blitz, rápida y diaria (la partida sin reloj cuenta como rápida);
-// - contra la CPU, aparte: cada nivel tiene su puntuación (el 1, unos 400; el 100, unos 2400), y ganarle a
+// - contra la CPU, aparte: cada nivel tiene su puntuación (el 1, 100; el 100, 2700), y ganarle a
 //   un nivel alto da mucho más que a uno bajo;
 // - y el RANKING LOCAL: en el uno contra uno con nombres, cada nombre tiene la suya (la familia, los amigos
 //   que juegan en el mismo aparato).
@@ -26,12 +26,14 @@ const DAY = 24 * 60 * 60 * 1000;
 const KEY = 'bchess.ranking';
 const VERSION = 1;
 
-// La puntuación de la CPU en cada nivel (1-100): de 400 a 2400. Bien conocida (`rd` baja): es siempre la
+// La puntuación de la CPU en cada nivel (1-100): de 100 a 2700, como la escala de los nombres de nivel (el «Gran
+// maestro», de 2500 para arriba; el «Maestro», de 2200; lo pidió el usuario: ver el nivel como en el ranking, no
+// «30/100»). Nominal: es lo que pretende cada nivel. Bien conocida (`rd` baja): es siempre la
 // misma.
 export const CPU_RD = 60;
 export function cpuRating(level) {
   const nivel = Math.max(1, Math.min(100, Math.round(level)));
-  return { r: Math.round(400 + ((nivel - 1) * 2000) / 99), rd: CPU_RD };
+  return { r: Math.round(100 + ((nivel - 1) * 2600) / 99), rd: CPU_RD };
 }
 
 // En qué categoría cuenta una partida: `mode` ('cpu', 'online', 'pvp') y el ritmo (`time`, «blitz:3+2»).

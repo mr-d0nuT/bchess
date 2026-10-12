@@ -2432,7 +2432,7 @@ async function start() {
   function paintSettings() {
     const texto = document.getElementById('ajustes-partida');
     if (!texto) return;
-    let linea = game.mode === 'cpu' ? t('ajustes.cpu', { n: game.level, nombre: levelName(game.level) }) : game.mode === 'online' ? t('ajustes.online') : t('ajustes.pvp');
+    let linea = game.mode === 'cpu' ? t('ajustes.cpu', { n: cpuRating(game.level).r, nombre: levelName(game.level) }) : game.mode === 'online' ? t('ajustes.online') : t('ajustes.pvp');
     if (game.control) linea += ` · ${controlName()}`;
     texto.textContent = linea;
     // Pulsar el reloj: solo en las partidas de aquí con reloj.

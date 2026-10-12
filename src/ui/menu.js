@@ -2,6 +2,7 @@ import { LANGUAGES, currentLanguage, onLanguage, setLanguage, t } from '../i18n.
 import { TIME_CONTROLS, findTimeControl } from '../chess/timecontrol.js';
 import { flagSvg } from './flags.js';
 import { cleanName } from '../names.js';
+import { cpuRating } from '../rating/ratings.js';
 
 // El menú de después de la carga: pantalla negra, el logo, cómo se juega (uno contra uno, contra la CPU
 // —con qué piezas y a qué nivel— u online, contra otro que también busque partida), cuánto dura la partida (bala, blitz, rápida, diaria o sin
@@ -61,7 +62,7 @@ function describirGuardada(g) {
   }
   const conNombres = g.mode === 'pvp' && (g.nombres?.white || g.nombres?.black);
   const pvp = conNombres ? `${g.nombres.white || t('color.white')} – ${g.nombres.black || t('color.black')}` : t('ajustes.pvp');
-  const partes = [g.mode === 'cpu' ? t('ajustes.cpu', { n: g.level, nombre: levelName(g.level) }) : pvp];
+  const partes = [g.mode === 'cpu' ? t('ajustes.cpu', { n: cpuRating(g.level).r, nombre: levelName(g.level) }) : pvp];
   const control = findTimeControl(g.time);
   if (control) partes.push(`${t(`tiempo.${control.key.split(':')[0]}`)} · ${timeLabel(control)}`);
   partes.push(t('menu.jugada', { n: Math.floor(g.moves / 2) + 1 }));
@@ -329,7 +330,7 @@ export function createMenu({ onShow = null, onHide = null, onChange = null } = {
     const n = (eleccion.level - 1) / 99;
     root.style.setProperty('--nivel', `${n * 100}%`);
     root.style.setProperty('--tono-nivel', String(Math.round(190 - 190 * n))); // de cian a rojo
-    valor.textContent = String(eleccion.level);
+    valor.textContent = String(cpuRating(eleccion.level).r); // su puntuación, como en el ranking
     nombre.textContent = levelName(eleccion.level);
     pintarTiempo();
     pintarIdiomas();

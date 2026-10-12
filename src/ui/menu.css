@@ -422,7 +422,6 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .nivel-cabecera { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
 .nivel-cabecera label { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; }
 .nivel-numero { font: 900 34px/1 system-ui, sans-serif; color: hsl(var(--tono-nivel), 100%, 62%); text-shadow: 0 0 14px hsla(var(--tono-nivel), 100%, 55%, 0.8); }
-.nivel-numero small { font-size: 14px; opacity: 0.6; margin-left: 2px; }
 #menu-nivel-valor { display: inline-block; }
 #menu-nivel-valor.salta { animation: salta 0.25s ease-out; }
 @keyframes salta { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
