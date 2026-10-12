@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { pickDriftTrack, pickRootPositionTrack, pickUpAxis, pickVariant, removeLinearDrift, resolveMoves, scaleHorizontalMotion } from './clips.js';
+import { cutAndReturn, pickDriftTrack, pickRootPositionTrack, pickUpAxis, pickVariant, removeLinearDrift, resolveMoves, scaleHorizontalMotion } from './clips.js';
 import { pickHandBone } from './bones.js';
 import { createSpear } from './spear.js';
 import { createSword } from './sword.js';
 import { strideSpeed } from '../moves/walk.js';
-import { closeFistOn, shaftRadius } from './fist.js';
+import { DEDOS, closeFistOn, shaftRadius } from './fist.js';
 import { bendFist } from './fist-mesh.js';
 import { slideAboveFloor } from './grip.js';
 import { findBone } from './bone-names.js';
@@ -477,10 +477,31 @@ export function spawnPiece(kit) {
 
   // Otra versión de un movimiento con algunos huesos quietos en su postura de reposo: celebrar a caballo
   // con el brazo del escudo en su sitio, por ejemplo. Se registra como `name`.
-  function addStillBones(name, from, still, { clip: key = null } = {}) {
+  // Con `damp` ({ test, keep }), a los huesos que pasan `test` solo les queda `keep` de lo que se apartan
+  // de su primer fotograma (como `dampBones`). Con `until`, el clip se corta ahí y vuelve a su primer
+  // fotograma en `back` segundos (`cutAndReturn`).
+  function addStillBones(name, from, still, { clip: key = null, damp = null, until = null, back = 0.8 } = {}) {
     const source = key ? variants[from]?.find((variant) => variant.key === key) : variants[from]?.[0];
     if (!source || !variants.idle?.length) return false;
     const clip = stillClip(source.action.getClip(), still, 'idle');
+    if (damp) dampTracks(clip, damp.test, damp.keep);
+    if (until !== null && until < clip.duration) {
+      for (const track of clip.tracks) {
+        const interpolant = track.createInterpolant();
+        const cut = cutAndReturn({
+          times: track.times,
+          values: track.values,
+          size: track.getValueSize(),
+          until,
+          back,
+          sample: (t) => interpolant.evaluate(t),
+          quaternion: track.name.endsWith('.quaternion'),
+        });
+        track.times = cut.times;
+        track.values = cut.values;
+      }
+      clip.duration = until + back;
+    }
     clip.name = `${clip.name}:${name}`;
     variants[name] = [{ ...source, action: mixer.clipAction(clip) }];
     return true;
@@ -491,29 +512,32 @@ export function spawnPiece(kit) {
   // doblaba por la cintura y le agachaba la cabeza (lo vio el usuario), y con el tronco del todo quieto
   // quedaba de palo.
   function dampBones(action, test, keep) {
-    const q0 = new THREE.Quaternion();
-    const q = new THREE.Quaternion();
     variants[action] = (variants[action] ?? []).map((variant) => {
       const clip = variant.action.getClip().clone();
-      for (const track of clip.tracks) {
-        const bone = track.name.slice(0, track.name.lastIndexOf('.'));
-        if (!test(bone)) continue;
-        const size = track.getValueSize();
-        const values = Float32Array.from(track.values);
-        if (track.name.endsWith('.quaternion') && size === 4) {
-          q0.fromArray(values, 0);
-          for (let i = 0; i < values.length; i += 4) {
-            q.fromArray(values, i);
-            q.copy(q0.clone().slerp(q, keep)).toArray(values, i);
-          }
-        } else {
-          for (let i = size; i < values.length; i++) values[i] = values[i % size] + (values[i] - values[i % size]) * keep;
-        }
-        track.values = values;
-      }
+      dampTracks(clip, test, keep);
       clip.name = `${clip.name}:erguido`;
       return { ...variant, action: mixer.clipAction(clip) };
     });
+  }
+  function dampTracks(clip, test, keep) {
+    const q0 = new THREE.Quaternion();
+    const q = new THREE.Quaternion();
+    for (const track of clip.tracks) {
+      const bone = track.name.slice(0, track.name.lastIndexOf('.'));
+      if (!test(bone)) continue;
+      const size = track.getValueSize();
+      const values = Float32Array.from(track.values);
+      if (track.name.endsWith('.quaternion') && size === 4) {
+        q0.fromArray(values, 0);
+        for (let i = 0; i < values.length; i += 4) {
+          q.fromArray(values, i);
+          q.copy(q0.clone().slerp(q, keep)).toArray(values, i);
+        }
+      } else {
+        for (let i = size; i < values.length; i++) values[i] = values[i % size] + (values[i] - values[i % size]) * keep;
+      }
+      track.values = values;
+    }
   }
 
   // Todas las versiones de un movimiento, con algunos huesos quietos en el primer fotograma de cada una:
@@ -1437,6 +1461,9 @@ export function spawnPiece(kit) {
     restoreStance();
     restoreReach();
     mixer.update(dt);
+    // El puño de huesos (`gripSpearFingers`), encima de lo que diga el clip: el mezclador los reescribe al
+    // cambiar de movimiento, y la mano se abriría.
+    if (fingerPose) for (const [bone, q] of fingerPose) bone.quaternion.copy(q);
     if (dt > 0) {
       // Lo andado en este fotograma, que es de donde sale tanto la velocidad como el vuelo de la
       // capa. Se guarda antes de mover `lastAt`, que si no se pierde.
@@ -1571,7 +1598,8 @@ export function spawnPiece(kit) {
     // cuerpo al voltear: con el antebrazo delante, voltea por delante de él. No en los gestos que mueven el
     // brazo ni al atacar.
     const enGuardia = currentName === 'idle' || currentName === 'walk' || currentName === 'jump'
-      || (currentName === 'fidget' && currentVariant?.key === 'look_around') || Boolean(spearSpin);
+      || (currentName === 'fidget' && currentVariant?.key === 'look_around') || Boolean(spearSpin)
+      || Boolean(stance.keepIn?.includes(currentName));
     const quiere = enGuardia && !planted && !flying && !dropping && props.spear?.visible ? 1 : 0;
     const paso = (spearSpin ? STANCE_SNAP : STANCE_RATE) * Math.max(dt, 0); // para el molinete, de golpe: la lanza ya voltea
     stance.w += THREE.MathUtils.clamp(quiere - stance.w, -paso, paso);
@@ -1648,6 +1676,7 @@ export function spawnPiece(kit) {
   // erguida o en plena estocada), y la lanza se queda donde estaba. Al voltearla (el molinete) no: la
   // muñeca seguiría a las vueltas.
   let fistTunnel = null; // el eje del hueco del puño, en el sistema del hueso de la mano
+  let fingerPose = null; // los dedos cerrados sobre el palo (`gripSpearFingers`): [hueso, giro]
   // Cómo dejó la animación la muñeca antes de girarla, para devolverla al empezar el fotograma siguiente
   // (`restoreFist`): el mezclador de animaciones solo reescribe un hueso si su valor cambia, y con la mano
   // quieta el giro se iba sumando fotograma a fotograma (es lo mismo que hace `restoreBones`).
@@ -1970,6 +1999,7 @@ export function spawnPiece(kit) {
         upper, fore, hand,
         elbow: new THREE.Vector3(...options.elbow).normalize(),
         wrist: new THREE.Vector3(...options.wrist).normalize(),
+        keepIn: options.keepIn ?? [], // y en estos movimientos, además (los que dejan quieto el brazo del palo)
         w: 0, baseUpper: new THREE.Quaternion(), baseFore: new THREE.Quaternion(), applied: false,
       };
       spearRest = 'upright';
@@ -2003,6 +2033,40 @@ export function spawnPiece(kit) {
       fistTunnel = puno.tunnel.clone();
       props.spear.position.copy(spearGripAt);
       return true;
+    },
+    // EL PUÑO DE HUESOS. Como el del peón (`gripSpearFist`), pero en una figura con dedos de verdad (el alfil,
+    // con el esqueleto de Mixamo): llevaba el báculo pegado a la mano abierta (lo vio el usuario). Los dedos se
+    // cierran sobre el palo una vez (`closeFistOn`, lo mismo que la mano del rey) y se les vuelve a poner así
+    // cada fotograma, que sus clips sí traen los dedos; y la muñeca sigue al palo como la del peón (`alignFist`),
+    // con el hueco del puño medido ya cerrado. Con la guardia puesta (`spearStance`): con la mano colgando no
+    // hay puño que agarre un palo derecho.
+    gripSpearFingers() {
+      if (!props.spear || !spearBone || !spearGripAt) return false;
+      for (let i = 0; i < 4; i++) update(0.3);
+      object.updateMatrixWorld(true);
+      const partida = props.spear.position.clone();
+      const hecho = closeFistOn({
+        model,
+        prop: props.spear,
+        side: spec.spear?.hand ?? 'right',
+        center: figure.getWorldPosition(new THREE.Vector3()),
+      });
+      if (!hecho) return null;
+      // Como en `closeHandOnSpear`: lo que se guarda es lo que se ha movido el palo para entrar en el puño.
+      spearGripAt.add(props.spear.position).sub(partida);
+      // El hueco del puño, en el sistema de la mano: `closeFistOn` acaba de girar la muñeca para que mire a lo
+      // largo del palo, así que es el palo visto desde la mano.
+      const mano = spearBone.getWorldQuaternion(new THREE.Quaternion()).invert();
+      fistTunnel = new THREE.Vector3(0, 1, 0).applyQuaternion(props.spear.getWorldQuaternion(new THREE.Quaternion())).applyQuaternion(mano).normalize();
+      const lado = spec.spear?.hand === 'left' ? 'L' : 'R';
+      fingerPose = [];
+      for (const dedo of [...DEDOS, 'Thumb']) {
+        for (let i = 1; i <= 3; i++) {
+          const hueso = findBone(model, `${lado}_Hand${dedo}${i}`);
+          if (hueso) fingerPose.push([hueso, hueso.quaternion.clone()]);
+        }
+      }
+      return hecho;
     },
     // Cierra la mano sobre el báculo, dedo a dedo. Se pide desde fuera y no al cargar la pieza,
     // porque hasta que no tiene puesta su postura de reposo —con los brazos bajados, que es cosa

@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ACTIONS, findClipName, mapClips, pickDriftTrack, pickRootPositionTrack, pickUpAxis, pickVariant, removeLinearDrift, resolveMoves, scaleHorizontalMotion,
+  ACTIONS, cutAndReturn, findClipName, mapClips, pickDriftTrack, pickRootPositionTrack, pickUpAxis, pickVariant, removeLinearDrift, resolveMoves,
+  scaleHorizontalMotion, slerpValues,
 } from '../src/pieces/clips.js';
 
 test('las acciones del juego', () => {
@@ -112,4 +113,28 @@ test('pickDriftTrack elige la pista de posición que más avanza', () => {
 test('pickDriftTrack devuelve null si ninguna pista de posición se mueve', () => {
   assert.equal(pickDriftTrack([{ name: 'Raiz.position', times: [0, 1], values: [0, 1, 0, 0, 1, 0] }]), null);
   assert.equal(pickDriftTrack([]), null);
+});
+
+test('cortar un clip y que vuelva a como empezó (el conjuro del alfil, sin su segundo lanzamiento)', () => {
+  // Una pista de posición que va de 0 a 10 en 4 s.
+  const times = Float32Array.from([0, 1, 2, 3, 4]);
+  const values = Float32Array.from([0, 0, 0, 2, 0, 0, 5, 0, 0, 8, 0, 0, 10, 0, 0]);
+  const sample = (t) => [t <= 1 ? 2 * t : t <= 2 ? 2 + 3 * (t - 1) : 5 + 3 * (t - 2), 0, 0];
+  const { times: tt, values: vv } = cutAndReturn({ times, values, size: 3, until: 1.5, back: 1, sample });
+  // Lo de antes del corte, tal cual; en el corte, su valor; y en `until + back`, el primero.
+  assert.deepEqual(Array.from(tt), [0, 1, 1.5, 1.75, 2, 2.25, 2.5]);
+  assert.equal(vv[2 * 3], 3.5);
+  assert.equal(vv[6 * 3], 0);
+  // Vuelve despacio al principio y al final (entra y sale suave): la mitad, a mitad de camino.
+  assert.ok(Math.abs(vv[4 * 3] - 1.75) < 1e-6);
+  assert.ok(vv[3 * 3] > 1.75 * 1.5 && vv[3 * 3] < 3.5);
+});
+
+test('los giros vuelven por el camino corto', () => {
+  const s = Math.SQRT1_2;
+  // De 90° en Y a nada; con el primero dado la vuelta (el mismo giro, con el signo cambiado).
+  const mitad = slerpValues([0, s, 0, s], [-0, -0, -0, -1], 0.5);
+  assert.ok(Math.abs(Math.hypot(...mitad) - 1) < 1e-9);
+  const angulo = 2 * Math.acos(Math.min(1, Math.abs(mitad[3])));
+  assert.ok(Math.abs(angulo - Math.PI / 4) < 1e-6, `${angulo}`);
 });

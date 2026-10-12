@@ -142,3 +142,51 @@ export function removeLinearDrift(times, values, upAxis = 1) {
   }
   return { distance: Math.hypot(...deltas), values: out };
 }
+
+// Entre dos giros (cuaterniones [x, y, z, w]), por el camino corto.
+export function slerpValues(a, b, t) {
+  let [bx, by, bz, bw] = b;
+  let cos = a[0] * bx + a[1] * by + a[2] * bz + a[3] * bw;
+  if (cos < 0) {
+    [bx, by, bz, bw] = [-bx, -by, -bz, -bw];
+    cos = -cos;
+  }
+  let s0 = 1 - t;
+  let s1 = t;
+  if (cos < 0.9995) {
+    const angle = Math.acos(cos);
+    const sin = Math.sin(angle);
+    s0 = Math.sin((1 - t) * angle) / sin;
+    s1 = Math.sin(t * angle) / sin;
+  }
+  const q = [a[0] * s0 + bx * s1, a[1] * s0 + by * s1, a[2] * s0 + bz * s1, a[3] * s0 + bw * s1];
+  const n = Math.hypot(...q) || 1;
+  return q.map((v) => v / n);
+}
+
+const lerpValues = (a, b, t) => a.map((v, k) => v + (b[k] - v) * t);
+
+// Corta una pista en `until` y, en vez de acabar en seco, la devuelve a su primer fotograma en `back`
+// segundos, entrando y saliendo despacio. Para quedarse con lo primero de un clip y que acabe como empezó:
+// el conjuro del alfil trae dos lanzamientos, y el segundo (la cadera girada 90° y la cabeza vuelta del
+// revés para seguir mirando al frente) le pillaba con la piedra subiéndole al rival, quieto en esa postura
+// (lo vio el usuario). `sample(t)` da el valor de la pista en `t`; `quaternion`, si son giros.
+export function cutAndReturn({ times, values, size, until, back, sample, quaternion = false, steps = 4 }) {
+  const outTimes = [];
+  const outValues = [];
+  for (let i = 0; i < times.length && times[i] < until - 1e-6; i++) {
+    outTimes.push(times[i]);
+    for (let k = 0; k < size; k++) outValues.push(values[i * size + k]);
+  }
+  const at = Array.from(sample(until));
+  const first = Array.from(values.slice(0, size));
+  const blend = quaternion ? slerpValues : lerpValues;
+  outTimes.push(until);
+  outValues.push(...at);
+  for (let s = 1; s <= steps; s++) {
+    const k = s / steps;
+    outTimes.push(until + back * k);
+    outValues.push(...blend(at, first, k * k * (3 - 2 * k)));
+  }
+  return { times: Float32Array.from(outTimes), values: Float32Array.from(outValues) };
+}

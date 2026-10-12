@@ -112,6 +112,12 @@ const CPU_MIN_MS = 700; // la CPU nunca contesta antes: una jugada al instante p
 const GUARDA_RELOJ_MS = 5000; // con reloj, cada cuánto se guarda la partida mientras corre
 // El brazo del báculo del alfil, con los nombres de Tripo o, como en su esqueleto, los de Mixamo.
 const STAFF_ARM = /^(R_(Clavicle|Upperarm|Forearm|Hand)|mixamorigRight(Shoulder|Arm|ForeArm|Hand))/;
+// Su conjuro: el clip trae dos lanzamientos, y el segundo (la cadera girada 90° y la cabeza vuelta del revés
+// para seguir mirando al frente) le duraba lo que tarda la piedra en subirle al rival, quieto en esa postura
+// (lo vio el usuario: «demasiado antinatural»). Se queda con el primero —el golpe es al 1,1 s— y en `back`
+// segundos vuelve a como empezó; y el tronco gira algo menos, que conjura un obispo y no un lanzador.
+const BISHOP_CAST = { until: 1.3, back: 0.9, keep: 0.6 };
+const BISHOP_TRUNK = /^mixamorig(Hips|Spine\d?|Neck|Head)$/;
 const SONIDO_CERCA = 6; // a esta distancia de la cámara (o menos), los pasos suenan enteros
 const SONIDO_LEJOS = 0.2; // y nunca por debajo de esto
 const VIBRA_DESDE = 0.12; // temblores más flojos que esto no vibran
@@ -3056,7 +3062,14 @@ async function start() {
       if (kind === 'pawn') pawnTweaks(piece);
       // El alfil conjura con la mano libre y el báculo quieto: el clip de lanzar hechizos es para manos
       // vacías, y con el báculo en la derecha lo lanzaba hacia atrás y el fogonazo salía a su espalda.
-      if (kind === 'bishop') piece.addStillBones('conjurar', 'attack', (bone) => STAFF_ARM.test(bone), { clip: 'cast_a_spell' });
+      if (kind === 'bishop') {
+        piece.addStillBones('conjurar', 'attack', (bone) => STAFF_ARM.test(bone), {
+          clip: 'cast_a_spell',
+          until: BISHOP_CAST.until,
+          back: BISHOP_CAST.back,
+          damp: { test: (bone) => BISHOP_TRUNK.test(bone), keep: BISHOP_CAST.keep },
+        });
+      }
       entry = { kind, color, piece };
       // Todas mueven de cine, como el caballo y la torre: la cámara se acerca a verlas andar (lo pidió el
       // usuario: «cuando cualquier pieza se mueve, la cámara debe mostrarla de cerca»).
@@ -3093,6 +3106,8 @@ async function start() {
     if (kind === 'king') entry.piece.closeHandOnSpear();
     // Y la del peón, en un puño alrededor de la lanza (`pawnGrip`).
     if (kind === 'pawn') pawnGrip(entry.piece);
+    // Y la del alfil, cerrada sobre el báculo (`bishopGrip`).
+    if (kind === 'bishop') bishopGrip(entry.piece);
     return entry;
   }
 
@@ -3124,6 +3139,20 @@ async function start() {
       wrist: [0.05, -0.25, 0.98], // el antebrazo, hacia delante y algo hacia abajo: así la muñeca queda casi recta (medido)
     });
     piece.gripSpearFist();
+    return piece;
+  }
+  // El alfil, con el báculo en el puño: lo llevaba pegado a la mano abierta, colgando (lo vio el usuario). En
+  // guardia, como el peón —el antebrazo delante, que con la mano colgando no hay puño que agarre un palo
+  // derecho—, también mientras conjura con la otra mano (el conjuro deja quieto este brazo), y los dedos
+  // cerrados sobre la vara.
+  function bishopGrip(piece) {
+    piece.spearStance({
+      upper: 'mixamorigRightArm', fore: 'mixamorigRightForeArm', hand: 'mixamorigRightHand',
+      elbow: [-0.2, -0.95, 0.15], // el codo, abajo y algo hacia fuera
+      wrist: [0.1, -0.15, 0.98], // el antebrazo, hacia delante
+      keepIn: ['conjurar'],
+    });
+    piece.gripSpearFingers();
     return piece;
   }
   // El peón con el que se miden los golpes: como los de la partida.
