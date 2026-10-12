@@ -87,6 +87,7 @@ export function createCloud() {
   let asegurando = null; // la reserva en marcha (una a la vez: dos a la vez dejaban a uno con dos nombres)
   let guardar = 0;
   const cache = new Map(); // categoría → { at, list }
+  const puestos = new Map(); // `categoría:puntuación` → { at, puesto }
 
   async function carga() {
     if (!FIREBASE) throw new Error('sin configuración');
@@ -312,6 +313,30 @@ export function createCloud() {
           console.warn('[BChess] No se pudo guardar el perfil:', err?.code ?? err);
         }
       }, SAVE_DELAY);
+    },
+    // MI PUESTO en el ranking mundial de una categoría, con `rating` (la mía): { puesto, de }, o null (sin cuenta, sin
+    // partidas ahí o sin red). Lo dicen dos cuentas en la nube (cuántos van por delante y cuántos hay), no la lista:
+    // así se sabe aunque no se salga entre los primeros.
+    async position(category, rating) {
+      if (!user?.verified || !Number.isFinite(rating)) return null;
+      const clave = `${category}:${Math.round(rating)}`;
+      const guardado = puestos.get(clave);
+      if (guardado && Date.now() - guardado.at < LEADERBOARD_TTL) return guardado.puesto;
+      try {
+        const { store, db } = await carga();
+        const col = store.collection(db, 'users');
+        const campo = `board.${category}`;
+        const [delante, todos] = await Promise.all([
+          store.getCountFromServer(store.query(col, store.where(campo, '>', Math.round(rating)))),
+          store.getCountFromServer(store.query(col, store.where(campo, '>=', 0))),
+        ]);
+        const puesto = { puesto: delante.data().count + 1, de: Math.max(todos.data().count, delante.data().count + 1) };
+        puestos.set(clave, { at: Date.now(), puesto });
+        return puesto;
+      } catch (err) {
+        console.warn('[BChess] No se pudo saber el puesto en el ranking:', err?.code ?? err);
+        return null;
+      }
     },
     // EL RANKING MUNDIAL de una categoría: [{ name, r, rd, games, uid }], de más a menos.
     async leaderboard(category) {

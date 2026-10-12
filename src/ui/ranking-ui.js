@@ -1,5 +1,5 @@
 import { CATEGORIES, isProvisional, shown } from '../rating/ratings.js';
-import { onLanguage, t } from '../i18n.js';
+import { currentLanguage, onLanguage, t } from '../i18n.js';
 
 // EL RANKING (la puntuación del jugador, como en chess.com): un botón con un trofeo y la puntuación en el
 // menú, y al tocarlo un panel con una tarjeta por ritmo (la puntuación, si aún es provisional, las partidas
@@ -71,6 +71,7 @@ export function createRankingUi({ ratings, button, world = false }) {
   fondo.append(caja);
   document.body.append(fondo);
   let mundial = null; // [{ name, r, rd, games, uid }] o null (aún no ha llegado)
+  let miPuesto = null; // { puesto, de } en la categoría del mundial, o null
   let mundialCategoria = 'cpu';
 
   function tarjeta(categoria, entry) {
@@ -97,6 +98,41 @@ export function createRankingUi({ ratings, button, world = false }) {
     return carta;
   }
 
+  // LAS ÚLTIMAS PARTIDAS (como el historial de chess.com): contra quién, cómo acabó, cuánto se ganó o perdió y
+  // cuándo. Las que han puntuado (contra la CPU y online), de la más reciente a la más vieja.
+  const ULTIMAS = 12;
+  const DIA = 24 * 60 * 60 * 1000;
+  function cuando(at) {
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    if (at >= hoy.getTime()) return new Date(at).toLocaleTimeString(currentLanguage(), { hour: '2-digit', minute: '2-digit' });
+    if (at >= hoy.getTime() - DIA) return t('ranking.ayer');
+    return new Date(at).toLocaleDateString(currentLanguage(), { day: 'numeric', month: 'short' });
+  }
+  function ultimas(log) {
+    const lista = el('ol', 'rk-ultimas');
+    for (const e of log.slice(0, ULTIMAS)) {
+      const li = el('li', `rk-partida ${e.res}`);
+      const icono = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      icono.setAttribute('viewBox', '0 0 24 24');
+      icono.setAttribute('aria-hidden', 'true');
+      icono.innerHTML = ICONOS[e.cat];
+      const quien = el('span', 'rk-p-quien', e.rival || t('sala.anonimo'));
+      if (e.rr) quien.append(el('small', '', ` ${e.rr}`));
+      const signo = e.d > 0 ? '+' : e.d < 0 ? '−' : '±';
+      li.append(
+        icono,
+        quien,
+        el('span', 'rk-p-res', t(`ranking.res.${e.res}`)),
+        el('span', 'rk-p-delta', `${signo}${Math.abs(e.d)}`),
+        el('span', 'rk-p-cuando', cuando(e.at)),
+      );
+      li.title = `${nombre(e.cat)} · ${t(`ranking.res.${e.res}`)} · ${e.r}`;
+      lista.append(li);
+    }
+    return lista;
+  }
+
   function tabla(filas, { yo = null } = {}) {
     const lista = el('ol', 'rk-tabla');
     filas.forEach((fila, i) => {
@@ -120,6 +156,10 @@ export function createRankingUi({ ratings, button, world = false }) {
     const todas = ratings.all();
     const tarjetas = el('div', 'rk-tarjetas');
     for (const c of CATEGORIES) tarjetas.append(tarjeta(c, todas[c]));
+    const seccionUltimas = el('section', 'rk-seccion');
+    seccionUltimas.append(el('h3', 'rk-subtitulo', t('ranking.ultimas')));
+    const log = ratings.log?.() ?? [];
+    seccionUltimas.append(log.length ? ultimas(log) : el('p', 'rk-vacio', t('ranking.ultimas.vacio')));
     const local = ratings.local.list();
     const seccionLocal = el('section', 'rk-seccion');
     seccionLocal.append(el('h3', 'rk-subtitulo', t('ranking.local')));
@@ -141,9 +181,10 @@ export function createRankingUi({ ratings, button, world = false }) {
         pestanas.append(b);
       }
       seccionMundial.append(pestanas);
+      if (miPuesto) seccionMundial.append(el('p', 'rk-puesto', t('ranking.mundial.puesto', { puesto: miPuesto.puesto, de: miPuesto.de })));
       if (mundial) seccionMundial.append(mundial.length ? tabla(mundial, { yo: api.meUid }) : el('p', 'rk-vacio', t('ranking.mundial.vacio')));
     }
-    cuerpo.replaceChildren(tarjetas, seccionLocal, seccionMundial);
+    cuerpo.replaceChildren(tarjetas, seccionUltimas, seccionLocal, seccionMundial);
     pintaBoton();
   }
 
@@ -192,9 +233,10 @@ export function createRankingUi({ ratings, button, world = false }) {
     accountArea: cuenta,
     // El ranking mundial de una categoría ([{ name, r, rd, games, uid }]) y quién soy en él (`meUid`; null,
     // sin cuenta).
-    setWorld(lista, categoria = mundialCategoria) {
+    setWorld(lista, categoria = mundialCategoria, puesto = null) {
       mundial = lista;
       mundialCategoria = categoria;
+      miPuesto = puesto;
       if (!fondo.hidden) pinta();
     },
     get worldCategory() {

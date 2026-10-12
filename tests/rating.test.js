@@ -144,3 +144,23 @@ test('el nivel de salida viaja con la nube', () => {
   assert.equal(b.nivel, 'experto');
   assert.equal(b.necesitaNivel(), false);
 });
+
+test('las últimas partidas: con quién, cómo acabó y cuánto se ganó o perdió, de la más reciente a la más vieja', () => {
+  let ahora = 1000;
+  const memoria = new Map();
+  const storage = { getItem: (k) => memoria.get(k) ?? null, setItem: (k, v) => memoria.set(k, v) };
+  const ratings = createRatings({ storage, now: () => ahora });
+  ratings.record({ category: 'blitz', opponent: { r: 1500, rd: 80 }, score: 1, rival: 'Ana' });
+  ahora = 2000;
+  ratings.record({ category: 'cpu', opponent: cpuRating(30), score: 0, rival: 'CPU · Aficionado' });
+  const log = ratings.log();
+  assert.equal(log.length, 2);
+  assert.equal(log[0].cat, 'cpu');
+  assert.equal(log[0].res, 'l');
+  assert.ok(log[0].d < 0);
+  assert.equal(log[1].rival, 'Ana');
+  assert.equal(log[1].res, 'w');
+  assert.ok(log[1].d > 0 && log[1].rr === 1500);
+  // Se guarda: otra carga la ve igual.
+  assert.deepEqual(createRatings({ storage, now: () => ahora }).log(), log);
+});

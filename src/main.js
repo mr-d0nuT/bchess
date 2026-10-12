@@ -417,7 +417,14 @@ async function start() {
     ratings.onChange(() => {
       if (cloud.user?.verified) cloud.save({ name: nombreEnRanking(cloud.user), data: ratings.export() });
     });
-    const pideMundial = async (categoria) => ranking.setWorld(await cloud.leaderboard(categoria), categoria);
+    const pideMundial = async (categoria) => {
+      const mia = ratings.get(categoria);
+      const [lista, puesto] = await Promise.all([
+        cloud.leaderboard(categoria),
+        mia.games > 0 ? cloud.position(categoria, mia.r) : null,
+      ]);
+      ranking.setWorld(lista, categoria, puesto);
+    };
     ranking.onOpen = () => pideMundial(ranking.worldCategory);
     ranking.onWorld = pideMundial;
   }
@@ -2482,7 +2489,7 @@ async function start() {
     if (game.mode === 'cpu') {
       if (!game.human) return []; // mirando, no cuenta
       const score = !winner ? 0.5 : winner === game.human ? 1 : 0;
-      const r = ratings.record({ category: 'cpu', opponent: cpuRating(game.level), score });
+      const r = ratings.record({ category: 'cpu', opponent: cpuRating(game.level), score, rival: 'CPU' }); // su nivel, por su puntuación (al lado)
       return r ? [linea(t('ranking.cat.cpu'), r)] : [];
     }
     if (game.mode === 'pvp') {

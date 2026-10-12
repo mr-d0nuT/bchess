@@ -22,6 +22,16 @@ export const PROVISIONAL_RD = 110; // por encima, provisional (como lichess)
 export const ONLINE_CATEGORIES = ['bala', 'blitz', 'rapida', 'diaria'];
 export const CATEGORIES = [...ONLINE_CATEGORIES, 'cpu'];
 const HISTORY = 120; // puntuaciones que se recuerdan de cada categoría, para la gráfica
+const LOG = 50; // y partidas que se recuerdan (las últimas, de todas las categorías), para la lista del ranking
+const RESULTADOS = ['w', 'l', 'd'];
+// Una partida de la lista, si está bien: { at, cat, res ('w', 'l' o 'd'), r (mi puntuación después), d (lo que
+// gané o perdí), rr (la del rival), rival (su nombre, si lo tenía) }.
+function saneLog(e) {
+  if (!e || !Number.isFinite(e.at) || !CATEGORIES.includes(e.cat) || !RESULTADOS.includes(e.res)) return null;
+  if (!Number.isFinite(e.r) || !Number.isFinite(e.d)) return null;
+  const rival = typeof e.rival === 'string' ? clean(e.rival) : '';
+  return { at: e.at, cat: e.cat, res: e.res, r: Math.round(e.r), d: Math.round(e.d), ...(Number.isFinite(e.rr) ? { rr: Math.round(e.rr) } : {}), ...(rival ? { rival } : {}) };
+}
 const DAY = 24 * 60 * 60 * 1000;
 const KEY = 'bchess.ranking';
 const VERSION = 1;
@@ -113,7 +123,8 @@ export function createRatings({ storage = globalThis.localStorage, now = () => D
       if (name && nameKey(name) === key) local[key] = { ...sane(entry), name };
     }
     const nivel = Object.hasOwn(NIVELES, raw.nivel) ? raw.nivel : null;
-    return { v: VERSION, ratings, local, nivel, updated: Number.isFinite(raw.updated) ? raw.updated : 0 };
+    const log = (Array.isArray(raw.log) ? raw.log : []).map(saneLog).filter(Boolean).slice(-LOG);
+    return { v: VERSION, ratings, local, nivel, log, updated: Number.isFinite(raw.updated) ? raw.updated : 0 };
   }
 
   function guarda() {
@@ -131,14 +142,23 @@ export function createRatings({ storage = globalThis.localStorage, now = () => D
       return Object.fromEntries(CATEGORIES.map((c) => [c, { ...data.ratings[c] }]));
     },
     // Una partida de la categoría `category` contra `opponent` ({ r, rd }), con `score` (1, 0,5 o 0). Devuelve
-    // { category, before, after, delta (redondeado), expected } para enseñarlo.
-    record({ category, opponent, score }) {
+    // { category, before, after, delta (redondeado), expected } para enseñarlo. `rival`: su nombre, para la lista de
+    // las últimas partidas (`log`).
+    record({ category, opponent, score, rival = '' }) {
       if (!CATEGORIES.includes(category)) return null;
+      const at = now();
       const before = data.ratings[category];
-      const after = applyGame(before, opponent, score, now());
+      const after = applyGame(before, opponent, score, at);
       data.ratings[category] = after;
+      const delta = Math.round(after.r) - Math.round(before.r);
+      const entrada = saneLog({ at, cat: category, res: score === 1 ? 'w' : score === 0 ? 'l' : 'd', r: after.r, d: delta, rr: opponent?.r, rival });
+      if (entrada) data.log = [...data.log, entrada].slice(-LOG);
       guarda();
-      return { category, before: { ...before }, after: { ...after }, delta: Math.round(after.r) - Math.round(before.r), expected: expectedScore(before, opponent) };
+      return { category, before: { ...before }, after: { ...after }, delta, expected: expectedScore(before, opponent) };
+    },
+    // Las últimas partidas que han puntuado, de la más reciente a la más vieja (ver `saneLog`).
+    log() {
+      return data.log.slice().reverse().map((e) => ({ ...e }));
     },
     // EL RANKING LOCAL: los nombres del uno contra uno.
     local: {
@@ -196,6 +216,9 @@ export function createRatings({ storage = globalThis.localStorage, now = () => D
       const otro = normaliza(raw ?? {});
       data.nivel ??= otro.nivel;
       for (const c of CATEGORIES) if (otro.ratings[c].last > data.ratings[c].last) data.ratings[c] = otro.ratings[c];
+      // Las partidas de las dos listas, sin repetir (las que trae, si las trae), en orden y las últimas.
+      const vistas = new Set(data.log.map((e) => `${e.at}:${e.cat}`));
+      data.log = [...data.log, ...otro.log.filter((e) => !vistas.has(`${e.at}:${e.cat}`))].sort((a, b) => a.at - b.at).slice(-LOG);
       for (const [key, entry] of Object.entries(otro.local)) {
         if (!data.local[key] || entry.last > data.local[key].last) data.local[key] = entry;
       }

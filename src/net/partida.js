@@ -331,6 +331,6 @@ export function puntuaOnline(p, ratings) {
   if (!p.acabada || p.acabada.status === 'anulada' || p.moves.length < 2) return null;
   const { winner } = p.acabada;
   const score = !winner ? 0.5 : winner === p.color ? 1 : 0;
-  p.puntos = ratings.record({ category: categoryOf({ mode: 'online', time: p.time }), opponent: p.rivalRating, score });
+  p.puntos = ratings.record({ category: categoryOf({ mode: 'online', time: p.time }), opponent: p.rivalRating, score, rival: p.nombres?.[p.rival] ?? '' });
   return p.puntos;
 }
