@@ -52,6 +52,14 @@ export function gripSlideForReach({ reach, distance, torso = TORSO }) {
   return Math.min(GRIP_RETRACT, Math.max(-GRIP_EXTEND, reach - (distance - torso)));
 }
 
+// La estocada apuntada (el duelo, `aimSpear`): cuánto ha de resbalar la lanza en la mano para que la punta, que
+// del puño sale `tipToFist` tal como se midió el golpe, llegue justo a `target` desde donde estará el puño al dar
+// (`fist`). Positivo, hacia el regatón (la punta se acerca al puño). La pieza no deja que el puño se salga de su
+// sitio en el palo (`hold`), así que puede quedarse algo corta o larga.
+export function aimedSlide({ fist, tipToFist, target }) {
+  return tipToFist - Math.hypot(target.x - fist.x, target.y - fist.y, target.z - fist.z);
+}
+
 // Muestra con el valor más alto de una lista de { t, value }, o null si está vacía.
 export function peak(samples) {
   let best = null;

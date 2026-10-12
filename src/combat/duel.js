@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { sfx } from '../audio/sfx.js';
-import { fightSpots, gripSlideForReach, planExchanges, shieldOf, usableStrikes } from './plan.js';
+import { TORSO, aimedSlide, fightSpots, gripSlideForReach, planExchanges, shieldOf, usableStrikes } from './plan.js';
 import { twirl } from './twirl.js';
 import { rightOf, victoryLap } from './knight/common.js';
 
@@ -24,6 +24,20 @@ const TWIRL_SECONDS = 0.7;
 // escudo (box_02) tarda 2,3 s en soltarse, con mucho baile de pies antes: sin recortarla, cada intercambio
 // se hacía eterno.
 const STRIKE_LEAD = 1.0;
+// LA ESTOCADA, AL CUERPO, Y LA PARADA CON EL ESCUDO (lo pidió el usuario). Las estocadas iban hacia arriba y de
+// lado, a la cabeza o al hombro del otro: ahora van del puño a un punto del cuerpo (`aimSpear`), y las que no
+// son la última las para quien las recibe, subiendo el escudo delante del pecho y de cara a la punta.
+const HIT_HEIGHT = 0.62; // la que entra: al pecho (en alturas de la figura de quien la recibe)
+const PARRY_HEIGHT = 0.52; // la que se para: al cuerpo, algo más abajo, que el escudo cuelga un palmo de la mano
+const PARRY_OUT = 0.2; // lo que adelanta el escudo del pecho al parar
+const PARRY_BEHIND = 0.03; // el centro del escudo, tras el punto donde da la punta (lo que abulta)
+const PARRY_LEAD = 0.55; // segundos antes del golpe en que empieza a subirlo…
+const PARRY_RAISE = 0.32; // …lo que tarda en subirlo…
+const PARRY_HOLD = 0.3; // …lo que lo aguanta tras el golpe…
+const PARRY_LOWER = 0.45; // …y lo que tarda en bajarlo
+const PARRY_PUSH = 0.06; // lo que le empuja la estocada parada
+// El codo del brazo del escudo al pararla: abajo y hacia fuera (en el sistema de la figura, +X es su izquierda).
+const PARRY_POLE = new THREE.Vector3(0.8, -0.55, -0.2);
 
 function strikesFor(pawn, style) {
   return usableStrikes(pawn.piece.attacks, pawn.piece.strikes, style, { shield: shieldOf(pawn.piece) });
@@ -52,17 +66,67 @@ function impactPoint(hitter, measure, style) {
   return piece.object.getObjectByName(measure.body.bone).getWorldPosition(new THREE.Vector3());
 }
 
+// Adónde va la estocada y cuánto ha de resbalar la lanza en la mano para que la punta llegue justo ahí: del
+// puño (donde estará al dar, según se midió el golpe) a un punto del cuerpo de quien la recibe, o delante de
+// él, donde pondrá el escudo si la para. Null si el golpe no trae medido el puño.
+function aimThrust({ hitter, receiver, measure, parry }) {
+  const spear = measure.spear;
+  if (!spear?.fist) return null;
+  const h = hitter.piece;
+  const r = receiver.piece;
+  const fist = h.figure.localToWorld(new THREE.Vector3(spear.fist.x, spear.fist.y, spear.fist.z));
+  const tip = h.figure.localToWorld(new THREE.Vector3(spear.side, spear.height, spear.reach));
+  const from = h.figure.getWorldPosition(new THREE.Vector3());
+  const to = r.figure.getWorldPosition(new THREE.Vector3());
+  const u = to.clone().sub(from).setY(0).normalize(); // de quien pega a quien recibe
+  const point = to.clone().addScaledVector(u, -(TORSO + (parry ? PARRY_OUT : 0)));
+  point.y = to.y + (r.height - r.pedestalHeight) * (parry ? PARRY_HEIGHT : HIT_HEIGHT);
+  return { point, u, slide: aimedSlide({ fist, tipToFist: tip.distanceTo(fist), target: point }) };
+}
+
+// Quien recibe sube el escudo delante del pecho, de cara a la punta, justo a tiempo; lo aguanta y lo baja. El
+// brazo, con un IK de dos huesos (`reachArms`) que lleva la mano adonde el escudo (que cuelga de ella) queda
+// con su centro tras el punto donde dará la punta.
+async function parry({ receiver, aim, clock, untilImpact }) {
+  const r = receiver.piece;
+  await clock.wait(Math.max(0, untilImpact - PARRY_LEAD));
+  const centro = aim.point.clone().addScaledVector(aim.u, PARRY_BEHIND);
+  const cara = aim.u.clone().negate(); // hacia quien pega
+  const escudo = new THREE.Vector3();
+  const mano = new THREE.Vector3();
+  const total = PARRY_LEAD + PARRY_HOLD + PARRY_LOWER;
+  const suave = (x) => x * x * (3 - 2 * x);
+  await clock.tween(total, (t) => {
+    const s = t * total;
+    const w = s < PARRY_RAISE ? suave(s / PARRY_RAISE)
+      : s < PARRY_LEAD + PARRY_HOLD ? 1
+        : suave(Math.max(0, 1 - (s - PARRY_LEAD - PARRY_HOLD) / PARRY_LOWER));
+    r.faceShield(cara, w);
+    const brazo = r.armPoints().left;
+    if (!brazo || !r.shieldCenter(escudo)) return;
+    // Lo que va de la mano al centro del escudo ahora; la mano, ahí menos eso.
+    mano.copy(centro).sub(escudo.sub(brazo.hand));
+    r.reachArms({ left: { target: mano, pole: PARRY_POLE } }, w);
+  });
+  r.reachArms(null);
+  r.faceShield(null);
+}
+
 async function strike({ hitter, receiver, beat, style, spots, clock, fx, cinema, hud }) {
   const h = hitter.piece;
   const r = receiver.piece;
   const measure = h.strikes[beat.key];
   const impact = style === 'duel' ? measure.spear : measure.body;
+  // En el duelo, la estocada que no es la última la para quien la recibe, si lleva escudo.
+  const parada = style === 'duel' && !beat.final && Boolean(r.props.shield);
+  const aim = style === 'duel' ? aimThrust({ hitter, receiver, measure, parry: parada }) : null;
   if (style === 'duel') {
     // Antes de la estocada, aún quieto, apunta la lanza al rival y la hace resbalar en la mano. Si
     // girara y resbalara ya atacando, la punta atravesaría al rival y, al agacharse, el regatón se
     // hundiría en el suelo.
     h.setSpearPose('forward');
-    h.setGripSlide(gripSlideForReach({ reach: measure.spear.reach, distance: spots.distance }));
+    h.aimSpear(aim?.point ?? null);
+    h.setGripSlide(aim ? aim.slide : gripSlideForReach({ reach: measure.spear.reach, distance: spots.distance }));
     await clock.wait(GRIP_SETTLE);
   }
   const lead = Math.max(0, impact.t - STRIKE_LEAD);
@@ -70,13 +134,18 @@ async function strike({ hitter, receiver, beat, style, spots, clock, fx, cinema,
   const hasta = impact.t - lead; // lo que falta para el golpe
 
   if (!beat.final) {
+    const defensa = parada && aim ? parry({ receiver, aim, clock, untilImpact: hasta }) : null;
     await clock.wait(hasta);
     sfx.play(style === 'duel' ? 'escudo' : 'punetazo', { volume: 0.8 });
     fx.burst(impactPoint(hitter, measure, style), { size: 0.55, sparks: 12 });
     cinema.shake(0.07);
-    const reaction = r.playOnce('hit', { fade: 0.08 });
+    // Parada: el escudo aguanta y a él solo le empuja un poco; si no, encaja el golpe.
+    const reaction = defensa
+      ? knockBack({ clock, figure: r.figure, u: aim.u, distance: PARRY_PUSH, seconds: 0.18 })
+      : r.playOnce('hit', { fade: 0.08 });
     await clock.hold(HIT_STOP);
-    await Promise.all([attack, reaction]);
+    await Promise.all([attack, reaction, defensa]);
+    h.aimSpear(null);
     // Baja el arma y, con la lanza ya erguida, vuelve a subirla en la mano: si resbalara antes, con
     // la lanza aún de punta, saldría disparada hacia el rival.
     if (style === 'duel') h.setSpearPose(null);
@@ -109,10 +178,20 @@ async function strike({ hitter, receiver, beat, style, spots, clock, fx, cinema,
   await clock.wait(SLOW_AFTER);
   clock.timeScale = 1;
   await Promise.all([attack, fall, knock]);
+  h.aimSpear(null);
   if (style === 'duel') h.setSpearPose(null);
   h.play('idle', { fade: 0.3 });
   await clock.wait(RECOVER);
   h.setGripSlide(-COMBAT_RAISE);
+}
+
+// Un empujón corto, en la dirección `u` (horizontal, unitaria).
+function knockBack({ clock, figure, u, distance, seconds }) {
+  const start = figure.position.clone();
+  return clock.tween(seconds, (t) => {
+    const k = 1 - (1 - t) ** 2;
+    figure.position.set(start.x + u.x * distance * k, start.y, start.z + u.z * distance * k);
+  });
 }
 
 // `obstacles` son las posiciones {x, z} de las demás piezas, para que la cámara no quede tapada.

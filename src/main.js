@@ -3124,9 +3124,9 @@ async function start() {
     piece.guardSpear({ from: 'Hip', to: 'Head', radius: 0.2, over: 0.35 });
     // Ni el escudo, que en las patadas y al recibir se le metía en el tronco: el hombro aparta el brazo.
     piece.guardShield({ from: 'Hip', to: 'NeckTwist01', arm: 'L_Upperarm', radius: 0.13 });
-    // Y la estocada, a lo largo del antebrazo y con la lanza cogida más por en medio (el puño, al 40 % del
-    // palo y no en el regatón): así la punta llega justo al rival y lo de atrás pasa por su costado.
-    piece.thrustAlongArm({ grip: 0.38 });
+    // Y la estocada, a lo largo del antebrazo y con el puño algo más arriba del palo: así la punta llega justo al
+    // rival y lo de atrás pasa por su costado.
+    piece.thrustAlongArm({ grip: 0.15 });
     return piece;
   }
   // Y la mano, en un puño alrededor de la lanza (la llevaba pegada a la mano abierta), y en guardia: en
@@ -3135,8 +3135,11 @@ async function start() {
   function pawnGrip(piece) {
     piece.spearStance({
       upper: 'R_Upperarm', fore: 'R_Forearm', hand: 'R_Hand',
-      elbow: [-0.14, -0.97, 0.21], // el codo, abajo, algo adelantado y hacia fuera
-      wrist: [0.05, -0.25, 0.98], // el antebrazo, hacia delante y algo hacia abajo: así la muñeca queda casi recta (medido)
+      // El codo, abajo, adelantado y algo hacia fuera; y el antebrazo, hacia delante y un poco hacia arriba: con
+      // la lanza cogida por en medio (`hold` en el manifiesto), el puño ha de ir a la altura justa para que el
+      // regatón quede en el suelo. Con el antebrazo hacia abajo, el regatón se metía en la peana y resbalaba.
+      elbow: [-0.14, -0.93, 0.33],
+      wrist: [0.05, 0.12, 0.99],
     });
     piece.gripSpearFist();
     return piece;

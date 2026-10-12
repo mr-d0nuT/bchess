@@ -379,7 +379,20 @@ export function spawnPiece(kit) {
   const bodyUp = new THREE.Vector3(0, 1, 0);
   // La de la estocada a lo largo del brazo: del codo a la mano, en el sistema del modelo. El codo es el
   // primer hueso por encima de la mano que no está pegado a ella (los de giro del antebrazo, sí).
+  // Con `aimSpear(punto)`, la estocada no sigue al antebrazo sino que va del puño a ese punto (en el mundo): la
+  // del peón iba hacia arriba y de lado, a la cabeza o al hombro del rival, y el usuario la quería al cuerpo.
+  let spearAim = null;
+  const aimFrom = new THREE.Vector3();
   function followArm() {
+    if (spearAim && spearGripAt) {
+      spearBone.localToWorld(aimFrom.copy(spearGripAt));
+      axis.subVectors(spearAim, aimFrom);
+      if (axis.lengthSq() > 1e-8) {
+        axis.applyQuaternion(model.getWorldQuaternion(guardTurn).invert()).normalize();
+        armPose.setFromUnitVectors(bodyUp, axis);
+        return;
+      }
+    }
     if (!forearmBone) {
       let arm = spearBone?.parent;
       spearBone?.getWorldPosition(guardTo);
@@ -634,6 +647,48 @@ export function spawnPiece(kit) {
 
   const spearHold = props.spear ? props.spear.quaternion.clone() : null;
 
+  // EL PUÑO, POR EN MEDIO DEL PALO. Con `spec.spear.hold` ([desde, hasta], en fracciones del largo contadas desde
+  // el regatón), el puño se queda entre esos dos puntos del palo pase lo que pase: lo que pida el combate
+  // (subirla para que el regatón no barra las peanas, alargarla para llegar al rival) y lo que resbale para no
+  // meterse en el cuerpo o en el suelo, hasta ahí. El peón la llevaba cogida por el regatón (lo vio el
+  // usuario: «demasiado abajo, queda raro»). Son límites de lo que resbala: el puño, sin resbalar, ya está en
+  // `-spearEnds.bottom` desde el regatón.
+  const spearHoldRange = spec.spear?.hold && spearEnds ? {
+    lo: spec.spear.hold[0] * (spearEnds.top - spearEnds.bottom) + spearEnds.bottom,
+    hi: spec.spear.hold[1] * (spearEnds.top - spearEnds.bottom) + spearEnds.bottom,
+    rear: spec.spear.hold[0] * (spearEnds.top - spearEnds.bottom), // lo que queda, como poco, por detrás del puño
+  } : null;
+  // Y si ni resbalando lo que deja el agarre sale del suelo, se inclina: gira sobre el puño lo justo para que su
+  // extremo más bajo quede encima (como el escudo, `keepShieldAboveFloor`).
+  const tiltPivot = new THREE.Vector3();
+  const tiltLow = new THREE.Vector3();
+  const tiltLever = new THREE.Vector3();
+  const tiltAxis = new THREE.Vector3();
+  const tiltUp = new THREE.Vector3(0, 1, 0);
+  const tiltTurn = new THREE.Quaternion();
+  function tiltSpearAboveFloor(spear, floorY) {
+    spearBone.localToWorld(tiltPivot.copy(spearGripAt));
+    for (let pasada = 0; pasada < 2; pasada++) {
+      spear.localToWorld(top.set(0, spearEnds.top, 0));
+      spear.localToWorld(bottom.set(0, spearEnds.bottom, 0));
+      tiltLow.copy(top.y < bottom.y ? top : bottom);
+      if (tiltLow.y >= floorY - 1e-4) return;
+      tiltLever.subVectors(tiltLow, tiltPivot);
+      const largo = tiltLever.length();
+      tiltAxis.crossVectors(tiltLever, tiltUp);
+      if (largo < 1e-4 || tiltAxis.lengthSq() < 1e-10) {
+        // Justo vertical: se inclina hacia delante de la figura, que es como se apoya una lanza al agacharse.
+        tiltAxis.set(1, 0, 0).applyQuaternion(figure.getWorldQuaternion(tiltTurn));
+        if (tiltLever.y > 0) tiltAxis.negate();
+      }
+      const quiere = (floorY - tiltPivot.y) / Math.max(largo, 1e-4);
+      if (quiere >= 1) return; // el puño, en el suelo: ni de punta
+      const angulo = Math.asin(Math.max(-1, quiere)) - Math.asin(THREE.MathUtils.clamp(tiltLever.y / Math.max(largo, 1e-4), -1, 1));
+      if (angulo <= 1e-5) return;
+      turnSpearAround(spear, tiltTurn.setFromAxisAngle(tiltAxis.normalize(), angulo), tiltPivot);
+    }
+  }
+
   // En las estocadas (las versiones de ataque marcadas `thrust`), la espada sigue la línea del antebrazo,
   // como si el brazo se alargase en la hoja. Tal como se agarra, en esos golpes (puñetazos con la espada
   // en la mano) apuntaba al cielo mientras el puño iba al frente, y la estocada parecía un empujón. La
@@ -806,6 +861,12 @@ export function spawnPiece(kit) {
     shield.updateWorldMatrix(false, false);
   }
 
+  // De cara a quien ataca (`faceShield`): { dir, w }. Y el centro del escudo, en su sistema (`shieldCenter`).
+  let shieldFace = null;
+  let shieldMiddle = null;
+  const faceNow = new THREE.Vector3();
+  const faceTurn = new THREE.Quaternion();
+  const FACE_LOCAL = new THREE.Vector3(0, 0, 1); // la cara del escudo, en su sistema: se cuelga girado 90° y mira afuera
   function steadyShield(dt = 0) {
     const shield = props.shield;
     if (!shield || !shieldHold || !trunkLow || !trunkHigh || !isOurs(shield)) return;
@@ -831,9 +892,21 @@ export function spawnPiece(kit) {
     steady.fix.setFromUnitVectors(steady.up, steady.trunk.normalize());
     steady.world.premultiply(steady.fix);
     steady.at.sub(steady.grip).applyQuaternion(steady.fix).add(steady.grip);
+    // Parando: gira sobre la mano, alrededor de la vertical, hasta que su cara mira adonde se pide.
+    if (shieldFace?.w > 0) {
+      faceNow.copy(FACE_LOCAL).applyQuaternion(steady.world).setY(0);
+      if (faceNow.lengthSq() > 1e-8) {
+        faceNow.normalize();
+        const giro = Math.atan2(faceNow.x * shieldFace.dir.z - faceNow.z * shieldFace.dir.x, faceNow.dot(shieldFace.dir));
+        faceTurn.setFromAxisAngle(steadyUp, -giro * shieldFace.w);
+        steady.world.premultiply(faceTurn);
+        steady.at.sub(steady.grip).applyQuaternion(faceTurn).add(steady.grip);
+      }
+    }
     shield.quaternion.copy(steady.parent.invert()).multiply(steady.world);
     shield.position.copy(hand.worldToLocal(steady.at));
   }
+  const steadyUp = new THREE.Vector3(0, 1, 0);
 
   function aimSword() {
     const sword = props.sword;
@@ -979,21 +1052,22 @@ export function spawnPiece(kit) {
     // Se mide con la lanza como la pone el resto del juego en este fotograma (sin el resbalón de aquí): si
     // no, al resbalar dejaría de tocar, volvería y no pararía de ir y venir.
     const atras = rearGrip.clone().sub(bottom).dot(rearAxis); // del regatón al puño, a lo largo de la lanza
+    const minimo = Math.max(REAR_MIN, spearHoldRange?.rear ?? 0); // y no por debajo del agarre (`hold`)
     let quiere = 0;
     // En la estocada a lo largo del brazo, no: lo de atrás ya pasa por el costado, y resbalar es lo que la
     // dejaba cogida por el regatón.
-    if (atras > REAR_MIN && !thrustingAlongArm()) {
+    if (atras > minimo && !thrustingAlongArm()) {
       bodyGuard.from.getWorldPosition(guardFrom);
       bodyGuard.to.getWorldPosition(guardTo);
       guardTo.addScaledVector(axis.subVectors(guardTo, guardFrom), bodyGuard.over);
-      const tope = rearGrip.clone().addScaledVector(rearAxis, -REAR_MIN);
+      const tope = rearGrip.clone().addScaledVector(rearAxis, -minimo);
       closestOnSegments(bottom, tope, guardFrom, guardTo, onShaft, onBody);
       const radius = bodyGuard.radius * figure.getWorldScale(boneScale).x;
-      if (onShaft.distanceTo(onBody) < radius) quiere = atras - REAR_MIN; // la parte de atrás, fuera del cuerpo
+      if (onShaft.distanceTo(onBody) < radius) quiere = atras - minimo; // la parte de atrás, fuera del cuerpo
     }
     const paso = REAR_RATE * Math.max(dt, 0);
     rearSlide += dt > 0 ? THREE.MathUtils.clamp(quiere - rearSlide, -paso, paso) : quiere - rearSlide;
-    const resbala = Math.min(rearSlide, Math.max(0, atras - REAR_MIN));
+    const resbala = Math.min(rearSlide, Math.max(0, atras - minimo));
     if (resbala <= 1e-4) return;
     spear.parent.worldToLocal(spearAt.copy(spear.getWorldPosition(spearAt)).addScaledVector(rearAxis, resbala));
     spear.position.copy(spearAt);
@@ -1606,10 +1680,12 @@ export function spawnPiece(kit) {
     grip += Math.max(-gripStep, Math.min(gripStep, gripTarget - grip));
     // En la estocada a lo largo del brazo, además, el puño sube por el palo (se coge más por en medio).
     armGrip += Math.max(-gripStep, Math.min(gripStep, (thrustingAlongArm() ? armThrust.grip : 0) - armGrip));
+    // Sin sacar el puño de su sitio en el palo (`spearHoldRange`).
+    const total = spearHoldRange ? THREE.MathUtils.clamp(grip + armGrip, spearHoldRange.lo, spearHoldRange.hi) : grip + armGrip;
     spear.position.copy(spearGripAt);
-    if (grip + armGrip !== 0) {
+    if (total !== 0) {
       axis.set(0, 1, 0).applyQuaternion(spear.quaternion);
-      spear.position.addScaledVector(axis, -(grip + armGrip) / spear.parent.getWorldScale(boneScale).x);
+      spear.position.addScaledVector(axis, -total / spear.parent.getWorldScale(boneScale).x);
     }
     spear.updateWorldMatrix(true, false);
     // Volteando, el báculo se sale del suelo media vuelta de cada vuelta: dejarlo resbalar para que
@@ -1618,14 +1694,24 @@ export function spawnPiece(kit) {
     if (spearSpin) return;
     spear.localToWorld(top.set(0, spearEnds.top, 0));
     spear.localToWorld(bottom.set(0, spearEnds.bottom, 0));
+    const floorY = figure.getWorldPosition(floor).y + SPEAR_FLOOR_MARGIN;
     const slide = slideAboveFloor({
       lowY: Math.min(top.y, bottom.y),
-      floorY: figure.getWorldPosition(floor).y + SPEAR_FLOOR_MARGIN,
+      floorY,
       axisY: (top.y - bottom.y) / Math.max(1e-6, top.distanceTo(bottom)), // la figura puede estar encogiendo
     });
     if (slide) {
-      axis.set(0, 1, 0).applyQuaternion(spear.quaternion);
-      spear.position.addScaledVector(axis, slide / spear.parent.getWorldScale(boneScale).x);
+      // Resbala lo que deje el agarre (hacia arriba, el puño se acerca al regatón); lo que no, la lanza se
+      // inclina sobre el puño.
+      const sube = !spearHoldRange ? slide
+        : slide > 0 ? Math.min(slide, Math.max(0, total - spearHoldRange.lo))
+          : Math.max(slide, -Math.max(0, spearHoldRange.hi - total));
+      if (sube) {
+        axis.set(0, 1, 0).applyQuaternion(spear.quaternion);
+        spear.position.addScaledVector(axis, sube / spear.parent.getWorldScale(boneScale).x);
+        spear.updateWorldMatrix(false, false);
+      }
+      if (Math.abs(slide - sube) > 1e-4) tiltSpearAboveFloor(spear, floorY);
     }
     keepSpearOffBody(spear, dt);
     alignFist(spear);
@@ -1991,6 +2077,32 @@ export function spawnPiece(kit) {
     thrustAlongArm(options) {
       armThrust = options ? { grip: options.grip ?? 0 } : null;
       applySpearPose();
+    },
+    // Adónde va la estocada (un punto del mundo; null, a lo largo del antebrazo). Ver `followArm`.
+    aimSpear(point) {
+      spearAim = point ? (spearAim ?? new THREE.Vector3()).copy(point) : null;
+    },
+    // Dónde está el puño de la lanza ahora (en el mundo): el centro del agarre.
+    fistPoint(out = new THREE.Vector3()) {
+      return spearBone && spearGripAt ? spearBone.localToWorld(out.copy(spearGripAt)) : null;
+    },
+    // Hacia dónde ha de mirar la cara del escudo (una dirección del mundo), con peso `w` (de 0 a 1): para parar
+    // una estocada, de cara a quien la da. Con null, como lo pone el brazo.
+    faceShield(direction, w = 1) {
+      shieldFace = direction ? { dir: direction.clone().setY(0).normalize(), w: THREE.MathUtils.clamp(w, 0, 1) } : null;
+    },
+    // El centro del escudo ahora (en el mundo), o null si no lleva.
+    shieldCenter(out = new THREE.Vector3()) {
+      const shield = props.shield;
+      if (!shield || !isOurs(shield)) return null;
+      if (!shieldMiddle) {
+        shield.updateWorldMatrix(true, true);
+        const caja = new THREE.Box3();
+        for (const local of shieldPoints(shield)) caja.expandByPoint(local);
+        shieldMiddle = caja.getCenter(new THREE.Vector3());
+      }
+      shield.updateWorldMatrix(true, false);
+      return out.copy(shieldMiddle).applyMatrix4(shield.matrixWorld);
     },
     guardSpear(options) {
       if (!options) {

@@ -74,7 +74,8 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
       if (piece.props.spear && piece.spearEnds) {
         const tip = piece.props.spear.localToWorld(point.set(0, piece.spearEnds.top, 0));
         const axis = piece.props.spear.localToWorld(new THREE.Vector3(0, piece.spearEnds.bottom, 0)).sub(tip).negate().normalize();
-        spearSamples.push({ t, x: tip.x, y: tip.y, z: tip.z, axis: [axis.x, axis.y, axis.z] });
+        const fist = piece.fistPoint?.();
+        spearSamples.push({ t, x: tip.x, y: tip.y, z: tip.z, axis: [axis.x, axis.y, axis.z], fist: fist && { x: fist.x, y: fist.y, z: fist.z } });
       }
       if (piece.props.sword && piece.swordEnds) {
         const tip = piece.props.sword.localToWorld(point.set(0, piece.swordEnds.top, 0));
@@ -111,7 +112,8 @@ export function measureStrikes(kit, spawnPiece, { faces = false } = {}) {
         const speed = b.t > a.t ? Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) / (b.t - a.t) : 0;
         if (!best || speed < best.speed) best = { ...sample, speed };
       });
-      spear = { t: best.t, reach: best.z, side: best.x, height: best.y, axis: best.axis };
+      // Y dónde está el puño entonces: el duelo apunta la estocada desde ahí (`aimSpear`).
+      spear = { t: best.t, reach: best.z, side: best.x, height: best.y, axis: best.axis, fist: best.fist ?? null };
     }
     if (blade) blade.path = bladePath;
     strikes[attack.key] = { duration, spear, blade, body, sideStep, overhead: highestHand(paths) };

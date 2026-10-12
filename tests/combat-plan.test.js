@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DUEL_RETREAT, MELEE_DISTANCE, bestStrike, chopHit, fightSpots, gripSlideForReach, peak, pickStyle, planExchanges, shieldStrike, strikeSpot, usableStrikes,
+  DUEL_RETREAT, MELEE_DISTANCE, aimedSlide, bestStrike, chopHit, fightSpots, gripSlideForReach, peak, pickStyle, planExchanges, shieldStrike, strikeSpot, usableStrikes,
 } from '../src/combat/plan.js';
 
 const close = (a, b) => Math.abs(a - b) < 1e-9;
@@ -136,4 +136,11 @@ test('chopHit: el tajo cae en el casco al bajar la punta, después de lo más al
   assert.equal(hit.top, 2);
   assert.equal(chopHit(path, 2), null, 'si la punta nunca pasa por encima, no hay tajo');
   assert.equal(chopHit([], 1), null);
+});
+
+test('la estocada apuntada: lo que resbala la lanza para que la punta dé justo en el punto', () => {
+  // El puño a 1 del punto y la punta, medida, a 1,3 del puño: resbala 0,3 hacia el regatón.
+  assert.ok(Math.abs(aimedSlide({ fist: { x: 0, y: 1, z: 0 }, tipToFist: 1.3, target: { x: 0, y: 1, z: 1 } }) - 0.3) < 1e-9);
+  // Si el punto está más lejos que la punta, al revés: hacia la punta (negativo).
+  assert.ok(aimedSlide({ fist: { x: 0, y: 1, z: 0 }, tipToFist: 1, target: { x: 0.6, y: 0.2, z: 1 } }) < 0);
 });

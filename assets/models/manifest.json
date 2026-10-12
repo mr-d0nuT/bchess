@@ -121,8 +121,9 @@
           0,
           0
         ],
-        "grip": 0.45,
-        "length": 1.9
+        "grip": 0.78,
+        "length": 1.9,
+        "hold": [0.35, 0.62]
       },
       "shield": {
         "hand": "left",
@@ -354,8 +355,9 @@
           0,
           0
         ],
-        "grip": 0.45,
-        "length": 1.9
+        "grip": 0.78,
+        "length": 1.9,
+        "hold": [0.35, 0.62]
       },
       "shield": {
         "hand": "left",
