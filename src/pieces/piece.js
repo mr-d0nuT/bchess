@@ -726,6 +726,86 @@ export function spawnPiece(kit) {
     }
   }
 
+  // Unos cuantos puntos de la malla del escudo, en su propio sistema: con un puñado basta para saber si se mete
+  // en el cuerpo o en el suelo.
+  function shieldPoints(shield) {
+    shield.updateWorldMatrix(true, true);
+    const inversa = shield.matrixWorld.clone().invert();
+    const points = [];
+    shield.traverse((o) => {
+      const pos = o.isMesh ? o.geometry?.attributes?.position : null;
+      if (!pos) return;
+      const paso = Math.max(1, Math.floor(pos.count / 200));
+      for (let i = 0; i < pos.count; i += paso) {
+        points.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld).applyMatrix4(inversa));
+      }
+    });
+    return points;
+  }
+
+  // EL ESCUDO, SOBRE EL SUELO. Tumbado, el escudo sigue al tronco (`steadyShield`) y se queda de canto, con la
+  // mitad metida en el tablero (lo vio el usuario: «medio enterrado»). Cada fotograma, si algún punto suyo baja
+  // del tablero, se gira alrededor de la mano lo justo para subirlo —así acaba plano a su lado, como queda un
+  // escudo caído—, y si ni así (la mano misma pegada al suelo), se sube lo que falte. El suelo es el tablero, no
+  // donde pisa la figura: el jinete pisa la silla, y su escudo cuelga más abajo.
+  const SHIELD_FLOOR_MARGIN = 0.008;
+  const SHIELD_FLOOR_PASSES = 4;
+  const SHIELD_FLOOR_STEP = Math.PI / 2; // lo más que gira en cada pasada
+  let shieldFloor = null; // { points, reach }: puntos de su malla (en su sistema) y lo más que se alejan de la mano
+  const floorPoint = new THREE.Vector3();
+  const floorDeep = new THREE.Vector3();
+  const floorGrip = new THREE.Vector3();
+  const floorLever = new THREE.Vector3();
+  const floorAxis = new THREE.Vector3();
+  const floorUp = new THREE.Vector3(0, 1, 0);
+  const floorTurn = new THREE.Quaternion();
+  function lowestShieldPoint(shield) {
+    let low = Infinity;
+    for (const local of shieldFloor.points) {
+      floorPoint.copy(local).applyMatrix4(shield.matrixWorld);
+      if (floorPoint.y < low) {
+        low = floorPoint.y;
+        floorDeep.copy(floorPoint);
+      }
+    }
+    return low;
+  }
+  function keepShieldAboveFloor() {
+    const shield = props.shield;
+    if (!shield || !isOurs(shield) || !shield.visible) return;
+    const hand = shield.parent;
+    if (!shieldFloor) {
+      // Girarlo alrededor de la mano no cambia lo lejos que queda cada punto de ella: se mide una vez.
+      const points = shieldPoints(shield);
+      shield.updateMatrix();
+      const reach = points.reduce((far, local) => Math.max(far, local.clone().applyMatrix4(shield.matrix).length()), 0);
+      shieldFloor = { points, reach };
+    }
+    hand.getWorldPosition(floorGrip);
+    const floorY = object.getWorldPosition(floorPoint).y + SHIELD_FLOOR_MARGIN;
+    if (floorGrip.y - floorY >= shieldFloor.reach * hand.getWorldScale(floorLever).x) return; // ni llega
+    shield.updateWorldMatrix(true, false);
+    for (let pasada = 0; pasada < SHIELD_FLOOR_PASSES; pasada++) {
+      const low = lowestShieldPoint(shield);
+      if (low >= floorY - 1e-4) return;
+      // El punto más hundido sube girando alrededor de la mano, por el plano vertical que los contiene a los dos.
+      floorLever.subVectors(floorDeep, floorGrip);
+      const largo = floorLever.length();
+      floorAxis.crossVectors(floorLever, floorUp);
+      if (largo < 1e-4 || floorAxis.lengthSq() < 1e-10) break; // justo debajo de la mano: girar no lo sube
+      const quiere = (floorY - floorGrip.y) / largo;
+      if (quiere >= 1) break; // ni poniéndolo de punta hacia arriba
+      const angulo = Math.min(Math.asin(Math.max(-1, quiere)) - Math.asin(THREE.MathUtils.clamp(floorLever.y / largo, -1, 1)), SHIELD_FLOOR_STEP);
+      if (angulo <= 1e-5) break;
+      turnSpearAround(shield, floorTurn.setFromAxisAngle(floorAxis.normalize(), angulo), floorGrip);
+    }
+    const falta = floorY - lowestShieldPoint(shield);
+    if (falta <= 1e-4) return;
+    shield.getWorldPosition(floorPoint).y += falta;
+    shield.position.copy(hand.worldToLocal(floorPoint));
+    shield.updateWorldMatrix(false, false);
+  }
+
   function steadyShield(dt = 0) {
     const shield = props.shield;
     if (!shield || !shieldHold || !trunkLow || !trunkHigh || !isOurs(shield)) return;
@@ -1486,6 +1566,7 @@ export function spawnPiece(kit) {
     aimSword();
     steadyShield(dt);
     keepShieldOffBody();
+    keepShieldAboveFloor();
     detectSteps(dt);
     const spear = props.spear;
     if (!spear || !isOurs(spear)) return;
@@ -1902,19 +1983,7 @@ export function spawnPiece(kit) {
         shieldGuard = null;
         return false;
       }
-      // Unos cuantos puntos de su malla, en el sistema del escudo: con un puñado basta para saber si se mete.
-      shield.updateWorldMatrix(true, true);
-      const inversa = shield.matrixWorld.clone().invert();
-      const points = [];
-      shield.traverse((o) => {
-        const pos = o.isMesh ? o.geometry?.attributes?.position : null;
-        if (!pos) return;
-        const paso = Math.max(1, Math.floor(pos.count / 200));
-        for (let i = 0; i < pos.count; i += paso) {
-          points.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld).applyMatrix4(inversa));
-        }
-      });
-      shieldGuard = { from, to, arm, radius: options.radius ?? 0.13, points };
+      shieldGuard = { from, to, arm, radius: options.radius ?? 0.13, points: shieldPoints(shield) };
       return true;
     },
     // La estocada (`forward`) a lo largo del antebrazo y con la lanza cogida más por en medio: `grip` es lo
