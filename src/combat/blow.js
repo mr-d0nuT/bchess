@@ -18,6 +18,12 @@ const THRUST_STAND_MAX = 2.3;
 // La estocada, al cuerpo: a esta altura de la figura del rival, y hundiéndose esto en su ropa.
 const THRUST_HEIGHT = 0.6;
 const SPEAR_BITE = 0.03;
+// La espada (`closeIn`): lo que se hunde la punta en el rival, desde dónde se lanza el rayo que busca su superficie,
+// lo mínimo que merece la pena moverse y lo que tarda el paso atrás.
+const BLADE_BITE = 0.04;
+const RAY_BACK = 3;
+const STEP_MIN = 0.03;
+const STEP_BACK_SECONDS = 0.25;
 const GRIP_SETTLE = 0.35; // lo que tarda la lanza en ponerse de punta y resbalar, antes de la estocada
 // Lo que se ve de la estocada antes de que llegue: la del peón (box_02) tarda 2,3 s en soltarse, con mucho
 // baile de pies antes. Se empieza el clip lo que sobre más adelante (`lead`).
@@ -46,7 +52,7 @@ export function blowOf(fighter) {
   const slash = fighter.props?.sword ? bladeStrikes(fighter, { thrust: false })[0] ?? bladeStrikes(fighter)[0] : null;
   if (slash) {
     const { blade } = fighter.strikes[slash];
-    return { key: slash, reach: blade.reach, t: blade.t, point: () => swordTip(fighter) };
+    return { key: slash, reach: blade.reach, t: blade.t, blade, point: () => swordTip(fighter) };
   }
   const thrust = spearThrustOf(fighter);
   if (thrust) return thrust;
@@ -86,13 +92,55 @@ function spearThrustOf(fighter) {
 // dar, a la superficie de su cuerpo a la altura del pecho, buscada con un rayo contra su malla. Sin apuntar, la
 // lanza seguía al antebrazo mientras el peón daba sus saltitos antes de soltarla, y daba bandazos hasta
 // clavarse en el suelo; y la punta acababa dentro del alfil, cuya túnica abulta más que el pecho medido.
-export async function aimBlow(fighter, blow, { clock, distance, torso = TORSO, target = null }) {
-  if (!blow.spear) return;
+export async function aimBlow(fighter, blow, { clock, distance, torso = TORSO, target = null, attacker = null }) {
+  if (!blow.spear) {
+    if (blow.blade && target && attacker) await closeIn({ attacker, fighter, blade: blow.blade, target, clock });
+    return;
+  }
   fighter.setSpearPose('forward');
   const aim = target && blow.spear.fist && fighter.aimSpear ? aimAt(fighter, blow.spear, target, torso) : null;
   fighter.aimSpear?.(aim?.point ?? null);
   fighter.setGripSlide(aim ? aim.slide : gripSlideForReach({ reach: blow.spear.reach, distance, torso }));
   await clock.wait(GRIP_SETTLE);
+}
+
+// LA ESPADA, HASTA EL RIVAL. Quien pega con espada se planta según el pecho de una persona (`torsoOf`), pero de
+// verdad llega donde le deja el desmontar y lo que abulte el rival: el caballero se quedaba con la punta a un palmo
+// de la túnica del alfil (lo vio el usuario). Antes de pegar, un rayo a la altura y al lado por donde pasará la
+// punta busca la superficie del rival, y da el paso que falte (o se aparta, si se ha pasado).
+async function closeIn({ attacker, fighter, blade, target, clock }) {
+  if (blade.height === undefined) return;
+  const piece = fighterOf(target) ?? target.piece;
+  const from = fighter.figure.getWorldPosition(new THREE.Vector3());
+  const to = piece.figure.getWorldPosition(new THREE.Vector3());
+  const dir = to.clone().sub(from).setY(0);
+  const lejos = dir.length();
+  if (lejos < 1e-3) return;
+  dir.normalize();
+  const izquierda = new THREE.Vector3(dir.z, 0, -dir.x); // +X de la figura, que mira hacia `dir`
+  const origen = to.clone().addScaledVector(dir, -RAY_BACK).addScaledVector(izquierda, blade.side ?? 0);
+  origen.y = from.y + blade.height;
+  piece.object.updateMatrixWorld(true);
+  const hit = new THREE.Raycaster(origen, dir, 0, 2 * RAY_BACK).intersectObjects(targetsOf(piece), false)[0];
+  if (!hit) return;
+  const frente = RAY_BACK - hit.distance; // del centro del rival a su superficie, por donde pasa la punta
+  const quiere = blade.reach + frente - BLADE_BITE; // la distancia, de centro a centro, a la que la punta entra
+  const falta = lejos - quiere;
+  if (Math.abs(falta) < STEP_MIN) return;
+  const destino = { x: from.x + dir.x * falta, z: from.z + dir.z * falta };
+  const mira = Math.atan2(dir.x, dir.z);
+  if (falta > 0 && attacker.mover?.walkTo) {
+    await attacker.mover.walkTo(destino);
+  } else {
+    // Hacia atrás, un paso corto sin darse la vuelta.
+    const figura = fighter.figure;
+    const ini = figura.position.clone();
+    await clock.tween(STEP_BACK_SECONDS, (t) => {
+      const k = t * t * (3 - 2 * t);
+      figura.position.set(ini.x + (destino.x - from.x) * k, ini.y, ini.z + (destino.z - from.z) * k);
+    });
+  }
+  await attacker.mover?.turnTo?.(mira, 0.15);
 }
 
 // Adónde va la estocada y cuánto resbala la lanza para que la punta llegue justo ahí (ver `aimBlow`).

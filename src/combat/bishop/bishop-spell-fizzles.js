@@ -61,7 +61,7 @@ export const bishopSpellFizzles = {
     await clock.wait(FIZZLE_SECONDS);
 
     // 3. El otro le arrea, a cámara lenta (con lanza, antes la pone de punta hacia él).
-    await aimBlow(fighter, blow, { clock, distance: gapTo(fighter, center), torso: torsoOf(defender), target: defender });
+    await aimBlow(fighter, blow, { clock, distance: gapTo(fighter, center), torso: torsoOf(defender), target: defender, attacker });
     const hitting = playBlow(fighter, blow);
     await slowToImpact(clock, blow.t);
     const fist = blow.point();
