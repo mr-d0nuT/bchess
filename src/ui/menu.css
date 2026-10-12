@@ -929,6 +929,11 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
   text-shadow: 0 1px 0 #000;
   opacity: 0.85;
 }
+/* Quién juega con cada color, debajo de su cara: el nombre y la puntuación. */
+.reloj-jugadores { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 0 4px; }
+.reloj-jugadores[hidden] { display: none; }
+.reloj-jugadores span { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 11px/1.2 system-ui, sans-serif; color: #f0e2c0; text-align: center; }
+.reloj[data-corre="white"] .reloj-jugadores span[data-lado="white"], .reloj[data-corre="black"] .reloj-jugadores span[data-lado="black"] { color: #ffe08a; }
 .reloj-ritmo {
   margin-top: 7px;
   text-align: center;

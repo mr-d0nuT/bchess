@@ -565,11 +565,37 @@ async function start() {
     onPoint: ({ from, to }) => highlights.trail(from, to),
   });
   const controlName = () => (game.control ? `${t(`tiempo.${game.control.key.split(':')[0]}`)} · ${timeLabel(game.control)}` : '');
+  // QUIÉN JUEGA, debajo del reloj (como en chess.com): el nombre y la puntuación de cada uno. Online, la mía en el ritmo
+  // de la partida y la que dijo el rival al empezar; contra la CPU, la mía «contra la CPU» y la de su nivel; uno contra
+  // uno, los nombres (con su puntuación del ranking local, si ya tienen).
+  function jugadoresReloj() {
+    const con = (nombre, entrada) => (entrada ? `${nombre} · ${shown(entrada)}` : nombre);
+    const p = game.mode === 'online' ? game.partida : null;
+    if (p) {
+      const mia = ratings.get(categoryOf({ mode: 'online', time: p.time }));
+      return { [p.color]: con(p.nombres[p.color] || t('jugador.tu'), mia), [p.rival]: con(p.nombres[p.rival] || t('sala.anonimo'), p.rivalRating) };
+    }
+    if (game.mode === 'cpu') {
+      const cpuTexto = `CPU · ${cpuRating(game.level).r}`;
+      if (!game.human) return { white: cpuTexto, black: cpuTexto };
+      return { white: cpuTexto, black: cpuTexto, [game.human]: con(t('jugador.tu'), ratings.get('cpu')) };
+    }
+    const n = game.nombres ?? {};
+    const local = (nombre) => {
+      const e = nombre ? ratings.local.get(nombre) : null;
+      return e?.games ? e : null;
+    };
+    return {
+      white: n.white ? con(n.white, local(n.white)) : t('color.white'),
+      black: n.black ? con(n.black, local(n.black)) : t('color.black'),
+    };
+  }
   onLanguage(() => {
     ui.refresh();
     clockUi.refresh();
     paintSettings();
   });
+  ratings.onChange(() => clockUi.refresh()); // la puntuación de debajo del reloj, la de después de la partida
   // De tanto en tanto, una sola pieza del tablero hace un gesto especial (un peón, o el caballo de un
   // caballero encabritándose); nunca dos a la vez.
   const gesture = { performer: null, last: null, lastVariant: -1, at: performance.now() + nextGestureDelay() };
@@ -2345,6 +2371,7 @@ async function start() {
     });
     p.aviso = false;
     clockUi.show(game.control, controlName);
+    clockUi.players(jugadoresReloj);
     await view.zoomOut();
     await view.flipTo(game.human === 'black');
     if (turno !== activando) return; // mientras tanto se ha pedido otra
@@ -2768,6 +2795,7 @@ async function start() {
     const reloj = guardada && game.clock ? clockOnResume(guardada, game.control, Date.now()) : null;
     if (reloj) game.clock.restore(reloj);
     clockUi.show(game.control, controlName);
+    clockUi.players(jugadoresReloj);
     const lado = game.position.side;
     await view.zoomOut();
     // Cada uno mira el tablero desde su lado; uno contra uno, desde el del que mueve.

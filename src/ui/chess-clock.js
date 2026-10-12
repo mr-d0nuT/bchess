@@ -68,6 +68,7 @@ export function createChessClockUi(root = document.body, { vibra = null } = {}) 
         <div class="reloj-marca"><span>BATTLE</span><span>CHESS</span></div>
         <div class="reloj-cara" data-lado="black"><span class="reloj-pieza">♚</span><span class="reloj-cifras"></span></div>
       </div>
+      <div class="reloj-jugadores"><span data-lado="white"></span><span data-lado="black"></span></div>
       <div class="reloj-ritmo"></div>
     </div>`;
   root.append(reloj);
@@ -124,9 +125,15 @@ export function createChessClockUi(root = document.body, { vibra = null } = {}) 
   });
 
   let ritmo = '';
+  // Quién juega con cada color, debajo de su cara (como en chess.com): una función que da { white, black }.
+  let jugadores = null;
+  const filaJugadores = reloj.querySelector('.reloj-jugadores');
   function rotula() {
     for (const [side, boton] of Object.entries(botones)) boton.setAttribute('aria-label', t(`reloj.${side}`));
     reloj.querySelector('.reloj-ritmo').textContent = typeof ritmo === 'function' ? ritmo() : ritmo;
+    const quien = jugadores?.() ?? null;
+    filaJugadores.hidden = !quien;
+    for (const span of filaJugadores.children) span.textContent = quien?.[span.dataset.lado] ?? '';
   }
 
   return {
@@ -139,6 +146,11 @@ export function createChessClockUi(root = document.body, { vibra = null } = {}) 
     },
     // Vuelve a escribir los rótulos (al cambiar de idioma).
     refresh: rotula,
+    // Quién juega con cada color (una función que da { white, black }, o null): debajo de cada cara.
+    players(fn) {
+      jugadores = fn;
+      rotula();
+    },
     // Lo que marca cada pantalla y cuál corre.
     render({ white, black, running, paused }) {
       for (const [side, ms] of [['white', white], ['black', black]]) {
