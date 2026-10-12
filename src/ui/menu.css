@@ -812,7 +812,10 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 .final-punto-delta.baja { color: #ff8a7a; }
 .final-punto-delta.igual { color: #c9d4ee; }
 /* Provisional: la palabra junto al nombre, y debajo, qué quiere decir. */
-.final-punto-prov { margin-inline-start: 8px; padding: 2px 7px; border-radius: 999px; background: rgba(255, 196, 81, 0.18); color: #ffd66b; font: 800 11px/1.2 system-ui, sans-serif; vertical-align: 2px; }
+.final-punto-prov { display: inline-block; margin-inline-start: 8px; padding: 2px 7px; border-radius: 999px; background: rgba(255, 196, 81, 0.18); color: #ffd66b; font: 800 11px/1.2 system-ui, sans-serif; vertical-align: 2px; }
+/* En el móvil, si no cabe al lado del nombre, la etiqueta baja (antes se cortaba: «provi…»). */
+.final-punto-nombre:has(.final-punto-prov) { white-space: normal; }
+@media (max-width: 480px) { .final-punto-prov { display: block; width: max-content; margin: 3px 0 0; } }
 .final-punto-nota { margin: 0 4px; font-size: 12px; line-height: 1.35; opacity: 0.75; }
 /* El resumen de la partida. */
 .final-resumen { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: -6px 0 18px; }
@@ -956,14 +959,34 @@ body.en-menu #hud { opacity: 0; pointer-events: none; }
 }
 .pulsador[data-lado="white"] { left: 12%; }
 .pulsador[data-lado="black"] { right: 12%; }
+/* Su luz, un LED (lo pidió el usuario): naranja cuando su reloj está parado, verde cuando corre. Con su brillo de
+   cristal arriba y el halo de la luz alrededor. */
 .pulsador span {
   position: absolute;
   inset: 5px 12% auto;
-  height: 6px;
+  height: 7px;
   border-radius: 4px;
-  background: linear-gradient(180deg, #d9b25c, #8a6420);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  background: linear-gradient(180deg, #ffe0bd 0%, #ff9a3d 38%, #e8650d 70%, #9e3a00 100%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65), 0 0 6px rgba(255, 128, 32, 0.55), inset 0 -1px 2px rgba(80, 20, 0, 0.6);
+  transition: background 0.25s, box-shadow 0.25s;
 }
+.pulsador span::after {
+  content: '';
+  position: absolute;
+  inset: 1px 18% auto;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.65);
+}
+.reloj[data-corre="white"] .pulsador[data-lado="white"] span,
+.reloj[data-corre="black"] .pulsador[data-lado="black"] span {
+  background: linear-gradient(180deg, #e2ffec 0%, #5cf29a 38%, #18c25e 70%, #076b33 100%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65), 0 0 10px rgba(40, 230, 120, 0.85), 0 0 22px rgba(40, 230, 120, 0.35), inset 0 -1px 2px rgba(0, 50, 20, 0.6);
+}
+/* En pausa (una jugada animándose, un combate), la verde respira despacio. */
+.reloj.en-pausa[data-corre="white"] .pulsador[data-lado="white"] span,
+.reloj.en-pausa[data-corre="black"] .pulsador[data-lado="black"] span { animation: led-pausa 1.4s ease-in-out infinite; }
+@keyframes led-pausa { 50% { filter: brightness(0.6); } }
 .reloj[data-corre="white"] .pulsador[data-lado="white"],
 .reloj[data-corre="black"] .pulsador[data-lado="black"] { transform: none; }
 .reloj[data-espera="white"] .pulsador[data-lado="white"],

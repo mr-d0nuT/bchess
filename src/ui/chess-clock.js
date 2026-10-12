@@ -3,6 +3,7 @@ import { t } from '../i18n.js';
 import { sfx } from '../audio/sfx.js';
 
 const TICKS = 10000; // en los diez últimos segundos del que mueve, un tic cada segundo
+export const APURADO_VIBRA = 15000; // y en los quince últimos, `vibra('apurado')` a cada segundo (el juego decide cuáles)
 
 // El reloj de ajedrez en la pantalla, como uno de verdad: una caja con dos pantallas y dos
 // pulsadores encima. El pulsador del bando al que le corre el tiempo está arriba; el otro, hundido.
@@ -52,7 +53,9 @@ function cifras(texto) {
   return `<svg viewBox="-2 -1 ${x + 3} 26" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${svg}</svg>`;
 }
 
-export function createChessClockUi(root = document.body) {
+// `vibra(que, side, ms)`: que el aparato lo note. 'pulsa', al pulsar `side` su lado (a mano o solo); 'apurado', a
+// cada segundo de los últimos de `side` (le quedan `ms`).
+export function createChessClockUi(root = document.body, { vibra = null } = {}) {
   const reloj = document.createElement('div');
   reloj.className = 'reloj';
   reloj.hidden = true;
@@ -72,10 +75,12 @@ export function createChessClockUi(root = document.body) {
   const caras = Object.fromEntries([...reloj.querySelectorAll('.reloj-cara')].map((c) => [c.dataset.lado, c]));
   const textos = { white: '', black: '' };
   const tics = { white: null, black: null }; // el último segundo en que sonó el tic
+  const vibrados = { white: null, black: null }; // y el último en que se pidió vibrar
   let espera = null; // { side, resolve }: el bando que ha de pulsar para acabar su jugada
 
   function hunde(side) {
     sfx.play('reloj');
+    vibra?.('pulsa', side);
     const boton = botones[side];
     boton.classList.remove('golpe');
     void boton.offsetWidth;
@@ -148,6 +153,9 @@ export function createChessClockUi(root = document.body) {
         const segundo = running === side && !paused && ms > 0 && ms < TICKS ? Math.ceil(ms / 1000) : null;
         if (segundo !== null && segundo !== tics[side]) sfx.play('tic');
         tics[side] = segundo;
+        const avisa = running === side && !paused && ms > 0 && ms < APURADO_VIBRA ? Math.ceil(ms / 1000) : null;
+        if (avisa !== null && avisa !== vibrados[side]) vibra?.('apurado', side, ms);
+        vibrados[side] = avisa;
         caras[side].classList.toggle('agotado', ms <= 0);
       }
       reloj.dataset.corre = running ?? '';

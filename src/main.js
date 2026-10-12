@@ -37,6 +37,7 @@ import {
 import { ONLINE_KEY, identidadOnline, packOnline, packTodas, readOnline } from './net/guardadas-online.js';
 import { createOnlineUi } from './ui/online-ui.js';
 import { meToca, tituloConTurno } from './ui/te-toca.js';
+import { createHaptico } from './ui/haptico.js';
 import { createLobbyUi } from './ui/lobby-ui.js';
 import { cleanName } from './names.js';
 import { createMenu, levelName, timeLabel } from './ui/menu.js';
@@ -504,7 +505,7 @@ async function start() {
     sala.set({ status: status === 'seeking' ? 'seeking' : vivas ? 'playing' : status, games: vivas, ...(time ? { time: ritmoOnline(time) } : {}) });
   }
   const ui = createMatchUi();
-  const clockUi = createChessClockUi(document.getElementById('hud'));
+  const clockUi = createChessClockUi(document.getElementById('hud'), { vibra: (que, side, ms) => vibraReloj(que, side, ms) });
   // Las jugadas y lo comido (punto 11): tocar una la señala en el tablero con una flecha.
   const historial = createHistoryUi({
     button: document.getElementById('historial'),
@@ -743,11 +744,13 @@ async function start() {
   // VIBRACIÓN en los golpes fuertes, los que hacen temblar la cámara: más larga cuanto más fuerte. Solo
   // donde el navegador deja (en el iPhone, Safari no deja vibrar a las páginas): ahí el ajuste no sale.
   const VIBRACION = 'bchess.vibracion';
-  const puedeVibrar = typeof navigator.vibrate === 'function' && matchMedia('(pointer: coarse)').matches;
+  // Con `ui/haptico.js`: en Android, `navigator.vibrate`; en el iPhone, el toque del interruptor de iOS 18.
+  const haptico = createHaptico();
+  const puedeVibrar = haptico.puede;
   let vibrar = leerPreferencia(VIBRACION, 'si') !== 'no';
   function vibra(size) {
     if (!puedeVibrar || !vibrar || size < VIBRA_DESDE || sfx.silenced()) return;
-    try { navigator.vibrate(Math.round(VIBRA_MS * size)); } catch { /* sin permiso aún */ }
+    haptico.vibra(Math.round(VIBRA_MS * size));
   }
   {
     const seccion = document.getElementById('ajustes-vibracion');
@@ -766,7 +769,7 @@ async function start() {
         vibrar = !vibrar;
         guardarPreferencia(VIBRACION, vibrar ? 'si' : 'no');
         pinta();
-        if (vibrar) navigator.vibrate(60);
+        if (vibrar) haptico.vibra(60);
       });
     }
   }
@@ -786,11 +789,12 @@ async function start() {
   }
   pintaCombates();
 
-  // EL RELOJ, A MANO O AUTOMÁTICO (ajustes; lo pidió el usuario). En las partidas de aquí con reloj, el que mueve
-  // lo pulsa con su mano, como en un torneo, o se pulsa solo al acabar la jugada. Online, siempre solo (como en
-  // cualquier partida por internet). Se recuerda; la opción solo sale en las partidas con reloj que no son online.
+  // EL RELOJ, AUTOMÁTICO O A MANO (ajustes; lo pidió el usuario). En las partidas de aquí con reloj, de entrada se
+  // pulsa solo al acabar la jugada; en los ajustes se puede poner a mano: el que mueve lo pulsa, como en un torneo.
+  // Online, siempre solo (como en cualquier partida por internet). Se recuerda; la opción solo sale en las partidas
+  // con reloj que no son online.
   const PULSAR = 'bchess.reloj.pulsar';
-  let pulsarSolo = leerPreferencia(PULSAR, 'mano') === 'solo';
+  let pulsarSolo = leerPreferencia(PULSAR, 'solo') === 'solo';
   const seccionReloj = document.getElementById('ajustes-reloj');
   const botonesPulsar = [...document.querySelectorAll('#ajustes-pulsar button')];
   const pintaPulsar = () => {
@@ -805,6 +809,22 @@ async function start() {
     });
   }
   pintaPulsar();
+
+  // EL RELOJ, QUE SE NOTA (lo pidió el usuario). Al pulsarlo (a mano o solo) vibra el aparato: el del que pulsa y,
+  // online, también el del rival, que lo ve pulsar al jugarse la jugada en su tablero; uno contra uno, el mismo. Y en
+  // los últimos 15 s del que mueve, vibran los dos aparatos para que nadie se despiste: cada dos segundos y, en los
+  // cinco últimos, cada segundo y más fuerte. Contra la CPU, solo por el jugador (a ella no hace falta avisarla).
+  function vibraReloj(que, side, ms = 0) {
+    if (!puedeVibrar || !vibrar || state.phase !== 'playing') return;
+    if (game.mode === 'cpu' && side !== game.human) return;
+    if (que === 'pulsa') {
+      haptico.vibra(30);
+      return;
+    }
+    const segundos = Math.ceil(ms / 1000);
+    if (segundos <= 5) haptico.vibra(110);
+    else if (segundos % 2 === 0) haptico.vibra(55);
+  }
 
   // Saltar combates (punto 1 del plan): una partida tiene 15-30 capturas y cada combate dura de 10 a 50
   // segundos. Durante uno, un toque lo acelera y otro lo salta: la pantalla se funde a negro, el combate
