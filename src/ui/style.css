@@ -29,8 +29,8 @@ html, body {
   font: 12px/1 ui-monospace, Menlo, monospace;
 }
 /* En el móvil, la fila de botones (con el dónut delante) llega a la derecha: los fps, debajo de ella. */
-/* Bajo el altavoz (`#sonido`), que se queda la esquina. */
-#fps { top: calc(max(10px, env(safe-area-inset-top)) + 48px); }
+/* Bajo el altavoz (`#sonido`) y las reacciones (`#gestos`), que se quedan la esquina. */
+#fps { top: calc(max(10px, env(safe-area-inset-top)) + 96px); }
 
 
 #aviso {
@@ -351,8 +351,85 @@ html body #dnt-badge { top: max(10px, env(safe-area-inset-top)); bottom: auto; }
 @media (max-width: 430px) {
   #sonido { top: calc(max(10px, env(safe-area-inset-top)) + 46px); width: 35px; height: 35px; }
   #sonido-panel { top: calc(max(10px, env(safe-area-inset-top)) + 90px); }
-  #fps { top: calc(max(10px, env(safe-area-inset-top)) + 90px); }
+  #gestos { top: calc(max(10px, env(safe-area-inset-top)) + 87px); width: 35px; height: 35px; }
+  #gestos-panel { top: calc(max(10px, env(safe-area-inset-top)) + 128px); }
+  #fps { top: calc(max(10px, env(safe-area-inset-top)) + 130px); }
 }
+
+/* LAS REACCIONES (partida online): el botón bajo el altavoz, sus seis emojis debajo, y la que llega, grande, arriba. */
+#gestos {
+  position: absolute;
+  top: calc(max(10px, env(safe-area-inset-top)) + 48px);
+  right: max(12px, env(safe-area-inset-right));
+}
+#gestos[hidden] { display: none; }
+#gestos[aria-expanded="true"] { border-color: #ffd66b; color: #ffe9a8; box-shadow: 0 0 12px rgba(255, 200, 80, 0.55); }
+#gestos svg circle { fill: currentColor; stroke: none; }
+#gestos-panel {
+  position: absolute;
+  top: calc(max(10px, env(safe-area-inset-top)) + 94px);
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 30;
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--borde-boton);
+  border-radius: 999px;
+  background: rgba(10, 8, 6, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  animation: bandera-entra 0.18s ease-out;
+}
+#gestos-panel[hidden] { display: none; }
+.gesto {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 24px;
+  line-height: 40px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s;
+}
+.gesto:hover, .gesto:focus-visible { transform: scale(1.2); background: rgba(255, 255, 255, 0.08); }
+.gesto-globo {
+  position: absolute;
+  top: calc(max(10px, env(safe-area-inset-top)) + 64px);
+  left: 50%;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px 8px 10px;
+  border: 1px solid rgba(255, 214, 107, 0.5);
+  border-radius: 999px;
+  background: rgba(10, 8, 6, 0.9);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  color: var(--tinta);
+  pointer-events: none;
+  animation: gesto-llega 2.6s ease-out forwards;
+}
+.gesto-cara { font-size: 42px; line-height: 1; }
+.gesto-quien { font: 700 15px/1.2 system-ui, sans-serif; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gesto-globo.propio { top: calc(max(10px, env(safe-area-inset-top)) + 48px); left: auto; right: calc(max(12px, env(safe-area-inset-right)) + 48px); padding: 4px 8px; animation-name: gesto-sale; }
+.gesto-globo.propio .gesto-cara { font-size: 28px; }
+@keyframes gesto-llega {
+  0% { opacity: 0; transform: translate(-50%, -10px) scale(0.6); }
+  12% { opacity: 1; transform: translate(-50%, 0) scale(1.08); }
+  20% { transform: translate(-50%, 0) scale(1); }
+  80% { opacity: 1; transform: translate(-50%, -4px); }
+  100% { opacity: 0; transform: translate(-50%, -18px); }
+}
+@keyframes gesto-sale {
+  0% { opacity: 0; transform: scale(0.6); }
+  15% { opacity: 1; transform: scale(1.1); }
+  70% { opacity: 1; transform: translateY(-6px); }
+  100% { opacity: 0; transform: translateY(-20px); }
+}
+@media (prefers-reduced-motion: reduce) { .gesto-globo { animation: none; transform: translateX(-50%); } .gesto-globo.propio { transform: none; } }
 
 /* La configuración: un panel en medio, sobre un velo. */
 #ajustes-panel {

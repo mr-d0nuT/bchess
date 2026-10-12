@@ -29,7 +29,7 @@ import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
 import { createCpu } from './chess/cpu.js';
 import { aceptaTablas } from './chess/engine.js';
-import { LOST_AFTER, anunciaPuntuacion, createOnline, randomId, ritmoOnline } from './net/online.js';
+import { GESTOS, LOST_AFTER, anunciaPuntuacion, createOnline, randomId, ritmoOnline } from './net/online.js';
 import {
   MAX_MALAS, aceptacionCaducada, acepto, anuladas, createPartidaOnline, decideAceptacion, decideBandera, decideFin, decideReclamo, finDeTodos,
   mandaElSuyo, ofertaMia, ofertaSuya, ofrezco, puedoOfrecer, puntuaOnline, rechazada, rechazo, recibeOferta, retrasoReclamo,
@@ -40,6 +40,7 @@ import { meToca, tituloConTurno } from './ui/te-toca.js';
 import { createHaptico } from './ui/haptico.js';
 import { preguntaNivel } from './ui/nivel-ui.js';
 import { createLobbyUi, invitacionDe } from './ui/lobby-ui.js';
+import { createGestosUi } from './ui/gestos-ui.js';
 import { cleanName } from './names.js';
 import { createMenu, levelName, timeLabel } from './ui/menu.js';
 import { createMatchUi } from './ui/match-ui.js';
@@ -565,6 +566,14 @@ async function start() {
     onPoint: ({ from, to }) => highlights.trail(from, to),
   });
   const controlName = () => (game.control ? `${t(`tiempo.${game.control.key.split(':')[0]}`)} · ${timeLabel(game.control)}` : '');
+  // LAS REACCIONES de la partida online (`ui/gestos-ui.js`): solo mientras se juega una online.
+  const gestosUi = createGestosUi({
+    gestos: GESTOS,
+    onSend: (e) => {
+      const p = game.mode === 'online' ? game.partida : null;
+      if (p && !p.acabada) p.session?.gesto(e);
+    },
+  });
   // QUIÉN JUEGA, debajo del reloj (como en chess.com): el nombre y la puntuación de cada uno. Online, la mía en el ritmo
   // de la partida y la que dijo el rival al empezar; contra la CPU, la mía «contra la CPU» y la de su nivel; uno contra
   // uno, los nombres (con su puntuación del ranking local, si ya tienen).
@@ -876,6 +885,7 @@ async function start() {
     board.orient(stage.camera.position);
     bubbles.update();
     paintViewButtons();
+    gestosUi.visible(game.mode === 'online' && state.phase === 'playing' && Boolean(game.partida) && !game.partida.acabada);
     tickClock();
   }
 
@@ -1879,6 +1889,10 @@ async function start() {
     });
     // LAS TABLAS (punto 12, `net/partida.js`): su oferta (si las dos se cruzan, es que sí), su sí (si vemos la misma
     // partida, tablas; si no, se le dice que ya no valen), su no, y su «ya no valen» a las suyas que acepté.
+    // Las reacciones del rival, en la partida que se ve (de las otras, en espera, no).
+    session.on('gesto', ({ e }) => {
+      if (activa(p) && state.phase === 'playing') gestosUi.llega({ e, nombre: nombreRival(p) });
+    });
     session.on('tablas', ({ que, n }) => {
       if (p.acabada) return;
       const enCurso = enCursoDe(p);

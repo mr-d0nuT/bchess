@@ -905,6 +905,8 @@ export const FINES_DE_REGLAS = ['checkmate', 'stalemate', 'fifty', 'repetition',
 const FINES = new Set([...FINES_DE_REGLAS, 'time', 'resign', 'abandon', 'agreement', 'anulada']);
 // Las tablas, ofrecidas (`net/partida.js`): la oferta, el sí, el no y el «ya no vale», cada una con sus jugadas.
 const TABLAS = new Set(['tablas', 'tablas-si', 'tablas-no', 'tablas-nula']);
+// Las reacciones de la partida (`gesto`): solo estas, que lo que llega por la red no se enseña tal cual.
+export const GESTOS = ['👋', '👍', '😮', '😅', '🔥', '🤝'];
 const esColor = (c) => c === 'white' || c === 'black';
 export const TERMINADA_MS = 10 * 60 * 1000; // acabada, lo que se espera a que el rival diga que se ha enterado
 
@@ -1003,6 +1005,7 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       case 'reloj': return esEntero(msg.n) && esTiempo(msg.white) && esTiempo(msg.black);
       case 'fin': return valeFin(msg);
       case 'tablas': case 'tablas-si': case 'tablas-no': case 'tablas-nula': return esEntero(msg.n, MAX_JUGADAS);
+      case 'gesto': return GESTOS.includes(msg.e);
       default: return false;
     }
   }
@@ -1090,6 +1093,8 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       emit('reloj', { n: msg.n, white: msg.white, black: msg.black });
     } else if (TABLAS.has(msg.k)) {
       emit('tablas', { que: msg.k, n: msg.n });
+    } else if (msg.k === 'gesto' && GESTOS.includes(msg.e)) {
+      emit('gesto', { e: msg.e });
     }
   });
   // Mi buzón, por mi cuenta: el «cancel» del rival llega ahí, y antes solo se oía si la sala o el
@@ -1186,6 +1191,10 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     tablas(que, n) {
       if (!TABLAS.has(que)) throw new Error(`tablas: ${que}`);
       send(que, { n });
+    },
+    // Una reacción (uno de GESTOS) para el rival.
+    gesto(e) {
+      if (GESTOS.includes(e)) send('gesto', { e });
     },
     // Se acabó aquí: { status, winner, flagged, moves } (status, el de todos: 'resign' es que se rinde quien no gana).
     terminar,

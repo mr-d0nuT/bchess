@@ -1103,3 +1103,18 @@ test('invitar a un amigo: el enlace lleva quién reta, el ritmo y el nombre, y s
   assert.equal(invitacionDe('?reta=x'), null); // identificador raro: nada
   assert.equal(invitacionDe('?reta=abcdef&ritmo=<script>').time, null);
 });
+
+test('las reacciones de la partida llegan al rival, y solo las de la lista', async () => {
+  const net = red();
+  const lentos = { every: (fn, ms) => setInterval(fn, ms / 40), stop: clearInterval };
+  const A = createSession({ bus: net.bus('a'), me: 'a1', game: 'g2', opponent: 'b2', white: 'a1', moves: () => [], timers: lentos });
+  const B = createSession({ bus: net.bus('b'), me: 'b2', game: 'g2', opponent: 'a1', white: 'a1', moves: () => [], timers: lentos });
+  const llegan = [];
+  const primera = new Promise((resolve) => B.on('gesto', (g) => { llegan.push(g.e); resolve(); }));
+  A.gesto('<b>hola</b>'); // no es de la lista: no sale
+  A.gesto('👍');
+  await conPlazo(primera);
+  assert.deepEqual(llegan, ['👍']);
+  A.leave();
+  B.leave();
+});
