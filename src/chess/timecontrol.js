@@ -147,3 +147,17 @@ export function formatClock(ms) {
   const decimas = Math.floor(t / 100);
   return `0:0${Math.floor(decimas / 10)}.${decimas % 10}`;
 }
+
+// CUÁNTO TARDA LA CPU EN MOVER, con reloj (milisegundos). Antes contestaba siempre en 0,7 s: en «1 | 1» el
+// incremento le devolvía más de lo que gastaba y su reloj SUBÍA, y así no había manera de ganarle por tiempo
+// (lo vio el usuario). Ahora se administra como una persona: reparte su tiempo entre unas 40 jugadas, más casi
+// todo el incremento, unas veces más deprisa y otras pensándoselo (`random`); en la apertura va ligera, y nunca
+// gasta más de una parte de lo que le queda. En la diaria (`perMove`) no aplica: ahí no hay prisa que medir.
+// `remaining`: lo que le queda; `ply`: cuántas jugadas van ya (de los dos).
+export function cpuMoveTime({ base = 0, inc = 0, perMove = 0 }, { remaining, ply = 0, random = Math.random }) {
+  if (perMove || !base) return null;
+  const plan = (base * 0.9) / 40 + inc * 0.9;
+  let ms = Math.min(plan, remaining / 12) * (0.6 + random() * 0.9);
+  if (ply < 8) ms *= 0.55; // las primeras jugadas, de memoria
+  return Math.max(Math.min(500, remaining * 0.3), Math.min(ms, remaining * 0.3));
+}

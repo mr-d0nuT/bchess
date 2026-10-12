@@ -50,7 +50,7 @@ import { createRankingUi } from './ui/ranking-ui.js';
 import { ONLINE_CATEGORIES, categoryOf, cpuRating, createRatings, isProvisional, shown } from './rating/ratings.js';
 import { createCloud } from './net/cloud.js';
 import { createAuthUi } from './ui/auth-ui.js';
-import { createChessClock, findTimeControl } from './chess/timecontrol.js';
+import { cpuMoveTime, createChessClock, findTimeControl } from './chess/timecontrol.js';
 import { SAVE_KEY, clockOnResume, packGame, readSavedGame } from './chess/saved-game.js';
 import { initLanguage, onLanguage, t } from './i18n.js';
 import { createFullscreen } from './ui/fullscreen.js';
@@ -2334,18 +2334,21 @@ async function start() {
     paintTurn();
     const inicio = performance.now();
     let uci = null;
+    let tarda = null; // lo que se toma para mover, con reloj
     try {
-      // Con reloj, la CPU se administra: nunca más de una parte de lo que le queda (más el incremento).
+      // Con reloj, la CPU se administra como una persona (`cpuMoveTime`): piensa como mucho eso, y si acaba
+      // antes, se lo sigue pensando hasta gastarlo. Antes contestaba siempre en 0,7 s y en «1 | 1» su reloj subía.
       let maxMs = null;
       if (game.clock) {
         const queda = game.clock.remaining(game.position.side, performance.now());
-        maxMs = Math.max(120, Math.min(queda / 25 + (game.control.inc ?? 0) * 0.7, queda * 0.5));
+        tarda = cpuMoveTime(game.control, { remaining: queda, ply: game.moves.length });
+        maxMs = Math.max(120, Math.min(queda / 25 + (game.control.inc ?? 0) * 0.7, queda * 0.5, tarda ?? Infinity));
       }
       uci = await cpu.think({ fen: game.start, moves: game.moves.slice(), maxMs }, game.level);
     } catch (err) {
       console.error('[BChess] La CPU no ha podido pensar:', err);
     }
-    const falta = CPU_MIN_MS - (performance.now() - inicio);
+    const falta = (tarda ?? CPU_MIN_MS) - (performance.now() - inicio);
     if (falta > 0) await new Promise((resolve) => setTimeout(resolve, falta));
     game.thinking = false;
     if (id !== game.id || game.token !== token || state.phase !== 'playing') return; // otra partida, deshecha, o en el menú

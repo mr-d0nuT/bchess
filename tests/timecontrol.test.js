@@ -81,3 +81,20 @@ test('al continuar una partida guardada, cada reloj sigue con lo que le quedaba'
   c.press('black', 4000);
   assert.equal(c.remaining('black', 4000), 40000, 'con su incremento');
 });
+
+test('la CPU gasta su tiempo como una persona: en «1 | 1» su reloj baja, y nunca se lo funde de golpe', async () => {
+  const { cpuMoveTime, findTimeControl } = await import('../src/chess/timecontrol.js');
+  const control = findTimeControl('bala:1+1');
+  // Mitad de partida, tiempo entero: entre el 60 y el 150 % de lo que le toca (1,35 s de reparto + 0,9 del incremento).
+  const lento = cpuMoveTime(control, { remaining: 60000, ply: 20, random: () => 1 });
+  const rapido = cpuMoveTime(control, { remaining: 60000, ply: 20, random: () => 0 });
+  assert.ok(Math.abs(lento - 2250 * 1.5) < 1e-6 && Math.abs(rapido - 2250 * 0.6) < 1e-6, `${rapido} ${lento}`);
+  // De media gasta más que el incremento: su reloj baja.
+  let queda = 60000;
+  for (let ply = 0; ply < 60; ply += 2) queda += 1000 - cpuMoveTime(control, { remaining: queda, ply, random: () => 0.5 });
+  assert.ok(queda < 45000, `le quedan ${queda}`);
+  // Con poco tiempo, nunca más del 30 % de lo que le queda.
+  assert.ok(cpuMoveTime(control, { remaining: 2000, ply: 40, random: () => 1 }) <= 600);
+  // Sin reloj, o en la diaria, nada que administrar.
+  assert.equal(cpuMoveTime(findTimeControl('diaria:1d'), { remaining: 86400000 }), null);
+});
