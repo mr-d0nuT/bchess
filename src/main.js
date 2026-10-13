@@ -23,8 +23,9 @@ import { createMover } from './moves/sequence.js';
 import { createRookMover } from './moves/rook-mover.js';
 import { createKnightMover } from './moves/knight-mover.js';
 import { createCrowd } from './moves/crowd.js';
-import { restFacingFor, walkOverTimeline } from './moves/walk.js';
-import { planCastleHop } from './moves/castle-hop.js';
+import { WALK_TURN_SECONDS, planWalk, restFacingFor, walkOverTimeline } from './moves/walk.js';
+import { GIANT_BODY, GIANT_HIGH, planCastleHop } from './moves/castle-hop.js';
+import { AWAKEN_SECONDS } from './moves/transform.js';
 import { endsOf, gridOf, pickPair, pickTurn, place } from './moves/dodge.js';
 import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
@@ -112,6 +113,8 @@ const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar q
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
 const CPU_MIN_MS = 700; // la CPU nunca contesta antes: una jugada al instante parece un error
 const ENROQUE_ANTICIPA = 0.6; // segundos que la cámara se adelanta al salto de la torre en el enroque, para abrirse a tiempo
+const SILBIDO_SECONDS = 0.8; // en el enroque, lo que silba el rey a la torre antes de echar a andar
+const DESPIERTA_TRAS = 0.4; // y lo que tarda la torre en oírlo y empezar a despertar en gigante
 const GUARDA_RELOJ_MS = 5000; // con reloj, cada cuánto se guarda la partida mientras corre
 // El brazo del báculo del alfil, con los nombres de Tripo o, como en su esqueleto, los de Mixamo.
 const STAFF_ARM = /^(R_(Clavicle|Upperarm|Forearm|Hand)|mixamorigRight(Shoulder|Arm|ForeArm|Hand))/;
@@ -1421,28 +1424,43 @@ async function start() {
     await afterMove();
   }
 
-  // EL ENROQUE (`moves/castle-hop.js`): el rey anda sus dos casillas y, a la vez, la torre salta por encima de él al
-  // otro lado (antes la torre iba después, andando como gigante, y lo atravesaba). El salto se calcula sabiendo dónde
-  // estará el rey en cada momento, para que nunca lo toque. La cámara los encuadra a los dos de lado, con sitio arriba
-  // para el salto, y lo que se les ponga delante se apaga.
+  // EL ENROQUE (`moves/castle-hop.js`). El rey se vuelve hacia la torre y le silba; la torre lo oye y despierta en
+  // gigante (lo pidió el usuario: salta en forma de gigante, no de torre), y mientras el rey anda sus dos casillas, el
+  // gigante salta por encima de él al otro lado (antes iba después, andando, y lo atravesaba). El salto se calcula
+  // sabiendo dónde estará el rey en cada momento, para que nunca lo toque. La cámara los encuadra a los dos de lado,
+  // desde fuera del tablero, y se abre para el salto; lo que se les ponga delante se apaga.
   async function enroca(rey, torre, plan) {
     const desde = board.squareToWorld(plan.from);
+    const hasta = board.squareToWorld(plan.to);
     const torreDesde = board.squareToWorld(plan.castle.rookFrom);
-    const paseo = walkOverTimeline({ from: desde, to: board.squareToWorld(plan.to), speed: rey.piece.walkSpeed, pedestal: rey.piece.pedestalHeight });
+    const gigante = torre.piece.giant;
+    // El rey: se vuelve hacia donde va y silba (quieto en su peana), y luego su paseo de siempre.
+    const espera = WALK_TURN_SECONDS + SILBIDO_SECONDS;
+    const base = walkOverTimeline({ from: desde, to: hasta, speed: rey.piece.walkSpeed, pedestal: rey.piece.pedestalHeight });
+    const paseo = {
+      ...base,
+      walkAt: base.walkAt + espera,
+      arrive: base.arrive + espera,
+      end: base.end + espera,
+      at: (t) => (t < espera ? { ...base.at(0), phase: 'turn' } : base.at(t - espera)),
+    };
     // Lo que mide la torre con su peana, del suelo a la punta del asta de la bandera.
     const caja = new Box3().setFromObject(torre.piece.tower);
-    const salto = planCastleHop({
+    const despierta = WALK_TURN_SECONDS + DESPIERTA_TRAS;
+    const plano = planCastleHop({
       king: paseo,
-      tower: { radius: torre.piece.radius, height: caja.max.y },
+      ...(gigante ? { jumper: GIANT_BODY } : { tower: { radius: torre.piece.radius, height: caja.max.y } }),
       from: torreDesde,
       to: board.squareToWorld(plan.castle.rookTo),
+      options: gigante ? { earliest: despierta + AWAKEN_SECONDS + 0.3, high: GIANT_HIGH } : {},
     });
-    if (!salto) {
+    if (!plano) {
       await conCamara(rey, () => rey.mover.goTo(plan.to)); // y la torre, después, andando
       return;
     }
+    const salto = gigante ? { ...plano, giant: true, awaken: despierta } : plano;
+    const alto = gigante ? GIANT_BODY.flight.height : caja.max.y; // lo que mide lo que salta
     const otros = pieces.filter((other) => other !== rey && other !== torre);
-    const enAire = () => ({ object: torre.piece.object, anchor: torre.piece.tower, height: caja.max.y, radius: torre.piece.radius });
     // Desde fuera del tablero, del lado del que enroca: ahí no hay nadie delante y el tablero hace de fondo.
     const dentro = board.squareToWorld(plan.from[0] + (plan.from[1] === '1' ? '2' : '7'));
     const largo = Math.hypot(desde.x - dentro.x, desde.z - dentro.z) || 1;
@@ -1452,8 +1470,9 @@ async function start() {
       object.getWorldPosition(donde);
       return { x: donde.x, z: donde.z, height, radius };
     };
+    const forma = () => (gigante?.object.visible ? gigante.figure : torre.piece.tower);
     fade.dim(otros.map(describe), { opacity: 1 });
-    fade.watch(() => [describe(rey), enAire()]);
+    fade.watch(() => [describe(rey), { object: torre.piece.object, anchor: forma(), height: caja.max.y, radius: torre.piece.radius }]);
     focus.on(() => stage.controls.target);
     try {
       await cinema.frame(
@@ -1463,20 +1482,28 @@ async function start() {
         otros.map((other) => board.squareToWorld(other.mover.square)),
         { favor: fuera },
       );
-      // Como un cámara que se sabe la coreografía: los sigue a los dos y se abre para el salto un poco antes de que la
-      // torre despegue (ya se sabe por dónde irá: `salto.at`), y al caer se vuelve a cerrar.
+      // Como un cámara que se sabe la coreografía: los sigue a los dos y se abre para el salto un poco antes de que
+      // despegue (ya se sabe por dónde irá: `salto.at`), y al caer se vuelve a cerrar.
       const inicio = clock.now;
       cinema.watch(() => {
         const t = clock.now - inicio;
-        let alto = caja.max.y;
-        for (let k = 0; k <= ENROQUE_ANTICIPA + 1e-9; k += 0.1) alto = Math.max(alto, salto.at(t + k).y + caja.max.y);
-        return [punto(rey.piece.figure, rey.piece.height, rey.piece.radius), punto(torre.piece.tower, alto, torre.piece.radius)];
+        let tope = caja.max.y;
+        for (let k = 0; k <= ENROQUE_ANTICIPA + 1e-9; k += 0.1) tope = Math.max(tope, salto.at(t + k).y + alto);
+        return [punto(rey.piece.figure, rey.piece.height, rey.piece.radius), punto(forma(), tope, torre.piece.radius)];
       });
-      const cima = () => torre.piece.tower.localToWorld(new Vector3(0, caja.max.y - torre.piece.pedestalHeight, 0));
+      const cima = () => forma().localToWorld(new Vector3(0, gigante ? alto : caja.max.y - torre.piece.pedestalHeight, 0));
+      const { heading } = planWalk(desde, hasta, rey.piece.walkSpeed);
       await Promise.all([
-        rey.mover.goTo(plan.to, { camera: false }),
+        (async () => {
+          // ¡Fiu-fiuuu!: se vuelve hacia la torre y le silba para que salte.
+          await rey.mover.turnTo(heading, WALK_TURN_SECONDS);
+          sfx.play('silbido_rey');
+          bubbles.say('♪ ¡FIU-FIUUU! ♪', rey.piece.figure, { seconds: SILBIDO_SECONDS + 0.3, lift: rey.piece.height + 0.15 });
+          await clock.wait(SILBIDO_SECONDS);
+          await rey.mover.goTo(plan.to, { camera: false });
+        })(),
         torre.mover.hopTo(plan.castle.rookTo, salto, {
-          liftoff: () => bubbles.say('¡HUUUP!', cima, { seconds: 0.9, shout: true, lift: 0.3 }),
+          liftoff: () => bubbles.say(gigante ? '¡UAAARGH!' : '¡HUUUP!', cima, { seconds: 0.9, shout: true, lift: 0.3 }),
           landing: () => bubbles.say('¡PUMBA!', () => board.squareToWorld(plan.castle.rookTo).setY(0.8), { seconds: 0.9, shout: true }),
         }),
       ]);

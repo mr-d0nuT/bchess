@@ -13,6 +13,9 @@ const SHRINK_SECONDS = 0.4;
 const REBUILD_SECONDS = 0.45;
 const REST_SECONDS = 0.15;
 const DUST_Y = 0.05;
+// Lo que tarda cada una, para quien tiene que coreografiar a la vez otra cosa (el enroque).
+export const AWAKEN_SECONDS = SHAKE_SECONDS + RISE_SECONDS + SETTLE_SECONDS;
+export const ASLEEP_SECONDS = SHRINK_SECONDS + REBUILD_SECONDS + REST_SECONDS;
 
 // De 0 a 1, pasándose un poco al final: el rebote.
 function overshoot(t) {

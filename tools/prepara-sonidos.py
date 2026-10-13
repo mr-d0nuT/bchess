@@ -44,6 +44,7 @@ SONIDOS = {
     'piedra_rompe':   ('pixabay/piedra/6409-rock-destroy.mp3', 0.02, 1.6, 0.003, 0.5),
     'piedra_cruje':   ('pixabay/piedra/38491-flint-strike.mp3', 0.0, 0.5, 0.002, 0.15),
     'silbido':        ('pixabay/silbido/14678-whoosh-blow-flutter.mp3', 0.18, 0.8, 0.01, 0.15),
+    'silbido_rey':    ('pixabay/silbido_rey/41861-calling-whistle.mp3', 0.97, 1.78, 0.01, 0.12),
     # Pasos sobre la madera del tablero: tres pisadas de la misma grabación.
     'paso-1':         ('pixabay/pasos/397989-footsteps-on-wood.mp3', 0.585, 1.0, 0.003, 0.15),
     'paso-2':         ('pixabay/pasos/397989-footsteps-on-wood.mp3', 1.70, 2.12, 0.003, 0.15),

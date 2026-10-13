@@ -90,6 +90,7 @@ const SOUNDS = {
   gigante_victoria: { volume: 0.6, variants: 3, voz: true }, // (Dragon shout, Big monster shout, Monster Warrior Roar)
   esfuerzo: { volume: 0.5, variants: 4, voz: true }, // el peón que se estira, al doblarse (Groan Crescendo, Male Exertion Grunts, groan)
   alivio: { volume: 0.45, variants: 3, voz: true }, // y al volver a erguirse (Sigh Groan, Man Sighing)
+  silbido_rey: { volume: 0.7, voz: true }, // el rey llama a la torre para que salte, en el enroque (Calling whistle, NyxLurvig, 41861)
 };
 for (const [name, sound] of Object.entries(SOUNDS)) {
   sound.srcs = sound.variants

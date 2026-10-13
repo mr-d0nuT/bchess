@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   HOP_DISTANCE, HOP_SECONDS, RISE_SECONDS, REST_TURN_SECONDS, VANISH_SECONDS, WALK_TURN_SECONDS, walkOverTimeline,
 } from '../src/moves/walk.js';
-import { CASTLE_HOP, KING_BODY, planCastleHop } from '../src/moves/castle-hop.js';
+import { CASTLE_HOP, GIANT_BODY, GIANT_HIGH, KING_BODY, planCastleHop } from '../src/moves/castle-hop.js';
 
 // Las casillas como las pone el tablero: una casilla mide 1 y el centro del tablero es el 0.
 const sq = (name) => ({ x: 'abcdefgh'.indexOf(name[0]) - 3.5, z: 4.5 - Number(name[1]) });
@@ -115,3 +115,22 @@ test('planCastleHop: sin camino no hay salto', () => {
   const king = walkOverTimeline({ from: sq('e1'), to: sq('g1'), speed: 0.9, pedestal: PEANA });
   assert.equal(planCastleHop({ king, tower: TOWER, from: sq('h1'), to: sq('h1') }), null);
 });
+
+// El gigante (lo pidió el usuario: la torre salta en forma de gigante). El rey se vuelve y silba quieto en su peana
+// (`espera`), la torre despierta en gigante, y no se agacha hasta estar despierto y vuelto (`earliest`).
+for (const enroque of ENROQUES) {
+  test(`planCastleHop con el gigante (${enroque.nombre}): despierto, salta por encima del rey sin tocarlo`, () => {
+    const espera = 1.05;
+    const base = walkOverTimeline({ from: sq(enroque.rey[0]), to: sq(enroque.rey[1]), speed: 0.9, pedestal: PEANA });
+    const king = { ...base, walkAt: base.walkAt + espera, arrive: base.arrive + espera, end: base.end + espera, at: (t) => (t < espera ? { ...base.at(0), phase: 'turn' } : base.at(t - espera)) };
+    const earliest = 2.15;
+    const hop = planCastleHop({ king, jumper: GIANT_BODY, from: sq(enroque.torre[0]), to: sq(enroque.torre[1]), options: { earliest, high: GIANT_HIGH } });
+    assert.ok(hop, 'hay salto');
+    assert.ok(hop.crouch >= earliest - 1e-9, 'no se agacha antes de despertar');
+    assert.ok(hop.liftoff > king.walkAt && hop.liftoff < king.arrive, 'despega mientras el rey anda');
+    assert.ok(hop.height <= GIANT_HIGH);
+    assert.ok(hop.margin >= 0, `aire de sobra con el rey (${hop.margin})`);
+    const fin = hop.at(Math.max(king.end, hop.end) + 0.5);
+    assert.ok(close(fin.x, sq(enroque.torre[1]).x) && close(fin.z, sq(enroque.torre[1]).z) && fin.y === 0);
+  });
+}

@@ -41,6 +41,21 @@ export const KING_BODY = {
   walk: { fwd: 0.64, back: 0.36, side: 0.56, top: 2.32 },
 };
 
+// Lo que ocupa el gigante de la torre (medido en su modelo, mirando hacia donde salta): quieto, ocupa más por delante (los
+// puños) que por detrás, y los brazos a los lados; en el aire, rugiendo con los brazos en alto, algo más; y despierto en
+// su casilla, sin saber aún hacia dónde mira, un círculo con lo que más ocupa (y la torre de antes, que es más alta). Los
+// pies le quedan un poco por debajo de su base (`bottom`).
+const GIGANTE_QUIETO = { fwd: 0.64, back: 0.35, side: 0.68, height: 1.96, bottom: 0.1 };
+export const GIANT_BODY = {
+  rest: { radius: 0.7, height: 2.38, bottom: 0.1 },
+  crouch: GIGANTE_QUIETO,
+  flight: { fwd: 0.7, back: 0.45, side: 0.75, height: 1.97, bottom: 0.1 },
+  settle: GIGANTE_QUIETO,
+  landed: GIGANTE_QUIETO,
+};
+// El gigante, más ancho que la torre, tiene que subir más para pasar por encima del rey sin rozarlo.
+export const GIANT_HIGH = 4.2;
+
 // Las formas que se prueban: `lift` 0 avanzaría a velocidad constante (una parábola de verdad) y con más sale y
 // llega más en vertical (con 1, sube recta, cruza por arriba y baja recta, como la torre que levanta la mano para
 // enrocar). En el enroque la parábola nunca vale: el rey acaba justo al lado de donde cae la torre, y bajando en
@@ -90,72 +105,105 @@ function settlePose(u, o) {
   return { sy, tilt: o.tilt * 0.9 * Math.exp(-4 * u) * Math.sin(3 * Math.PI * u) * fin };
 }
 
-// Lo que ocupa la torre con su base en {x, y, z}, aplastada `sy` e inclinada `tilt` hacia `dir`. Vista desde arriba,
-// el eje (de la base a la punta, que se va hacia donde se inclina: `from`, `to`) con su `radius`; de alto, lo más
-// bajo (`bottom`: al inclinarse baja un canto) y lo más alto (`top`).
-function towerExtent({ x, z, y, sy, tilt }, tower, dir) {
-  const sx = 1 / Math.sqrt(sy);
-  const lean = tower.height * sy * Math.sin(tilt);
-  const s = Math.abs(Math.sin(tilt));
+// LO QUE OCUPA CADA UNO, VISTO DESDE ARRIBA: un rectángulo que mira hacia `u` ({x, z}, unitario), con `fwd` por
+// delante, `back` por detrás y `side` a cada lado. Un círculo, como un cuadrado de su radio: en el enroque todo va en
+// línea por la fila, y de frente ocupan lo mismo.
+const rect = (x, z, u, { fwd, back, side }) => ({ x, z, u, fwd, back, side });
+const forma = (b) => (b.radius !== undefined ? { fwd: b.radius, back: b.radius, side: b.radius } : b);
+
+function corners(r) {
+  const v = { x: r.u.z, z: -r.u.x };
+  return [[r.fwd, r.side], [r.fwd, -r.side], [-r.back, r.side], [-r.back, -r.side]]
+    .map(([a, b]) => ({ x: r.x + r.u.x * a + v.x * b, z: r.z + r.u.z * a + v.z * b }));
+}
+
+// Distancia de un punto ({x, z}) a un rectángulo (0 si está dentro).
+function toRect(p, r) {
+  const dx = p.x - r.x;
+  const dz = p.z - r.z;
+  const a = dx * r.u.x + dz * r.u.z;
+  const b = dx * r.u.z - dz * r.u.x;
+  return Math.hypot(Math.max(0, a - r.fwd, -r.back - a), Math.max(0, Math.abs(b) - r.side));
+}
+
+// El hueco entre dos rectángulos: 0 si se tocan (no hay eje que los separe); si no, lo que hay de la esquina más cercana
+// de uno al otro.
+function rectGap(a, b) {
+  // Atajo, el caso del enroque: los dos en paralelo (o de frente). Por los dos ejes, a lo largo y de lado.
+  const paralelos = a.u.x * b.u.x + a.u.z * b.u.z;
+  if (Math.abs(Math.abs(paralelos) - 1) < 1e-9) {
+    const sb = Math.sign(paralelos);
+    const da = (b.x - a.x) * a.u.x + (b.z - a.z) * a.u.z; // dónde está b, a lo largo de a
+    const la = (b.x - a.x) * a.u.z - (b.z - a.z) * a.u.x; // y de lado
+    const [b0, b1] = sb > 0 ? [da - b.back, da + b.fwd] : [da - b.fwd, da + b.back];
+    const largo = Math.max(0, b0 - a.fwd, -a.back - b1);
+    const lado = Math.max(0, Math.abs(la) - a.side - b.side);
+    return Math.hypot(largo, lado);
+  }
+  const ca = corners(a);
+  const cb = corners(b);
+  let separados = false;
+  for (const eje of [a.u, { x: a.u.z, z: -a.u.x }, b.u, { x: b.u.z, z: -b.u.x }]) {
+    const pa = ca.map((p) => p.x * eje.x + p.z * eje.z);
+    const pb = cb.map((p) => p.x * eje.x + p.z * eje.z);
+    if (Math.max(...pa) < Math.min(...pb) || Math.max(...pb) < Math.min(...pa)) {
+      separados = true;
+      break;
+    }
+  }
+  if (!separados) return 0;
+  return Math.min(...ca.map((p) => toRect(p, b)), ...cb.map((p) => toRect(p, a)));
+}
+
+// Lo que ocupa el que salta (la torre o el gigante) en `p` ({x, z, y, sx, sy, tilt}) con el cuerpo `b` ({ radius,
+// height } o { fwd, back, side, height }, y `bottom`: lo que le baja de su base, los pies del gigante), mirando hacia
+// `dir`: su rectángulo (con lo que la inclinación le saca lo alto hacia delante o hacia atrás), lo más bajo y lo más
+// alto. La torre es un cilindro: al inclinarse, baja un canto de la base.
+function jumperExtent(p, b, dir, cilindro) {
+  const f = forma(b);
+  const lean = b.height * p.sy * Math.sin(p.tilt);
+  const canto = cilindro ? (b.radius ?? 0) * p.sx * Math.abs(Math.sin(p.tilt)) : 0;
   return {
-    from: { x, z },
-    to: { x: x + dir.x * lean, z: z + dir.z * lean },
-    radius: tower.radius * sx,
-    bottom: y - tower.radius * sx * s,
-    top: y + tower.height * sy * Math.cos(tilt) + tower.radius * sx * s,
+    rect: rect(p.x, p.z, dir, { fwd: f.fwd * p.sx + Math.max(0, lean), back: f.back * p.sx + Math.max(0, -lean), side: f.side * p.sx }),
+    bottom: p.y - (b.bottom ?? 0) - canto,
+    top: p.y + b.height * p.sy * Math.cos(p.tilt) + canto,
   };
 }
 
-
-// El rey en `t`: dónde está, hasta dónde llega (`top`) y lo que ocupa. De pie (girándose, subiendo a la peana), un
-// círculo (`radius`); en marcha (saltando de la peana, empezando a andar y andando), mira hacia donde va (`dir`) y
-// ocupa más por delante —el cetro se le va hacia delante— que por detrás (`fwd`, `back`, `side`).
+// El rey en `t`: hasta dónde llega (`top`) y lo que ocupa (`rect`). De pie (girándose, silbando, subiendo a la peana), un
+// círculo; en marcha (saltando de la peana, empezando a andar y andando), mira hacia donde va (`dir`) y ocupa más por
+// delante —el cetro se le va hacia delante— que por detrás.
 function kingState(king, body, dir, t) {
   const p = king.at(t);
   const b = body[p.phase] ?? body.standing;
-  return { x: p.x, z: p.z, top: p.y + b.top, radius: b.radius ?? null, fwd: b.fwd, back: b.back, side: b.side, dir };
-}
-
-// Distancia de un punto `p` ({x, z}) al rey: a su círculo, o al rectángulo que ocupa en marcha.
-function toKing(p, rey) {
-  const dx = p.x - rey.x;
-  const dz = p.z - rey.z;
-  if (rey.radius !== null) return Math.max(0, Math.hypot(dx, dz) - rey.radius);
-  const u = dx * rey.dir.x + dz * rey.dir.z; // hacia donde va
-  const v = dx * rey.dir.z - dz * rey.dir.x; // de lado
-  const fuera = Math.max(0, u - rey.fwd, -rey.back - u);
-  const lado = Math.max(0, Math.abs(v) - rey.side);
-  return Math.hypot(fuera, lado);
-}
-
-// Y de la torre (su eje, de `ext.from` a `ext.to`, con su radio) al rey: lo que les separa de lado.
-function gap(ext, rey) {
-  let menor = Infinity;
-  for (const k of [0, 0.25, 0.5, 0.75, 1]) {
-    const p = { x: ext.from.x + (ext.to.x - ext.from.x) * k, z: ext.from.z + (ext.to.z - ext.from.z) * k };
-    menor = Math.min(menor, toKing(p, rey));
-  }
-  return menor - ext.radius;
+  return { x: p.x, z: p.z, top: p.y + b.top, rect: rect(p.x, p.z, dir, forma(b)) };
 }
 
 // EL SALTO DE LA TORRE en el enroque, de `from` a `to` ({x, z}), mientras el rey hace su paseo `king`
 // (`walkOverTimeline`, con el tiempo contado desde que empiezan los dos). `body`: lo que ocupa el rey en cada fase de
 // su paseo (`standing` y, si cambia, 'hop', 'vanish', 'walk'…), de pie { radius, top } y en marcha { fwd, back, side,
-// top } (`top`, lo alto sobre sus pies; lo demás, hacia delante, hacia atrás y a cada lado). `tower`: lo que ocupa la torre
-// con su peana ({ radius, height }). Devuelve null si no hay salto que valga; si no, { crouch, liftoff, landing, end,
+// top } (`top`, lo alto sobre sus pies; lo demás, hacia delante, hacia atrás y a cada lado). Lo que salta: `tower`, la
+// torre con su peana ({ radius, height }), o `jumper`, el gigante, con lo que ocupa esperando en su casilla (`rest`),
+// agachándose, volando y asentándose (`crouch`, `flight`, `settle`, mirando hacia donde salta) y ya caído (`landed`):
+// rugiendo en el aire abre los brazos, y al caer vuelve a su reposo. Con `options.earliest`, no
+// se agacha antes (el gigante tiene que despertar). Devuelve null si no hay salto que valga; si no, { crouch, liftoff, landing, end,
 // height, top, margin, at(t) }: cuándo empieza a agacharse, despega, cae y acaba de asentarse; lo alto que va su base
 // y lo más alto que llega; el aire que deja, como poco, con el rey (0 o más); y `at(t)`: { x, z, y, sx, sy, tilt,
 // axis }, dónde va su base, cómo va de aplastada (`sx` de ancho, `sy` de alto) y lo que se inclina hacia donde va
 // (`tilt`, en radianes, girando sobre `axis`, {x, y, z}, el eje de lado).
 const hechos = new Map(); // el mismo enroque, el mismo salto: se busca una vez
-export function planCastleHop({ king, body = KING_BODY, tower, from, to, options = {} }) {
-  const clave = JSON.stringify([king.at(0), king.at(king.end), king.end, body, tower, from, to, options]);
-  if (!hechos.has(clave)) hechos.set(clave, buscaSalto({ king, body, tower, from, to, options }));
+export function planCastleHop({ king, body = KING_BODY, tower = null, jumper = null, from, to, options = {} }) {
+  const salta = jumper ?? { rest: tower, crouch: tower, flight: tower, settle: tower, landed: tower, cylinder: true };
+  const muestras = [0, 0.5, 1, 1.5, 2, 3].map((t) => king.at(t));
+  const clave = JSON.stringify([muestras, king.at(king.end), king.end, body, salta, from, to, options]);
+  if (!hechos.has(clave)) hechos.set(clave, buscaSalto({ king, body, salta, from, to, options }));
   return hechos.get(clave);
 }
 
-function buscaSalto({ king, body, tower, from, to, options }) {
-  const o = { ...CASTLE_HOP, ...options };
+function buscaSalto({ king, body, salta, from, to, options }) {
+  const o = { ...CASTLE_HOP, earliest: 0, ...options };
+  const cuerpo = { quieta: salta.rest, crouch: salta.crouch, flight: salta.flight, settle: salta.settle, landed: salta.landed };
+  const cilindro = Boolean(salta.cylinder);
   const dx = to.x - from.x;
   const dz = to.z - from.z;
   const length = Math.hypot(dx, dz);
@@ -169,28 +217,30 @@ function buscaSalto({ king, body, tower, from, to, options }) {
   const kingDir = { x: ida.x / largo, z: ida.z / largo };
   const reyEn = (t) => kingState(king, body, kingDir, t);
 
-  // Una forma de salto con altura 1: en `t`, dónde va su base y cuánto subiría por cada unidad de altura (`up`).
+  // Una forma de salto con altura 1: en `t`, dónde va su base, cuánto subiría por cada unidad de altura (`up`) y con
+  // qué cuerpo (`b`: esperando, agachándose, en el aire, asentándose o ya caído).
   function shape(t, { t0, T, lift, flat }) {
-    if (t < t0 - o.crouch) return { x: from.x, z: from.z, up: 0, sy: 1, tilt: 0 };
-    if (t < t0) return { x: from.x, z: from.z, up: 0, ...crouchPose((t - (t0 - o.crouch)) / o.crouch, o) };
+    if (t < t0 - o.crouch) return { x: from.x, z: from.z, up: 0, sy: 1, tilt: 0, b: cuerpo.quieta };
+    if (t < t0) return { x: from.x, z: from.z, up: 0, ...crouchPose((t - (t0 - o.crouch)) / o.crouch, o), b: cuerpo.crouch };
     if (t < t0 + T) {
       const s = (t - t0) / T;
       const k = along(s, lift);
-      return { x: from.x + dx * k, z: from.z + dz * k, up: bump(s, flat), ...flightPose(s, o) };
+      return { x: from.x + dx * k, z: from.z + dz * k, up: bump(s, flat), ...flightPose(s, o), b: cuerpo.flight };
     }
-    if (t < t0 + T + o.settle) return { x: to.x, z: to.z, up: 0, ...settlePose((t - t0 - T) / o.settle, o) };
-    return { x: to.x, z: to.z, up: 0, sy: 1, tilt: 0 };
+    if (t < t0 + T + o.settle) return { x: to.x, z: to.z, up: 0, ...settlePose((t - t0 - T) / o.settle, o), b: cuerpo.settle };
+    return { x: to.x, z: to.z, up: 0, sy: 1, tilt: 0, b: cuerpo.landed };
   }
+  const extentOf = (p, y) => jumperExtent({ x: p.x, z: p.z, y, sx: 1 / Math.sqrt(p.sy), sy: p.sy, tilt: p.tilt }, p.b, dir, cilindro);
 
-  // Quieta en su casilla, la torre también ocupa: hasta cuándo puede esperar en `from` (lo que tarda el rey en
-  // acercársele) y desde cuándo puede estar ya en `to` (cuando el rey se ha apartado de allí para siempre).
+  // Quieto en su casilla, también ocupa: hasta cuándo puede esperar en `from` (lo que tarda el rey en acercársele) y
+  // desde cuándo puede estar ya en `to` (cuando el rey se ha apartado de allí para siempre).
   const fin = king.end + LATE + FLIGHT.to + o.settle;
-  function quieta(at, paso) {
-    const ext = towerExtent({ x: at.x, z: at.z, y: 0, sy: 1, tilt: 0 }, tower, dir);
+  function quieta(at, b, paso) {
+    const ext = extentOf({ x: at.x, z: at.z, sy: 1, tilt: 0, b }, 0);
     let primero = Infinity;
     let ultimo = -Infinity;
     for (let t = 0; t <= fin + 1e-9; t += paso) {
-      if (gap({ ...ext, from: at, to: at }, reyEn(t)) >= o.aside) continue;
+      if (rectGap(ext.rect, reyEn(t).rect) >= o.aside) continue;
       primero = Math.min(primero, t);
       ultimo = t;
     }
@@ -209,8 +259,8 @@ function buscaSalto({ king, body, tower, from, to, options }) {
       const lado = (torre.x - rey.x) * dir.x + (torre.z - rey.z) * dir.z;
       if (antes !== null && cross === null && Math.sign(lado) !== Math.sign(antes)) cross = t;
       antes = lado;
-      const ext = towerExtent({ x: torre.x, z: torre.z, y: 0, sy: torre.sy, tilt: torre.tilt }, tower, dir);
-      if (gap(ext, rey) >= o.aside) continue;
+      const ext = extentOf(torre, 0);
+      if (rectGap(ext.rect, rey.rect) >= o.aside) continue;
       if (torre.up <= 1e-6) return { height: Infinity };
       // Base: up·H + bottom (el canto que baja al inclinarse) ≥ lo alto del rey + aire.
       height = Math.max(height, (rey.top + o.over + o.slack - ext.bottom) / torre.up);
@@ -222,14 +272,15 @@ function buscaSalto({ king, body, tower, from, to, options }) {
   // Se busca mirando cada sexagésimo de segundo y el elegido se comprueba cada 1/240: si ahí no vale (se colaría
   // entre dos miradas), el siguiente.
   const grueso = 1 / 60;
-  const enFrom = quieta(from, grueso);
-  const enTo = quieta(to, grueso);
+  const enFrom = quieta(from, cuerpo.quieta, grueso);
+  const enTo = quieta(to, cuerpo.landed, grueso);
+  if (o.debug) Object.assign(o.debug, { enFrom, enTo });
   const candidatos = [];
   for (const lift of LIFTS) {
     for (const flat of FLATS) {
       for (let T = FLIGHT.from; T <= FLIGHT.to + 1e-9; T += FLIGHT.step) {
         // Despega cuando aún no ha llegado el rey a su casilla, y cae cuando ya se ha ido de la otra.
-        const desde = Math.max(o.crouch, enTo.ultimo - T - o.settle + grueso);
+        const desde = Math.max(o.crouch + o.earliest, enTo.ultimo - T - o.settle + grueso);
         const hasta = Math.min(king.end + LATE, enFrom.primero + o.crouch - grueso);
         for (let t0 = desde; t0 <= hasta + 1e-9; t0 += LAUNCH_STEP) {
           const form = { t0, T, lift, flat };
@@ -246,8 +297,8 @@ function buscaSalto({ king, body, tower, from, to, options }) {
   }
   candidatos.sort((a, b) => a.cost - b.cost);
   const fino = o.step;
-  const finoFrom = quieta(from, fino);
-  const finoTo = quieta(to, fino);
+  const finoFrom = quieta(from, cuerpo.quieta, fino);
+  const finoTo = quieta(to, cuerpo.landed, fino);
   let elegido = null;
   for (const { form } of candidatos.slice(0, 40)) {
     if (form.t0 - o.crouch >= finoFrom.primero || form.t0 + form.T + o.settle <= finoTo.ultimo) continue;
@@ -268,11 +319,10 @@ function buscaSalto({ king, body, tower, from, to, options }) {
   let margin = Infinity;
   let top = 0;
   for (let t = 0; t <= Math.max(king.end, form.t0 + form.T + o.settle) + 1e-9; t += fino) {
-    const p = at(t);
-    const ext = towerExtent(p, tower, dir);
+    const ext = extentOf(shape(t, form), at(t).y);
     const rey = reyEn(t);
     top = Math.max(top, ext.top);
-    const lado = gap(ext, rey) - o.aside;
+    const lado = rectGap(ext.rect, rey.rect) - o.aside;
     margin = Math.min(margin, Math.max(lado, ext.bottom - rey.top - o.over));
   }
   return {
