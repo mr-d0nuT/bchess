@@ -26,6 +26,47 @@ export function pointAlong(from, to, t) {
   return { x: from.x + (to.x - from.x) * k, z: from.z + (to.z - from.z) * k };
 }
 
+// IR A OTRA CASILLA, como lo hace `walkOver` (`sequence.js`): se gira hacia donde va, salta de la peana (lo que
+// mide su radio, con un saltito), la peana se esfuma mientras empieza a andar en el sitio, anda hasta el centro de
+// la casilla, la peana lo sube y se vuelve hacia el oponente. Los tiempos, aquí, para que el mover y quien
+// necesite saber dónde estará la pieza en cada momento (el enroque: la torre salta por encima del rey) usen los
+// mismos.
+export const WALK_TURN_SECONDS = 0.25;
+export const HOP_DISTANCE = 0.5;
+export const HOP_SECONDS = 0.35;
+export const HOP_LIFT = 0.18;
+export const VANISH_SECONDS = 0.4;
+export const RISE_SECONDS = 0.4;
+export const REST_TURN_SECONDS = 0.35;
+
+// Ese paseo en el tiempo, de `from` a `to` ({x, z}) a `speed` y con una peana de `pedestal` de alto. `at(t)` (en
+// segundos desde que empieza) dice dónde está la figura ({x, z} y la altura de sus pies, `y`) y qué hace
+// (`phase`: 'turn', 'hop', 'vanish', 'walk', 'rise' o 'rest'). `arrive` es cuando llega andando y `end`, cuando
+// acaba de volverse.
+export function walkOverTimeline({ from, to, speed, pedestal }) {
+  const { heading } = planWalk(from, to, speed);
+  const hopEnd = { x: from.x + Math.sin(heading) * HOP_DISTANCE, z: from.z + Math.cos(heading) * HOP_DISTANCE };
+  const walk = planWalk(hopEnd, to, speed);
+  const hopAt = WALK_TURN_SECONDS;
+  const vanishAt = hopAt + HOP_SECONDS;
+  const walkAt = vanishAt + VANISH_SECONDS;
+  const arrive = walkAt + walk.duration;
+  const rested = arrive + RISE_SECONDS;
+  const end = rested + REST_TURN_SECONDS;
+  function at(t) {
+    if (t < hopAt) return { x: from.x, z: from.z, y: pedestal, phase: 'turn' };
+    if (t < vanishAt) {
+      const k = (t - hopAt) / HOP_SECONDS;
+      return { ...pointAlong(from, hopEnd, k), y: pedestal * (1 - k) + Math.sin(Math.PI * k) * HOP_LIFT, phase: 'hop' };
+    }
+    if (t < walkAt) return { ...hopEnd, y: 0, phase: 'vanish' };
+    if (t < arrive) return { ...pointAlong(hopEnd, to, (t - walkAt) / walk.duration), y: 0, phase: 'walk' };
+    if (t < rested) return { x: to.x, z: to.z, y: pedestal * (1 - (1 - (t - arrive) / RISE_SECONDS) ** 3), phase: 'rise' };
+    return { x: to.x, z: to.z, y: pedestal, phase: t < end ? 'turn' : 'rest' };
+  }
+  return { heading, hopEnd, walkAt, arrive, end, at };
+}
+
 // Diferencia de ángulo más corta, en (-PI, PI].
 export function shortestTurn(fromAngle, toAngle) {
   let d = (toAngle - fromAngle) % (2 * Math.PI);

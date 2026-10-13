@@ -1,12 +1,13 @@
 import * as THREE from 'three';
-import { REST_FACING, planWalk, pointAlong, shortestTurn } from './walk.js';
+import {
+  HOP_DISTANCE, HOP_LIFT, HOP_SECONDS, REST_FACING, REST_TURN_SECONDS, RISE_SECONDS, VANISH_SECONDS, WALK_TURN_SECONDS, planWalk, pointAlong, shortestTurn,
+} from './walk.js';
 import { TRAVEL } from '../scene/cinema.js';
 
 // Coreografía de «ir a una casilla», de las acciones de los botones y de los pasos del combate.
 // Los tiempos van con el reloj del juego (`clock`), así que la cámara lenta del combate también
 // los frena. Mientras dura una orden con bloqueo, `busy` es true y se ignora cualquier otra.
 
-const HOP_DISTANCE = 0.5; // lo que avanza al saltar de la peana (su radio)
 const DUST_Y = 0.05;
 
 // `cinema` (opcional): si se le da, la jugada es de cine, como la del caballo —la cámara la encuadra
@@ -59,20 +60,21 @@ export function createMover({ piece, board, dust, clock, onBusy = () => {}, rest
     piece.pedestal.rotation.y = restFacing;
     piece.pedestal.visible = true;
     dust.puff(new THREE.Vector3(to.x, DUST_Y, to.z));
-    await tween(0.4, (t) => {
+    await tween(RISE_SECONDS, (t) => {
       const k = 1 - (1 - t) ** 3;
       piece.pedestal.scale.setScalar(Math.max(0.001, k));
       piece.figure.position.y = piece.pedestalHeight * k;
     });
-    await turnTo(restFacing, 0.35);
+    await turnTo(restFacing, REST_TURN_SECONDS);
   }
 
   // `keepCamera`: al llegar, la cámara no vuelve al usuario, que después viene otra escena (el peón que
   // corona): ir y volver le daba un tirón, del plano corto al tablero entero y otra vez al plano corto.
-  function goTo(target, { keepCamera = false } = {}) {
+  // `camera` false: la cámara la lleva otro (el enroque encuadra al rey y a la torre a la vez).
+  function goTo(target, { keepCamera = false, camera = true } = {}) {
     if (target === square) return Promise.resolve(false);
     return exclusive(async () => {
-      if (!cinema) return walkOver(target);
+      if (!cinema || !camera) return walkOver(target);
       const from = board.squareToWorld(square);
       const to = board.squareToWorld(target);
       try {
@@ -94,22 +96,22 @@ export function createMover({ piece, board, dust, clock, onBusy = () => {}, rest
     const { heading } = planWalk(from, to, piece.walkSpeed);
     const h = piece.pedestalHeight;
 
-    await turnTo(heading, 0.25);
+    await turnTo(heading, WALK_TURN_SECONDS);
 
     // 1. Salta de la peana (o baja de un paso si no hay animación de salto).
     const hopStart = piece.figure.position.clone();
     const hopEnd = new THREE.Vector3(from.x + Math.sin(heading) * HOP_DISTANCE, 0, from.z + Math.cos(heading) * HOP_DISTANCE);
     const canJump = piece.has('jump');
     piece.play(canJump ? 'jump' : 'walk', { loop: !canJump, fade: 0.15 });
-    await tween(0.35, (t) => {
+    await tween(HOP_SECONDS, (t) => {
       piece.figure.position.lerpVectors(hopStart, hopEnd, t);
-      piece.figure.position.y = h * (1 - t) + Math.sin(Math.PI * t) * 0.18;
+      piece.figure.position.y = h * (1 - t) + Math.sin(Math.PI * t) * HOP_LIFT;
     });
 
     // 2. La peana se esfuma en una nube de polvo.
     dust.puff(new THREE.Vector3(from.x, DUST_Y, from.z));
     piece.play('walk', { fade: 0.15 });
-    await tween(0.4, (t) => {
+    await tween(VANISH_SECONDS, (t) => {
       piece.pedestal.scale.setScalar(Math.max(0.001, 1 - t));
     });
     piece.pedestal.visible = false;

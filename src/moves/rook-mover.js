@@ -15,6 +15,7 @@ const LOOK_AHEAD = 0.8; // casillas por delante que pide al andar
 const SETTLE_LIMIT = 4; // segundos de juego que espera, como mucho, a que vuelvan las piezas
 const DUST_Y = 0.05;
 const smooth = (t) => t * t * (3 - 2 * t);
+const UP = new THREE.Vector3(0, 1, 0);
 
 export function createRookMover({ rook, owner, board, dust, rubble, clock, cinema, crowd, onBusy = () => {}, restFacing }) {
   const { giant } = rook;
@@ -165,6 +166,62 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
     });
   }
 
+  // EL ENROQUE (`castle-hop.js`): salta por encima del rey a `target`, como torre y con su peana (el gigante sigue
+  // dormido), siguiendo el salto `hop`, con su tiempo contado desde ahora. Se agacha crujiendo y gruñendo del
+  // esfuerzo, sale entre polvo con un grito de guerra (grave: es de piedra), cae con un golpe de roca que sacude la
+  // cámara y suelta esquirlas, y se asienta. `on` ({ crouch, liftoff, landing }): lo que se avisa en cada momento.
+  function hopTo(target, hop, on = {}) {
+    if (target === square) return Promise.resolve(false);
+    return exclusive(async () => {
+      const yaw = new THREE.Quaternion().setFromAxisAngle(UP, restFacing);
+      const lean = new THREE.Quaternion();
+      const axis = new THREE.Vector3();
+      const lift = new THREE.Vector3();
+      const from = board.squareToWorld(square);
+      const to = board.squareToWorld(target);
+      let fase = 0; // 0 quieta, 1 agachándose, 2 en el aire, 3 asentándose
+      const pose = (t) => {
+        const p = hop.at(t);
+        lean.setFromAxisAngle(axis.set(p.axis.x, p.axis.y, p.axis.z), p.tilt).multiply(yaw);
+        rook.pedestal.position.set(p.x, p.y, p.z);
+        rook.pedestal.quaternion.copy(lean);
+        rook.pedestal.scale.set(p.sx, p.sy, p.sx);
+        // La torre, encima de la peana: donde acaba la peana, aplastada e inclinada con ella.
+        lift.set(0, rook.pedestalHeight * p.sy, 0).applyQuaternion(lean);
+        rook.tower.position.set(p.x + lift.x, p.y + lift.y, p.z + lift.z);
+        rook.tower.quaternion.copy(lean);
+        rook.tower.scale.set(p.sx, p.sy, p.sx);
+        if (fase < 1 && t >= hop.crouch) {
+          fase = 1;
+          sfx.play('piedra_cruje', { rate: 1.1 });
+          sfx.play('esfuerzo', { rate: 0.7 });
+          on.crouch?.();
+        }
+        if (fase < 2 && t >= hop.liftoff) {
+          fase = 2;
+          dust.puff(new THREE.Vector3(from.x, DUST_Y, from.z), { count: 12, radius: 0.6 });
+          sfx.play('grito_h', { rate: 0.72 });
+          sfx.play('silbido', { rate: 0.8, volume: 0.6 });
+          on.liftoff?.();
+        }
+        if (fase < 3 && t >= hop.landing) {
+          fase = 3;
+          dust.puff(new THREE.Vector3(to.x, DUST_Y, to.z), { count: 20, radius: 0.9, duration: 0.8 });
+          rubble.explode(new THREE.Vector3(to.x, 0.05, to.z), { color: rook.stone, count: 10, height: 0.4, force: 0.6, obstacles: others });
+          sfx.play('martillazo');
+          sfx.play('piedra_rompe', { volume: 0.55 });
+          cinema.shake(0.12);
+          on.landing?.();
+        }
+      };
+      try {
+        await clock.tween(hop.end, (k) => pose(k * hop.end));
+      } finally {
+        placeOn(target);
+      }
+    });
+  }
+
   // Tras perder: se deshace en rocas y polvo.
   async function crumble() {
     const at = giant.figure.position.clone();
@@ -196,6 +253,7 @@ export function createRookMover({ rook, owner, board, dust, rubble, clock, cinem
   return {
     placeOn,
     goTo,
+    hopTo,
     vanish,
     room,
     turnTo,

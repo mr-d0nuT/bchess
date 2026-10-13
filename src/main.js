@@ -1,4 +1,4 @@
-import { DefaultLoadingManager, Vector3 } from 'three';
+import { Box3, DefaultLoadingManager, Vector3 } from 'three';
 import { pickQuality, qualityFromQuery } from './quality.js';
 import { createMusic } from './audio/music.js';
 import { master, unlockAudioOnGesture } from './audio/context.js';
@@ -23,7 +23,8 @@ import { createMover } from './moves/sequence.js';
 import { createRookMover } from './moves/rook-mover.js';
 import { createKnightMover } from './moves/knight-mover.js';
 import { createCrowd } from './moves/crowd.js';
-import { restFacingFor } from './moves/walk.js';
+import { restFacingFor, walkOverTimeline } from './moves/walk.js';
+import { planCastleHop } from './moves/castle-hop.js';
 import { endsOf, gridOf, pickPair, pickTurn, place } from './moves/dodge.js';
 import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
@@ -110,6 +111,7 @@ const QUEEN_STILL = 0.35; // segundos del clip de andar en los que se queda quie
 const PICK_SLACK = 0.25; // lo que se ensancha la bola de cada pieza al buscar qué hay bajo el ratón
 const SETTLE_LIMIT = 4; // segundos de juego que se espera, como mucho, a que vuelvan las piezas apartadas
 const CPU_MIN_MS = 700; // la CPU nunca contesta antes: una jugada al instante parece un error
+const ENROQUE_ANTICIPA = 0.6; // segundos que la cámara se adelanta al salto de la torre en el enroque, para abrirse a tiempo
 const GUARDA_RELOJ_MS = 5000; // con reloj, cada cuánto se guarda la partida mientras corre
 // El brazo del báculo del alfil, con los nombres de Tripo o, como en su esqueleto, los de Mixamo.
 const STAFF_ARM = /^(R_(Clavicle|Upperarm|Forearm|Hand)|mixamorigRight(Shoulder|Arm|ForeArm|Hand))/;
@@ -1390,11 +1392,13 @@ async function start() {
         if (victima) await capture(actor, victima);
         // En la captura al paso, el que come se queda donde estaba el comido: le falta un paso.
         if (actor.mover.square !== plan.to) await conCamara(actor, () => actor.mover.goTo(plan.to));
+      } else if (plan.castle && pieceAt(plan.castle.rookFrom)?.mover.hopTo) {
+        await enroca(actor, pieceAt(plan.castle.rookFrom), plan);
       } else {
         // Si corona, la cámara se queda cerca: la coronación la toma desde ahí.
         await conCamara(actor, () => actor.mover.goTo(plan.to, { keepCamera: Boolean(plan.promotion) && actor.kind === 'pawn' }));
       }
-      // El enroque: primero el rey y después la torre, que al andar hace que el rey se aparte.
+      // Un enroque que no ha saltado (una torre sin salto): va después del rey, andando.
       const torre = plan.castle ? pieceAt(plan.castle.rookFrom) : null;
       if (torre) await conCamara(torre, () => torre.mover.goTo(plan.castle.rookTo));
       if (plan.promotion) await promote(actor, plan.promotion);
@@ -1415,6 +1419,74 @@ async function start() {
     game.enCurso = null;
     squareUp();
     await afterMove();
+  }
+
+  // EL ENROQUE (`moves/castle-hop.js`): el rey anda sus dos casillas y, a la vez, la torre salta por encima de él al
+  // otro lado (antes la torre iba después, andando como gigante, y lo atravesaba). El salto se calcula sabiendo dónde
+  // estará el rey en cada momento, para que nunca lo toque. La cámara los encuadra a los dos de lado, con sitio arriba
+  // para el salto, y lo que se les ponga delante se apaga.
+  async function enroca(rey, torre, plan) {
+    const desde = board.squareToWorld(plan.from);
+    const torreDesde = board.squareToWorld(plan.castle.rookFrom);
+    const paseo = walkOverTimeline({ from: desde, to: board.squareToWorld(plan.to), speed: rey.piece.walkSpeed, pedestal: rey.piece.pedestalHeight });
+    // Lo que mide la torre con su peana, del suelo a la punta del asta de la bandera.
+    const caja = new Box3().setFromObject(torre.piece.tower);
+    const salto = planCastleHop({
+      king: paseo,
+      tower: { radius: torre.piece.radius, height: caja.max.y },
+      from: torreDesde,
+      to: board.squareToWorld(plan.castle.rookTo),
+    });
+    if (!salto) {
+      await conCamara(rey, () => rey.mover.goTo(plan.to)); // y la torre, después, andando
+      return;
+    }
+    const otros = pieces.filter((other) => other !== rey && other !== torre);
+    const enAire = () => ({ object: torre.piece.object, anchor: torre.piece.tower, height: caja.max.y, radius: torre.piece.radius });
+    // Desde fuera del tablero, del lado del que enroca: ahí no hay nadie delante y el tablero hace de fondo.
+    const dentro = board.squareToWorld(plan.from[0] + (plan.from[1] === '1' ? '2' : '7'));
+    const largo = Math.hypot(desde.x - dentro.x, desde.z - dentro.z) || 1;
+    const fuera = { x: (desde.x - dentro.x) / largo, z: (desde.z - dentro.z) / largo };
+    const donde = new Vector3();
+    const punto = (object, height, radius) => {
+      object.getWorldPosition(donde);
+      return { x: donde.x, z: donde.z, height, radius };
+    };
+    fade.dim(otros.map(describe), { opacity: 1 });
+    fade.watch(() => [describe(rey), enAire()]);
+    focus.on(() => stage.controls.target);
+    try {
+      await cinema.frame(
+        clock,
+        { x: desde.x, z: desde.z, height: rey.piece.height, radius: rey.piece.radius },
+        { x: torreDesde.x, z: torreDesde.z, height: caja.max.y, radius: torre.piece.radius },
+        otros.map((other) => board.squareToWorld(other.mover.square)),
+        { favor: fuera },
+      );
+      // Como un cámara que se sabe la coreografía: los sigue a los dos y se abre para el salto un poco antes de que la
+      // torre despegue (ya se sabe por dónde irá: `salto.at`), y al caer se vuelve a cerrar.
+      const inicio = clock.now;
+      cinema.watch(() => {
+        const t = clock.now - inicio;
+        let alto = caja.max.y;
+        for (let k = 0; k <= ENROQUE_ANTICIPA + 1e-9; k += 0.1) alto = Math.max(alto, salto.at(t + k).y + caja.max.y);
+        return [punto(rey.piece.figure, rey.piece.height, rey.piece.radius), punto(torre.piece.tower, alto, torre.piece.radius)];
+      });
+      const cima = () => torre.piece.tower.localToWorld(new Vector3(0, caja.max.y - torre.piece.pedestalHeight, 0));
+      await Promise.all([
+        rey.mover.goTo(plan.to, { camera: false }),
+        torre.mover.hopTo(plan.castle.rookTo, salto, {
+          liftoff: () => bubbles.say('¡HUUUP!', cima, { seconds: 0.9, shout: true, lift: 0.3 }),
+          landing: () => bubbles.say('¡PUMBA!', () => board.squareToWorld(plan.castle.rookTo).setY(0.8), { seconds: 0.9, shout: true }),
+        }),
+      ]);
+    } finally {
+      cinema.watch(null);
+      focus.off();
+      fade.watch(null);
+      await fade.restore();
+      await cinema.restore(clock);
+    }
   }
 
   // Mientras una pieza se mueve, la cámara la sigue de cerca (cada `mover` lo hace con `cinema.track`): las
