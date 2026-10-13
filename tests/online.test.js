@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { connectPacket, encodeLength, publishPacket, readPublish, splitPackets, PUBLISH } from '../src/net/mqtt.js';
-import { LOBBY, createBus, createLobby, createMatchmaker, createSession, finTopic, gameTopic, huella, inbox, leePuntuacion, leePuntuaciones } from '../src/net/online.js';
+import {
+  LOBBY, createBus, createLobby, createMatchmaker, createSession, estadoTopic, finTopic, gameTopic, huella, inbox, leePuntuacion, leePuntuaciones,
+  ritmoOnline,
+} from '../src/net/online.js';
 import { cleanName } from '../src/names.js';
 
 test('la longitud de MQTT va de 7 en 7 bits', () => {
@@ -138,8 +141,8 @@ test('en la partida llegan las jugadas, y si una se pierde, el latido la recuper
   assert.deepEqual(recibidas, []);
   jugadasB.push('e2e4', 'e7e5');
   const llega = new Promise((resolve) => A.on('move', resolve));
-  B.move(1, 'e7e5');
-  assert.deepEqual(await conPlazo(llega), { n: 1, uci: 'e7e5' });
+  B.move(1, 'e7e5', 4321);
+  assert.deepEqual(await conPlazo(llega), { n: 1, uci: 'e7e5', at: 4321 }, 'con la hora en que se hizo');
   // Y se rinde (v2: su «fin», con que gana el otro).
   const adios = new Promise((resolve) => B.on('fin', resolve));
   A.terminar({ status: 'resign', winner: 'black', flagged: null, moves: ['e2e4', 'e7e5'] });
@@ -624,7 +627,7 @@ test('si el rival anula la partida, llega su final (anulada) y se le dice que me
 // La partida de «b2» con la hora en la mano: `pasa(ms)` adelanta la hora y da los latidos que tocan (uno cada 4 s);
 // `adelanta(ms)`, sin latidos (una pestaña de fondo, o el móvil dormido). `dice` habla por el rival y `estado`
 // hace de bus.
-function partidaConReloj({ enlace = () => true } = {}) {
+function partidaConReloj({ enlace = () => true, diaria = false } = {}) {
   let hora = 0;
   let latir = null;
   const enviados = [];
@@ -644,7 +647,7 @@ function partidaConReloj({ enlace = () => true } = {}) {
     },
   };
   const timers = { every: (fn) => (latir = fn), stop: () => (latir = null) };
-  const sesion = createSession({ bus, me: 'b2', game: 'a1-b2-x', opponent: 'a1', white: 'a1', moves: () => [], now: () => hora, timers, enlaceBien: () => enlace() });
+  const sesion = createSession({ bus, me: 'b2', game: 'a1-b2-x', opponent: 'a1', white: 'a1', moves: () => [], now: () => hora, timers, enlaceBien: () => enlace(), diaria });
   const eventos = [];
   for (const k of ['lost', 'back', 'gone', 'cancel']) sesion.on(k, () => eventos.push(k));
   return {
@@ -1021,28 +1024,33 @@ test('la diferencia de puntuación que se acepta empieza en 200 y crece 100 cada
   assert.equal(fb.game, fd.game);
 });
 
-test('online no hay diaria: quien la busca va sin reloj, y una oferta o un reto con ella se rechazan', async () => {
+test('online se juega a la diaria: quien la busca la anuncia, y una oferta de diaria a quien busca otro ritmo se rechaza', async () => {
   const enviados = [];
   const net = red({ drop: (m) => !enviados.push(m) });
   const B = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'diaria:1d', timers: rapido });
   await espera(20);
-  assert.equal(enviados.find((m) => m.from === 'b2' && m.k === 'seek').time, 'libre:libre');
+  assert.equal(enviados.find((m) => m.from === 'b2' && m.k === 'seek').time, 'diaria:1d');
   const tramposo = net.bus('t');
-  tramposo.publish(inbox('b2'), { k: 'offer', pv: 3, from: 'a1', game: 'a1-b2-x', white: 'a1', time: 'diaria:3d' });
+  tramposo.publish(inbox('b2'), { k: 'offer', pv: 3, from: 'a1', game: 'a1-b2-x', white: 'a1', time: 'blitz:3+2' });
   await espera(20);
-  assert.equal(B.state, 'seeking');
+  assert.equal(B.state, 'seeking', 'busca la diaria: una de reloj no le vale');
   assert.ok(enviados.some((m) => m.from === 'b2' && m.k === 'decline'));
   B.stop();
-  const sala = createLobby({ bus: net.bus('s'), me: 'c3', timers: rapido });
+  const C = createMatchmaker({ bus: net.bus('c'), me: 'c3', time: 'blitz:3+2', timers: rapido });
+  tramposo.publish(inbox('c3'), { k: 'offer', pv: 3, from: 'a1', game: 'a1-c3-x', white: 'a1', time: 'diaria:3d' });
+  await espera(20);
+  assert.equal(C.state, 'seeking', 'y al revés');
+  C.stop();
+  // Los retos a la diaria, igual que los demás: llegan, y los míos salen con ella.
+  const sala = createLobby({ bus: net.bus('s'), me: 'd4', timers: rapido });
   const retos = [];
   sala.onInvite((r) => retos.push(r));
-  tramposo.publish(inbox('c3'), { k: 'invite', from: 'a1', game: 'a1-c3-x', white: 'a1', time: 'diaria:1d', name: 'Ana' });
+  tramposo.publish(inbox('d4'), { k: 'invite', from: 'a1', game: 'a1-d4-x', white: 'a1', time: 'diaria:1d', name: 'Ana' });
   await espera(20);
-  assert.deepEqual(retos, []);
-  assert.ok(enviados.some((m) => m.from === 'c3' && m.k === 'invite-decline'));
-  // Y el mío, si se pide con la diaria, sale sin reloj.
-  const reto = sala.invite('d4', { time: 'diaria:7d' });
-  assert.equal(enviados.find((m) => m.from === 'c3' && m.k === 'invite').time, 'libre:libre');
+  assert.equal(retos.length, 1);
+  assert.equal(retos[0].time, 'diaria:1d');
+  const reto = sala.invite('e5', { time: 'diaria:7d' });
+  assert.equal(enviados.find((m) => m.from === 'd4' && m.k === 'invite').time, 'diaria:7d');
   reto.cancel();
   sala.close();
 });
@@ -1117,4 +1125,123 @@ test('las reacciones de la partida llegan al rival, y solo las de la lista', asy
   assert.deepEqual(llegan, ['👍']);
   A.leave();
   B.leave();
+});
+
+// ---- La diaria: cada uno juega cuando puede ----
+
+test('a la diaria se juega online: el ritmo se queda como está', () => {
+  assert.equal(ritmoOnline('diaria:3d'), 'diaria:3d');
+  assert.equal(ritmoOnline('blitz:3+2'), 'blitz:3+2');
+  assert.equal(ritmoOnline(42), 'libre:libre');
+});
+
+test('la diaria: cada jugada se deja guardada en el broker, y al rival que no estaba le llega al volver con la hora en que se hizo', async (t) => {
+  const broker = brokerConGuardados();
+  const quieto = { every: () => 0, stop: () => {} };
+  const busA = createBus({ urls: ['wss://juguete'], clientId: 'a', connect: broker.connect });
+  t.after(() => busA.close());
+  await espera(20);
+  const jugadas = [];
+  const A = createSession({ bus: busA, me: 'aaaa', game: 'aaaa-bbbb-x', opponent: 'bbbb', white: 'aaaa', moves: () => jugadas, timers: quieto, diaria: true });
+  jugadas.push('e2e4');
+  A.move(0, 'e2e4', 5000);
+  await espera(20);
+  assert.ok(broker.guardados.has(estadoTopic('aaaa-bbbb-x', 'aaaa')), 'guardada para quien no está');
+  // El rival abre el juego más tarde (horas, días): se suscribe y le llega lo guardado.
+  const busB = createBus({ urls: ['wss://juguete'], clientId: 'b', connect: broker.connect });
+  t.after(() => busB.close());
+  await espera(20);
+  const B = createSession({ bus: busB, me: 'bbbb', game: 'aaaa-bbbb-x', opponent: 'aaaa', white: 'aaaa', moves: () => [], timers: quieto, diaria: true });
+  const estado = await conPlazo(new Promise((resolve) => B.on('estado', resolve)), 1000);
+  assert.deepEqual(estado, { moves: ['e2e4'], at: 5000 });
+});
+
+test('la diaria: lo guardado se vuelve a dejar al empezar y al reconectar (por si el broker lo perdió)', () => {
+  const enviados = [];
+  const estados = new Set();
+  const bus = {
+    subscribe: () => {},
+    unsubscribe: () => {},
+    publish: (topic, msg, opciones) => enviados.push({ topic, msg, retain: Boolean(opciones?.retain) }),
+    onMessage: () => () => {},
+    onEstado: (fn) => {
+      estados.add(fn);
+      return () => estados.delete(fn);
+    },
+  };
+  const quieto = { every: () => 0, stop: () => {} };
+  createSession({ bus, me: 'b2', game: 'a1-b2-x', opponent: 'a1', white: 'a1', moves: () => ['e2e4', 'e7e5'], instante: () => 7000, timers: quieto, diaria: true });
+  const guardados = () => enviados.filter((e) => e.topic === estadoTopic('a1-b2-x', 'b2') && e.retain);
+  assert.equal(guardados().length, 1, 'al empezar (con jugadas que dejar)');
+  assert.deepEqual(guardados()[0].msg.moves, ['e2e4', 'e7e5']);
+  assert.equal(guardados()[0].msg.at, 7000);
+  for (const fn of estados) fn('conectado');
+  assert.equal(guardados().length, 2, 'y al volver la conexión');
+});
+
+test('la diaria: lo que dice guardado el rival se comprueba como sus jugadas (una lista rota o sin hora no llega)', () => {
+  const oyentes = new Set();
+  const bus = {
+    subscribe: () => {},
+    unsubscribe: () => {},
+    publish: () => {},
+    onMessage: (fn) => {
+      oyentes.add(fn);
+      return () => oyentes.delete(fn);
+    },
+  };
+  const quieto = { every: () => 0, stop: () => {} };
+  const B = createSession({ bus, me: 'b2', game: 'a1-b2-x', opponent: 'a1', white: 'a1', moves: () => [], timers: quieto, diaria: true });
+  const llegan = [];
+  B.on('estado', (e) => llegan.push(e));
+  const dice = (msg) => {
+    for (const fn of [...oyentes]) fn(estadoTopic('a1-b2-x', 'a1'), { from: 'a1', k: 'estado', ...msg });
+  };
+  dice({ moves: ['e2e4', 'nada'], at: 1 });
+  dice({ moves: ['e2e4'] });
+  dice({ moves: ['e2e4'], at: -5 });
+  dice({ moves: ['e2e4'], at: 1000 });
+  assert.deepEqual(llegan, [{ moves: ['e2e4'], at: 1000 }]);
+});
+
+test('la diaria: el silencio del rival no cuenta (ni «perdido», ni «no ha llegado», ni para reclamar)', () => {
+  const p = partidaConReloj({ diaria: true });
+  p.pasa(600000);
+  assert.deepEqual(p.eventos, [], 'ni «no ha llegado» a los 15 s, ni «perdido» a los 20');
+  assert.equal(p.sesion.estado().silencio, 0, 'callar días es lo normal');
+  p.dice({ k: 'ping', n: 0 });
+  p.pasa(3600000);
+  assert.deepEqual(p.eventos, []);
+});
+
+test('a la diaria, emparejados con quien busca la diaria; con otro ritmo, ni pasado un rato', async () => {
+  const net = red();
+  const diaria = createMatchmaker({ bus: net.bus('a'), me: 'a1', time: 'diaria:3d', timers: rapido });
+  const blitz = createMatchmaker({ bus: net.bus('b'), me: 'b2', time: 'blitz:3+2', timers: rapido });
+  await espera(600); // más de lo que tarda en mezclarse con otros ritmos (15 s, cincuenta veces más deprisa)
+  assert.equal(diaria.state, 'seeking');
+  assert.equal(blitz.state, 'seeking');
+  blitz.stop();
+  const otra = createMatchmaker({ bus: net.bus('c'), me: 'c3', time: 'diaria:3d', timers: rapido });
+  const [x, y] = await conPlazo(Promise.all([diaria.found, otra.found]));
+  assert.equal(x.game, y.game);
+  assert.equal(x.time, 'diaria:3d');
+  diaria.stop();
+  otra.stop();
+});
+
+test('un reto a la diaria llega y se acepta como cualquier otro', async () => {
+  const net = red();
+  const a = createLobby({ bus: net.bus('a'), me: 'a1', timers: rapido });
+  const b = createLobby({ bus: net.bus('b'), me: 'b2', timers: rapido });
+  await espera(60);
+  const llega = new Promise((resolve) => b.onInvite(resolve));
+  const reto = a.invite('b2', { time: 'diaria:3d' });
+  const visto = await conPlazo(llega);
+  assert.equal(visto.time, 'diaria:3d');
+  const [suyo, mio] = await conPlazo(Promise.all([b.acceptInvite(visto.game), reto.promise]));
+  assert.equal(suyo.game, mio.game);
+  assert.equal(mio.time, 'diaria:3d');
+  a.close();
+  b.close();
 });

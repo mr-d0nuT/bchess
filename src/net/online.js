@@ -37,6 +37,10 @@ import { ONLINE_CATEGORIES, categoryOf } from '../rating/ratings.js';
 //     ahora no tenga red; «fin-ok», que se ha enterado (y lo guardado se borra).
 //   Y en mi buzón, «cancel» (o «invite-cancel»): el rival no llegó a empezarla. Sin noticias del rival en un
 //   rato (con mi conexión sana), se avisa de que se ha perdido la conexión; en más, se puede reclamar la victoria.
+// - LA DIARIA (tantos días por jugada): los dos casi nunca están a la vez, así que cada uno deja guardadas en el broker
+//   (`retain`) sus jugadas, con la hora de la última, en `…/g/<partida>/estado/<id>` («estado» {moves, at}): al rival le
+//   llegan en cuanto abre el juego, aunque sea días después. Su silencio no cuenta (callar es lo normal): solo el plazo
+//   de cada jugada, que cuenta desde que se hizo.
 
 // Usuario y contraseña de shiftr.io: los públicos de su instancia de pruebas, que son de su documentación.
 export const BROKERS = [
@@ -58,6 +62,8 @@ export const inbox = (id) => `${PREFIX}/p/${id}`;
 export const gameTopic = (game) => `${PREFIX}/g/${game}`;
 // Donde cada uno deja guardado su final de la partida (`retain`), para el rival que ahora no tiene conexión.
 export const finTopic = (game, id) => `${gameTopic(game)}/fin/${id}`;
+// Y, en la diaria, sus jugadas (`retain`): para el rival que abrirá el juego más tarde.
+export const estadoTopic = (game, id) => `${gameTopic(game)}/estado/${id}`;
 
 // LO QUE LLEGA DE LA RED NO SE CREE A CIEGAS: el código es público y cualquiera puede publicar en estos temas.
 // Los identificadores acaban dentro de temas MQTT (`…/p/<id>`, `…/g/<partida>`), y con un «#» o un «+» ahí
@@ -74,6 +80,7 @@ const esJugada = (uci) => typeof uci === 'string' && UCI.test(uci);
 const esRitmo = (time) => typeof time === 'string' && time.length <= 32;
 const esEntero = (n, max = MAX_JUGADAS) => Number.isInteger(n) && n >= 0 && n <= max;
 const esTiempo = (ms) => Number.isFinite(ms) && ms >= 0 && ms <= MAX_TIEMPO;
+const esHora = (ms) => Number.isFinite(ms) && ms > 0; // una hora de reloj de verdad (milisegundos desde 1970)
 // Una partida que me ofrece (o a la que me reta) `de`: la ha nombrado él, con él delante y yo detrás.
 const esPartidaDe = (game, de, para) => typeof game === 'string' && PARTIDA.test(game) && game.startsWith(`${de}-${para}-`);
 
@@ -339,10 +346,9 @@ export function leePuntuaciones(rt) {
 // La de un ritmo, de una de esas listas (o la de empezar).
 export const puntuacionEn = (todas, time) => todas?.[categoryOf({ mode: 'online', time })] ?? { ...PUNTUACION_INICIAL };
 
-// Online no hay partidas «diarias» (aún: haría falta que cada uno pudiera tardar días en contestar): con ese ritmo,
-// sin reloj.
-const esDiaria = (time) => String(time).split(':')[0] === 'diaria';
-export const ritmoOnline = (time) => (esRitmo(time) && !esDiaria(time) ? time : 'libre:libre');
+// El ritmo que se anuncia o se propone online: el que sea (la diaria también), o sin reloj si no es un ritmo.
+export const esDiaria = (time) => String(time).split(':')[0] === 'diaria';
+export const ritmoOnline = (time) => (esRitmo(time) ? time : 'libre:libre');
 
 const MEZCLA_TRAS = 15000; // buscando más que esto, también con quien busca otro ritmo
 const VENTANA = 200; // la diferencia de puntuación con que se empieza a buscar
@@ -426,7 +432,8 @@ export function createMatchmaker({ bus, me, time, name = '', rating = null, evit
       const t = tried.get(id);
       if (t !== undefined && now() - t < RETRY_AFTER) continue;
       const otroRitmo = s.time !== miRitmo;
-      if (otroRitmo && buscando < MEZCLA_TRAS) continue;
+      // Con otro ritmo, pasado un rato; pero la diaria, nunca con uno de reloj (ni al revés): son otra cosa.
+      if (otroRitmo && (buscando < MEZCLA_TRAS || esDiaria(s.time) !== esDiaria(miRitmo))) continue;
       const diferencia = Math.abs(s.r - miPuntuacion.r);
       if (diferencia > ventana) continue;
       const orden = [otroRitmo ? 1 : 0, diferencia, id];
@@ -454,7 +461,7 @@ export function createMatchmaker({ bus, me, time, name = '', rating = null, evit
       // y trae un ritmo. Si no, es falsa o de algo roto: ni se contesta. (Con otro color, los dos creían
       // llevar las negras; con «#» por partida, uno se suscribía a todas.)
       if (!esPartidaDe(msg.game, msg.from, me) || (msg.white !== me && msg.white !== msg.from) || !esRitmo(msg.time)) return;
-      if ((state === 'seeking' || state === 'offering') && !esDiaria(msg.time) && !evita(msg.from) && entiendePropuesta(msg)) {
+      if ((state === 'seeking' || state === 'offering') && esDiaria(msg.time) === esDiaria(miRitmo) && !evita(msg.from) && entiendePropuesta(msg)) {
         if (state === 'offering') to(pending.to, { k: 'cancel', game: pending.game });
         pending = null;
         accepted = { from: msg.from, game: msg.game, white: msg.white, time: msg.time, name: cleanName(msg.name), rating: leePuntuacion(msg.rt) };
@@ -647,11 +654,6 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
       // Como las ofertas del emparejamiento: nombrada por quien reta, uno de los dos con blancas y un ritmo.
       if (!esPartidaDe(msg.game, msg.from, me) || (msg.white !== me && msg.white !== msg.from) || !esRitmo(msg.time)) return;
       if (recibidos.has(msg.game) || aceptando.has(msg.game)) return;
-      // A la diaria, online, no se juega (aún): se le dice que no (los de la versión de antes aún podían retar así).
-      if (esDiaria(msg.time)) {
-        to(msg.from, { k: 'invite-decline', game: msg.game });
-        return;
-      }
       const reto = {
         game: msg.game,
         from: msg.from,
@@ -747,7 +749,7 @@ export function createLobby({ bus, me, now = Date.now, random = Math.random, tim
       return () => retosOyentes.delete(fn);
     },
     invite(id, { time: ritmo = 'libre:libre', white: blancas = null, revancha = false } = {}) {
-      const time = ritmoOnline(ritmo); // la diaria, online, no: sin reloj
+      const time = ritmoOnline(ritmo); // el que sea (la diaria también); si no es un ritmo, sin reloj
       const game = `${me}-${id}-${Math.floor(random() * 1e9).toString(36)}`;
       // Los colores que se piden (la revancha, cambiados), si son de uno de los dos; si no, a suertes.
       const white = blancas === me || blancas === id ? blancas : random() < 0.5 ? me : id;
@@ -941,10 +943,17 @@ export const TERMINADA_MS = 10 * 60 * 1000; // acabada, lo que se espera a que e
 // «Reclamar la victoria»; antes, a los dos minutos se ganaba solo, sin preguntar).
 // Si al empezar el rival no dice nada en 15 s de conexión sana, no ha llegado a la partida ('cancel'), y lo
 // mismo si me lo dice él en mi buzón («cancel» o «invite-cancel»: su confirmación no llegó).
-export function createSession({ bus, me, game, opponent, white, moves, now = Date.now, timers = TIMERS, enlaceBien = () => true, reanudada = false }) {
+//
+// LA DIARIA (`diaria`): cada uno juega cuando puede, días después. Mis jugadas, con la hora de la última (`instante()`,
+// o la de la jugada que sale), quedan guardadas en el broker (`estadoTopic`) al jugar, al empezar y al volver la
+// conexión (por si el broker las perdió), y las del rival llegan de lo suyo guardado ('estado' { moves, at }). Su
+// silencio no cuenta: ni «perdido» ni «no ha llegado», y para el juego calla cero (no hay victoria que reclamar).
+export function createSession({ bus, me, game, opponent, white, moves, now = Date.now, timers = TIMERS, enlaceBien = () => true, reanudada = false, diaria = false, instante = now }) {
   const topic = gameTopic(game);
   const suFin = finTopic(game, opponent); // donde me deja guardado su final
   const miFin = finTopic(game, me);
+  const suEstado = estadoTopic(game, opponent); // en la diaria, sus jugadas guardadas
+  const miEstado = estadoTopic(game, me);
   const mio = white === me ? 'white' : 'black';
   const suyo = mio === 'white' ? 'black' : 'white'; // el color del rival
   const oyentes = new Map();
@@ -976,6 +985,13 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
   };
   const finDe = (f) => ({ status: f.status, winner: f.winner ?? null, flagged: f.flagged ?? null, moves: [...f.moves] });
 
+  // En la diaria, mis jugadas, guardadas en el broker para el rival (con la hora `at` de la última).
+  function guardaEstado(at) {
+    if (!diaria || cerrada || terminada) return;
+    const lista = moves();
+    if (lista.length && esHora(at)) bus.publish(miEstado, { k: 'estado', moves: [...lista], at, from: me }, { retain: true });
+  }
+
   // Se acabó aquí: mi final, al rival y guardado en el broker. Una vez.
   function terminar(fin) {
     if (cerrada || terminada) return;
@@ -998,8 +1014,9 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     switch (msg.k) {
       case 'ping': return esEntero(msg.n) && (msg.h === undefined || (typeof msg.h === 'string' && msg.h.length <= 16));
       case 'want': case 'fin-ok': return true;
-      case 'move': return esEntero(msg.n, MAX_JUGADAS - 1) && msg.n % 2 === (suyo === 'white' ? 0 : 1) && esJugada(msg.uci);
+      case 'move': return esEntero(msg.n, MAX_JUGADAS - 1) && msg.n % 2 === (suyo === 'white' ? 0 : 1) && esJugada(msg.uci) && (msg.at === undefined || esHora(msg.at));
       case 'sync': return Array.isArray(msg.moves) && msg.moves.length <= MAX_JUGADAS && msg.moves.every(esJugada);
+      case 'estado': return Array.isArray(msg.moves) && msg.moves.length > 0 && msg.moves.length <= MAX_JUGADAS && msg.moves.every(esJugada) && esHora(msg.at);
       case 'press': return msg.side === suyo && esEntero(msg.n) && esTiempo(msg.white) && esTiempo(msg.black);
       case 'reclamo': return esEntero(msg.n) && msg.que === 'time';
       case 'reloj': return esEntero(msg.n) && esTiempo(msg.white) && esTiempo(msg.black);
@@ -1030,7 +1047,8 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       }
       return;
     }
-    if (!((t === topic || (t === suFin && msg.k === 'fin')) && vale(msg))) return;
+    const suyoGuardado = (t === suFin && msg.k === 'fin') || (diaria && t === suEstado && msg.k === 'estado');
+    if (!((t === topic && msg.k !== 'estado') || suyoGuardado) || !vale(msg)) return;
     supoAlgo = true;
     visto = now();
     if (perdido) {
@@ -1051,6 +1069,7 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       // Acabada aquí: a lo que diga, mi final (por si no le llegó); y en cuanto se entera, fuera, y lo guardado también.
       if (msg.k === 'fin-ok') {
         bus.limpia?.(miFin);
+        if (diaria) bus.limpia?.(miEstado);
         cerrar();
       } else if (msg.k === 'ping' || msg.k === 'want') {
         send('fin', terminada.fin);
@@ -1074,7 +1093,17 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     } else if (msg.k === 'want') {
       send('sync', { moves: moves() });
     } else if (msg.k === 'move') {
-      emit('move', { n: msg.n, uci: msg.uci });
+      emit('move', msg.at === undefined ? { n: msg.n, uci: msg.uci } : { n: msg.n, uci: msg.uci, at: msg.at });
+    } else if (msg.k === 'estado') {
+      // Lo que tiene guardado: como su lista entera, con la hora de su última jugada (una vieja, más corta, vale igual).
+      const mias = moves();
+      for (let i = 0; i < Math.min(mias.length, msg.moves.length); i++) {
+        if (mias[i] !== msg.moves[i]) {
+          desincronizada();
+          return;
+        }
+      }
+      emit('estado', { moves: [...msg.moves], at: msg.at });
     } else if (msg.k === 'sync') {
       // Hasta donde llegan las dos, han de ser iguales (una lista vieja, más corta, no dice nada nuevo).
       const mias = moves();
@@ -1102,6 +1131,7 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
   bus.subscribe(inbox(me));
   bus.subscribe(topic);
   bus.subscribe(suFin);
+  if (diaria) bus.subscribe(suEstado);
 
   const latido = timers.every(() => {
     // Acabada aquí, ya no late: solo se espera a que el rival se entere (lo guardado en el broker sigue ahí).
@@ -1115,6 +1145,8 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       ceroSilencio();
       return;
     }
+    // En la diaria, callar días es lo normal: ni «no ha llegado» ni «perdido».
+    if (diaria) return;
     if (!supoAlgo && now() - empezada > START_WAIT) {
       cerrar();
       emit('cancel');
@@ -1126,11 +1158,15 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     }
   }, PING_EVERY);
   late();
-  // Al volver la conexión, un latido ya: si algo se perdió mientras tanto, se pide en el momento. Y al volver
-  // al primer plano (`revive`), el silencio del rival vuelve a contar desde cero.
+  guardaEstado(instante());
+  // Al volver la conexión, un latido ya: si algo se perdió mientras tanto, se pide en el momento (y en la diaria, lo
+  // mío se vuelve a dejar guardado). Y al volver al primer plano (`revive`), el silencio del rival vuelve a contar
+  // desde cero.
   const offEstado = bus.onEstado?.((estado) => {
-    if (estado === 'conectado' && !terminada) late();
-    else if (estado === 'revive') ceroSilencio();
+    if (estado === 'conectado' && !terminada) {
+      late();
+      guardaEstado(instante());
+    } else if (estado === 'revive') ceroSilencio();
   });
 
   // Se acabó del todo: ni latidos, ni oídos, ni sus temas (antes se seguía suscrito a todas las partidas
@@ -1143,6 +1179,7 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     offEstado?.();
     bus.unsubscribe?.(topic);
     bus.unsubscribe?.(suFin);
+    if (diaria) bus.unsubscribe?.(suEstado);
   }
 
   return {
@@ -1156,7 +1193,7 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
     // (sin ella, cero: no se sabe si calla él o yo); `supoAlgo`, si ha llegado a decir algo en la partida.
     estado() {
       const enlace = enlaceBien();
-      const contando = enlace && !terminada && !cerrada;
+      const contando = enlace && !terminada && !cerrada && !diaria;
       return { enlace, silencio: contando ? Math.max(0, now() - visto) : 0, supoAlgo };
     },
     // Acabada aquí, esperando a que el rival se entere.
@@ -1168,8 +1205,10 @@ export function createSession({ bus, me, game, opponent, white, moves, now = Dat
       oyentes.get(k).add(fn);
       return () => oyentes.get(k).delete(fn);
     },
-    move(n, uci) {
-      send('move', { n, uci });
+    // Mi jugada `n`, hecha a la hora `at` (la de verdad): sale ya, y en la diaria queda guardada (con las de antes).
+    move(n, uci, at = now()) {
+      send('move', { n, uci, at });
+      guardaEstado(at);
     },
     // He pulsado mi reloj tras la jugada `n` (las que van, contando esa): lo que nos queda a cada uno.
     press(side, remaining, n) {
@@ -1263,9 +1302,13 @@ export function createOnline({ urls = BROKERS, me = randomId() } = {}) {
     // La sesión de la partida emparejada; `moves()` da las jugadas que conoce el juego (`createSession`).
     // Una partida que se sigue tras recargar: `yo`, el identificador con que se jugó, y `reanudada` (el rival ya
     // estaba en ella: no se le espera a que llegue).
-    session(info, moves, { yo = me, reanudada = false } = {}) {
+    // `instante()`: la hora de la última jugada (en la diaria, la que se deja guardada con ellas).
+    session(info, moves, { yo = me, reanudada = false, instante = Date.now } = {}) {
       const b = getBus();
-      return createSession({ bus: b, me: yo, game: info.game, opponent: info.opponent, white: info.white, moves, reanudada, enlaceBien: () => b.sano });
+      return createSession({
+        bus: b, me: yo, game: info.game, opponent: info.opponent, white: info.white, moves, reanudada, enlaceBien: () => b.sano,
+        diaria: esDiaria(info.time), instante,
+      });
     },
     cancel() {
       busquedas += 1;

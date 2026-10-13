@@ -29,7 +29,7 @@ import { onBoardTap } from './input.js';
 import { INITIAL_FEN, Position, describeMove, moveFrom, squareName } from './chess/position.js';
 import { createCpu } from './chess/cpu.js';
 import { aceptaTablas } from './chess/engine.js';
-import { GESTOS, LOST_AFTER, anunciaPuntuacion, createOnline, randomId, ritmoOnline } from './net/online.js';
+import { GESTOS, LOST_AFTER, anunciaPuntuacion, createOnline, esDiaria, randomId, ritmoOnline } from './net/online.js';
 import {
   MAX_MALAS, aceptacionCaducada, acepto, anuladas, createPartidaOnline, decideAceptacion, decideBandera, decideFin, decideReclamo, finDeTodos,
   mandaElSuyo, ofertaMia, ofertaSuya, ofrezco, puedoOfrecer, puntuaOnline, rechazada, rechazo, recibeOferta, retrasoReclamo,
@@ -1374,10 +1374,12 @@ async function start() {
     // hecha (y si un combate llegara a colgarse, al recargar se sigue sin él).
     game.enCurso = plan.uci;
     guardarPartida();
-    // Online, la del jugador sale ya hacia el rival: así la ven a la vez los dos.
+    // Online, la del jugador sale ya hacia el rival: así la ven a la vez los dos (con su hora: en la diaria, su plazo
+    // cuenta desde ella).
     if (sesion() && game.position.side === game.human) {
+      game.partida.ultimaAt = Date.now();
       guardaOnlineYa(); // ya, con ella: si la página se recarga a media animación, al volver está hecha
-      sesion().move(game.moves.length, plan.uci);
+      sesion().move(game.moves.length, plan.uci, game.partida.ultimaAt);
     }
     select(null);
     highlights.check(null);
@@ -1650,7 +1652,10 @@ async function start() {
         game.press = null;
         if (pulsado === false || id !== game.id || state.phase !== 'playing') return;
       }
-      game.clock.press(movio, relojAhora());
+      // La del rival, online, a la hora en que la hizo si la diaria lo pide (`momento`, `pulsaSuya`): si no, al acabar
+      // de verla.
+      if (game.mode === 'online' && p && movio !== game.human) p.pulsaSuya(p.momento(game.moves.length - 1, relojAhora()), relojAhora());
+      else game.clock.press(movio, relojAhora());
       if (game.mode === 'online') {
         relojOnline(movio);
         guardaOnline();
@@ -1830,16 +1835,23 @@ async function start() {
     const yo = guardada?.yo ?? online.me;
     const p = createPartidaOnline({
       info, yo, miNombre: game.miNombre, now: Date.now(),
-      moves: guardada?.moves, reloj: guardada?.reloj, nombres: guardada?.nombres,
+      moves: guardada?.moves, reloj: guardada?.reloj, nombres: guardada?.nombres, ultimaAt: guardada?.ultimaAt,
     });
-    const session = online.session(info, () => p.conocidas(enCursoDe(p)), { yo, reanudada: Boolean(guardada) });
+    const session = online.session(info, () => p.conocidas(enCursoDe(p)), { yo, reanudada: Boolean(guardada), instante: () => p.ultimaAt });
     p.session = session;
     p.origen = origen;
     p.anterior = anterior;
     partidas.push(p);
     guardaOnline();
-    session.on('move', ({ n, uci }) => {
-      if (!p.recibe(n, uci, enCursoDe(p))) return;
+    session.on('move', ({ n, uci, at }) => {
+      if (!p.recibe(n, uci, enCursoDe(p), at)) return;
+      llegaAlgo(p);
+      avisaTeToca(p);
+    });
+    // LA DIARIA: lo que el rival dejó guardado (sus jugadas y la hora de la última), que llega al abrir el juego aunque
+    // él jugara hace días; su plazo y el mío cuentan desde esa hora (`momento`).
+    session.on('estado', ({ moves, at }) => {
+      if (!p.sincroniza(moves, enCursoDe(p), at)) return;
       llegaAlgo(p);
       avisaTeToca(p);
     });
@@ -2959,6 +2971,8 @@ async function start() {
     state.phase = 'playing'; // para que `activarPartida` deje en espera la que hubiera
     await activarPartida(partida);
     preguntaAvisos();
+    // La diaria: que se sepa que no hace falta esperar con el juego abierto.
+    if (esDiaria(info.time)) salaUi.notify({ texto: t('online.diaria'), icono: '📅', dura: 9000 });
   }
 
   // LA REVANCHA, online (como en chess.com): se reta al mismo rival, con los colores cambiados y el mismo ritmo.

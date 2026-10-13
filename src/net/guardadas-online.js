@@ -38,6 +38,7 @@ export function packOnline(p, { enCurso = null, now }) {
     moves: [...p.jugadas(enCurso)],
     reloj: p.clock ? { white: p.clock.remaining('white', now), black: p.clock.remaining('black', now), at: now } : null,
     rt: anunciaPuntuacion(p.rivalRating), // la del rival al empezar: al acabar se puntúa contra ella
+    ultimaAt: Number.isFinite(p.ultimaAt) ? p.ultimaAt : null, // la hora de la última jugada (la diaria la deja guardada)
   };
 }
 
@@ -45,7 +46,7 @@ export function packOnline(p, { enCurso = null, now }) {
 export const packTodas = (lista) => JSON.stringify({ v: VERSION, partidas: lista });
 
 // Las partidas guardadas (el texto de `localStorage`), comprobadas y listas para seguir: [{ info, yo, origen,
-// nombres, moves, reloj }] (en `info`, también la puntuación del rival), con `reloj` ({ white, black }) como va
+// nombres, moves, reloj, ultimaAt }] (en `info`, también la puntuación del rival), con `reloj` ({ white, black }) como va
 // ahora, a la hora `now`: al que le tocaba se le ha gastado el tiempo que ha pasado. Lo que no cuadra, o una
 // partida ya acabada, no se devuelve.
 export function readOnline(raw, now) {
@@ -104,6 +105,7 @@ function leeUna(g, now) {
     nombres,
     moves: [...g.moves],
     reloj,
+    ultimaAt: Number.isFinite(g.ultimaAt) && g.ultimaAt > 0 ? g.ultimaAt : null,
   };
 }
 

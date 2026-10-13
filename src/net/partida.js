@@ -14,8 +14,8 @@ export const MAX_MALAS = 3;
 //
 // `info`: el emparejamiento ({ game, white, time, opponent, opponentName, opponentRating }); `yo`: mi identificador en la
 // partida; `miNombre`: el mío. Para seguir una partida guardada (`guardadas-online.js`): sus `moves` (ya
-// comprobadas), su `reloj` ({ white, black }, como va ahora) y sus `nombres`.
-export function createPartidaOnline({ info, yo, miNombre = '', now = 0, moves = [], reloj = null, nombres = null }) {
+// comprobadas), su `reloj` ({ white, black }, como va ahora), sus `nombres` y `ultimaAt` (la hora de la última jugada).
+export function createPartidaOnline({ info, yo, miNombre = '', now = 0, moves = [], reloj = null, nombres = null, ultimaAt = null }) {
   const color = info.white === yo ? 'white' : 'black';
   const rival = color === 'white' ? 'black' : 'white';
   const control = findTimeControl(info.time);
@@ -33,6 +33,8 @@ export function createPartidaOnline({ info, yo, miNombre = '', now = 0, moves = 
     position: Position.initial(),
     moves: [],
     remote: new Map(), // número de jugada → la del rival, llegada y aún sin jugar
+    remoteAt: new Map(), // número de jugada → la hora en que la hizo (en la diaria, su plazo cuenta desde ahí)
+    ultimaAt: Number.isFinite(ultimaAt) ? ultimaAt : now, // la hora de la última jugada (la mía o la suya)
     pendingPress: null, // lo que dijo su reloj al pulsar, si llegó antes que su jugada
     malas: 0, // jugadas suyas que no valían aquí
     acabada: null, // { status, winner, flagged } al acabar
@@ -58,21 +60,47 @@ export function createPartidaOnline({ info, yo, miNombre = '', now = 0, moves = 
       return lista;
     },
 
-    // Llega la jugada `n` del rival: se guarda si es nueva (ni jugada ya ni llegada antes). Devuelve si la guarda.
-    recibe(n, uci, enCurso = null) {
+    // Llega la jugada `n` del rival, hecha a la hora `at` (si la dice): se guarda si es nueva (ni jugada ya ni llegada
+    // antes). Devuelve si la guarda.
+    recibe(n, uci, enCurso = null, at = undefined) {
       if (p.acabada || n < p.jugadas(enCurso).length || p.remote.has(n)) return false;
       p.remote.set(n, uci);
+      if (Number.isFinite(at)) p.remoteAt.set(n, at);
       return true;
     },
 
-    // Llega su lista entera (las que se perdieron por el camino): solo si empieza por lo que ya tengo, se
-    // guarda lo que falte. Devuelve cuántas nuevas.
-    sincroniza(moves, enCurso = null) {
+    // Llega su lista entera (las que se perdieron por el camino, o la que dejó guardada en la diaria, con la hora `at`
+    // de la última): solo si empieza por lo que ya tengo, se guarda lo que falte. Devuelve cuántas nuevas.
+    sincroniza(moves, enCurso = null, at = undefined) {
       const mias = p.jugadas(enCurso);
       if (!mias.every((uci, i) => moves[i] === uci)) return 0;
       let nuevas = 0;
       for (let n = mias.length; n < moves.length; n++) if (p.recibe(n, moves[n], enCurso)) nuevas += 1;
+      if (nuevas && Number.isFinite(at) && p.remote.has(moves.length - 1)) p.remoteAt.set(moves.length - 1, at);
       return nuevas;
+    },
+
+    // Cuándo pulsar su reloj tras su jugada `n`. En la diaria, a la hora en que la hizo: el plazo de la mía cuenta desde
+    // ahí, no desde que me llega, que puede ser horas o días después. Sin creerse una hora rara: del futuro, ahora; de
+    // antes de la jugada anterior, la de la jugada anterior. En las demás, ahora (su reloj lo corrige el suyo, `pulsa`).
+    momento(n, now) {
+      const at = p.remoteAt.get(n);
+      if (!p.control?.perMove || !Number.isFinite(at) || at > now) return now;
+      return Math.max(at, p.ultimaAt);
+    },
+
+    // Pulsa su reloj tras su jugada, hecha a la hora `cuando` (`momento`): el mío arranca con lo que le queda desde
+    // entonces. Se pulsa ahora y se le quita lo pasado, sin fiarse de que el reloj esté corriendo: el del tablero se
+    // para mientras se anima la jugada, y al seguir contaba desde ese momento (el plazo entero, días después).
+    pulsaSuya(cuando, now) {
+      if (!p.clock) return;
+      p.clock.press(p.rival, now);
+      if (cuando < now) {
+        const queda = { white: p.clock.remaining('white', now), black: p.clock.remaining('black', now) };
+        queda[p.color] = Math.max(0, queda[p.color] - (now - cuando));
+        p.clock.restore(queda);
+      }
+      p.ultimaAt = cuando;
     },
 
     // En espera (no en el tablero): lo que ha llegado del rival, seguido, se juega en sus reglas y se pulsa su
@@ -91,7 +119,7 @@ export function createPartidaOnline({ info, yo, miNombre = '', now = 0, moves = 
         }
         p.position.make(m);
         p.moves.push(uci);
-        p.clock?.press(p.rival, now);
+        p.pulsaSuya(p.momento(p.moves.length - 1, now), now);
         p.pulsaPendiente(now);
         movio = true;
       }
@@ -103,6 +131,7 @@ export function createPartidaOnline({ info, yo, miNombre = '', now = 0, moves = 
     // siempre en «Turno de…»). Devuelve true a la tercera: entonces ya no hay arreglo.
     descarta(n) {
       p.remote.delete(n);
+      p.remoteAt.delete(n);
       p.malas += 1;
       return p.malas >= MAX_MALAS;
     },

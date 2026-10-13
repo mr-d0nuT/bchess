@@ -418,3 +418,46 @@ test('tablas acordadas: medio punto para cada uno, y el final es el mismo en los
   assert.ok(puntuaOnline(p, ratings));
   assert.equal(ratings.get('blitz').draw, 1);
 });
+
+test('en la diaria, el plazo de mi jugada cuenta desde que el rival hizo la suya, no desde que me llega', () => {
+  const HORA = 3600 * 1000;
+  const DIA = 24 * HORA;
+  const p = createPartidaOnline({ info: info({ time: 'diaria:1d' }), yo: 'bbbb', now: 0 }); // yo, negras
+  // El rival (blancas) jugó a la hora de empezar, y yo abro el juego cinco horas después: me llega ahora.
+  assert.equal(p.recibe(0, 'e2e4', null, HORA), true);
+  p.avanza(5 * HORA);
+  assert.equal(p.clock.running, 'black');
+  assert.equal(p.clock.remaining('black', 5 * HORA), DIA - 4 * HORA, 'me quedan 20 h, no un día entero');
+  assert.equal(p.ultimaAt, HORA);
+  // Por su lista guardada, igual: la hora va con su última jugada.
+  const q = createPartidaOnline({ info: info({ time: 'diaria:1d' }), yo: 'bbbb', now: 0 });
+  assert.equal(q.sincroniza(['e2e4'], null, 2 * HORA), 1);
+  q.avanza(10 * HORA);
+  assert.equal(q.clock.remaining('black', 10 * HORA), DIA - 8 * HORA);
+  // Una hora rara (de antes de que le tocara, o del futuro) no se cree a ciegas.
+  const r = createPartidaOnline({ info: info({ time: 'diaria:1d' }), yo: 'bbbb', now: 3 * HORA });
+  r.recibe(0, 'e2e4', null, 99 * DIA);
+  r.avanza(4 * HORA);
+  assert.equal(r.clock.remaining('black', 4 * HORA), DIA, 'del futuro: cuenta desde que llega');
+});
+
+test('en las demás, el reloj se pulsa al llegar, como siempre (la hora del rival no se usa)', () => {
+  const p = createPartidaOnline({ info: info(), yo: 'bbbb', now: 0 }); // blitz 3|2
+  p.recibe(0, 'e2e4', null, 1000);
+  p.avanza(5000);
+  assert.equal(p.clock.running, 'black');
+  assert.equal(p.clock.remaining('black', 5000), 180000);
+});
+
+test('en la diaria, su jugada me resta el tiempo pasado aunque mi reloj estuviera parado (el tablero lo para al animar)', () => {
+  const HORA = 3600 * 1000;
+  const DIA = 24 * HORA;
+  const p = createPartidaOnline({ info: info({ time: 'diaria:1d' }), yo: 'bbbb', now: 0 }); // yo, negras
+  p.clock.pause(0); // se estaba animando: el reloj del tablero, parado
+  p.recibe(0, 'e2e4', null, HORA);
+  p.position.playUci('e2e4');
+  p.moves.push('e2e4');
+  p.pulsaSuya(p.momento(0, 3 * HORA), 3 * HORA);
+  p.clock.resume(3 * HORA); // y sigue al acabar la animación
+  assert.equal(p.clock.remaining('black', 4 * HORA), DIA - 3 * HORA, 'desde su jugada (1 h), no desde que siguió el reloj (3 h)');
+});

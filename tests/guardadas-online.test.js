@@ -110,3 +110,14 @@ test('una partida que se sigue tras recargar no espera a que llegue el rival (ya
   latir();
   assert.deepEqual(eventos, []);
 });
+
+test('se guarda la hora de la última jugada (en la diaria, el plazo cuenta desde ella)', () => {
+  const p = partida();
+  p.ultimaAt = 12345;
+  const [g] = readOnline(packTodas([packOnline(p, { now: 20000 })]), 20000);
+  assert.equal(g.ultimaAt, 12345);
+  const q = createPartidaOnline({ info: g.info, yo: g.yo, now: 20000, moves: g.moves, reloj: g.reloj, nombres: g.nombres, ultimaAt: g.ultimaAt });
+  assert.equal(q.ultimaAt, 12345);
+  const sin = readOnline(JSON.stringify({ v: 1, partidas: [{ ...packOnline(p, { now: 0 }), ultimaAt: 'ayer' }] }), 0)[0];
+  assert.equal(sin.ultimaAt, null, 'una hora que no es un número, fuera');
+});

@@ -223,15 +223,12 @@ export function createMenu({ onShow = null, onHide = null, onChange = null } = {
     return c.options.find((o) => o.id === String(key).split(':')[1]) ?? c.options[0];
   };
 
-  // La duración: una pestaña por ritmo (bala, blitz…) y, debajo, sus tres tiempos.
+  // La duración: una pestaña por ritmo (bala, blitz…) y, debajo, sus tres tiempos. Online también la diaria: cada uno
+  // juega cuando puede, y sus jugadas esperan guardadas al otro (`net/online.js`).
   function pintarTiempo() {
-    // Online no hay partidas diarias (aún: cada uno tendría que poder tardar días en contestar, y la partida se
-    // daría por abandonada mucho antes): esa pestaña no sale, y si estaba elegida, sin reloj.
-    const online = eleccion.mode === 'online';
-    if (online && categoriaDe(eleccion.time).id === 'diaria') eleccion = { ...eleccion, time: 'libre:libre' };
     const cat = categoriaDe(eleccion.time);
     const opt = opcionDe(eleccion.time);
-    categorias.replaceChildren(...TIME_CONTROLS.filter((c) => !(online && c.id === 'diaria')).map((c) => {
+    categorias.replaceChildren(...TIME_CONTROLS.map((c) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'tiempo-cat';
