@@ -22,8 +22,10 @@ test('por debajo de 1320, como una persona: cuanto más flojo, más se equivoca'
     assert.ok(persona.temperature < antes, 'menos errores con más nivel');
     antes = persona.temperature;
   }
-  assert.equal(personaTemperature(100), 220);
-  assert.equal(personaTemperature(ELO_MIN), 35);
+  // Calibrada: 80 en 1290 (empata casi con Stockfish a 1320) y, cada 530 puntos menos, por e.
+  assert.equal(personaTemperature(1290), 80);
+  assert.equal(personaTemperature(1290 - 530), Math.round(80 * Math.E));
+  assert.ok(personaTemperature(100) > 700 && personaTemperature(ELO_MIN) < 80);
 });
 
 test('desde 1320, a la fuerza de su puntuación; en el 100, a toda su fuerza', () => {
