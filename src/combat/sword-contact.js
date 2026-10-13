@@ -239,16 +239,38 @@ export function crossed(before, now) {
 // resto }): el otro respira y se mece, y pasando a dos dedos de la cabeza, a veces la rozaba antes. Prefiere lo que
 // menos ande (`walk(stand)`, lo que cuesta llegar) y menos tenga que girarse desde `facing`. Devuelve { at, facing, t,
 // point } o null.
-export function cutStand({ path, body, target, reach, stands, walk, facing, spare = [], margin = {} }) {
+export function cutStand({ path, body, target, reach, stands, walk, facing, spare = [], margin = {}, why = null }) {
   const { top, end } = strikeWindow(path);
   const wide = body.map((part) => (spare.includes(part.limb) ? part : { ...part, r: part.r + (margin[part.limb] ?? margin.other ?? 0) }));
   const bound = boundOf(wide);
+  // `why` (para diagnosticar): por qué se descarta cada sitio.
+  const descarta = (motivo) => {
+    if (why) why[motivo] = (why[motivo] ?? 0) + 1;
+  };
   let best = null;
   for (const stand of stands) {
     const touch = firstTouch(path, wide, bound, stand.at, stand.facing, end);
-    if (!touch || touch.i < top || touch.along < CUT_ALONG || !spare.includes(touch.part.limb)) continue;
+    if (!touch) {
+      descarta('nada');
+      continue;
+    }
+    if (touch.i < top) {
+      descarta('subiendo');
+      continue;
+    }
+    if (touch.along < CUT_ALONG) {
+      descarta('guarda');
+      continue;
+    }
+    if (!spare.includes(touch.part.limb)) {
+      descarta(touch.part.limb);
+      continue;
+    }
     const miss = length(sub(touch.point, target));
-    if (miss > reach) continue;
+    if (miss > reach) {
+      descarta('lejos');
+      continue;
+    }
     // Lo que se mete, al seguir bajando, en lo que no es el blanco.
     let sink = 0;
     for (let i = touch.i; i <= end; i++) {

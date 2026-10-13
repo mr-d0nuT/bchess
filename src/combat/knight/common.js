@@ -448,7 +448,8 @@ export function standFor(target, tip, facing) {
 
 // Un paso hasta `to` ({x, z}) sin perder de vista al rival: si es corto, se arrima; si no, se gira, anda y
 // vuelve a encararlo.
-export async function stepTo(clock, fighter, to, facing) {
+// `keepPose`: sin andar (se arrima con la espada en alto, tal como la tiene).
+export async function stepTo(clock, fighter, to, facing, { keepPose = false } = {}) {
   const figure = fighter.figure;
   const from = { x: figure.position.x, z: figure.position.z };
   const d = Math.hypot(to.x - from.x, to.z - from.z);
@@ -459,7 +460,7 @@ export async function stepTo(clock, fighter, to, facing) {
     figure.rotation.y = facing;
     return;
   }
-  const walking = d > WALK_FROM;
+  const walking = !keepPose && d > WALK_FROM;
   if (walking) fighter.play('walk', { fade: 0.12 });
   await clock.tween(STEP_SECONDS + (walking ? d * 0.6 : 0), (k) => {
     const e = k * k * (3 - 2 * k);

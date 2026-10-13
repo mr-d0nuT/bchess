@@ -50,9 +50,14 @@ const HOLD_SECONDS = 0.2;
 // En alturas del jinete: lo lejos del blanco que puede entrar primero la hoja en un corte y en el toque al yelmo.
 const CUT_REACH = 0.1;
 const TAP_REACH = 0.12;
-// Dónde puede ponerse para cada corte: alrededor del otro, de cerca a STAND_FAR y por cualquier lado (lo rodea si
-// hace falta; la cámara se pone después del lado de su espada), mirándolo o algo desviado, y sin pisar ni atravesar
-// un caballo.
+// Dónde puede ponerse para cada corte: delante del otro, cara a cara (como mucho a 45° de hacia donde mira; si ahí no
+// hay sitio, porque los caballos lo ocupan, a 60° y luego a 75°, aún de cara), de cerca a STAND_FAR, mirándolo o algo
+// desviado, y sin pisar ni atravesar un caballo. Antes podía rodearlo y cortarle por la espalda, y la patada del otro
+// daba al aire (lo vio el usuario: un caballero no ataca por la espalda).
+const FRONT_SPREADS = [Math.PI / 4, Math.PI / 3, (Math.PI * 5) / 12];
+// Si de frente no hay sitio desde el que levantar la espada sin barrerle el pecho al otro, la levanta donde está (ahí
+// la tiene ya arriba, del corte de antes) y se arrima, con ella en alto, como mucho esto.
+const ARRIMA = 0.3;
 const STAND_FAR = 1.3;
 const STAND_STEP = 0.05;
 const STAND_ANGLE = Math.PI / 18;
@@ -129,14 +134,15 @@ function helmetTop(fighter) {
 
 // Dónde se pone el atacante, y hacia dónde mira, para que su tajo (`path`, ensayado; o, sin él, el medido del golpe
 // `key`) toque primero `target`, a menos de `reach` alturas del otro, y en qué instante del tajo lo toca: { stand,
-// facing, t }. Si no hay sitio que valga, donde la punta, al bajar, pasa por el blanco, mirando hacia donde mira.
-function aimCut({ mine, his, key, path, target, center, minDistance, spare, reach, horses = [] }) {
+// facing, t, planned }. Siempre delante del otro (`FRONT_SPREADS`). Si no hay sitio que valga (`planned` false), donde
+// la punta, al bajar, pasa por el blanco, mirando hacia donde mira.
+function aimCut({ mine, his, key, path, down = null, target, center, minDistance, spare, reach, horses = [] }) {
   const at = mine.figure.position;
   const facing = mine.figure.rotation.y;
   const aim = path?.length
     ? downswingAt(path, target.y - at.y)
     : { t: mine.strikes[key].blade.t, x: mine.strikes[key].blade.side, z: mine.strikes[key].blade.reach };
-  const guess = { stand: standFor(target, aim, facing), facing, t: aim.t };
+  const guess = { stand: standFor(target, aim, facing), facing, t: aim.t, planned: false };
   if (!path?.length) return guess;
   const distances = [];
   for (let d = minDistance; d <= STAND_FAR + 1e-9; d += STAND_STEP) distances.push(d);
@@ -144,15 +150,67 @@ function aimCut({ mine, his, key, path, target, center, minDistance, spare, reac
   // caballo (con su cuerpo, la mitad del hueco entre los dos luchadores) ni pasar por él para llegar.
   const flat = (p) => ({ x: p.x, y: 0, z: p.z });
   const gap = (p, horse) => segmentDistance(flat(p), flat(p), flat(horse.from), flat(horse.to)).distance - horse.radius;
-  const stands = [
-    ...standsAround({ center, bearing: Math.atan2(at.x - center.x, at.z - center.z), distances, spread: Math.PI, step: STAND_ANGLE, yaws: STAND_YAWS }),
-    ...standsAiming({ path, target, center, minDistance }),
-  ].filter((stand) => horses.every((horse) => gap(stand.at, horse) >= minDistance / 2 && aroundPath(at, stand.at, center).every((p) => gap(p, horse) >= 0)));
-  const plan = cutStand({
-    path, body: bodyParts(his), target, reach: reach * his.height, stands, facing, spare, margin: CUT_MARGIN,
-    walk: (stand) => aroundLength(at, stand.at, center),
-  });
-  return plan ? { stand: plan.at, facing: plan.facing, t: plan.t } : guess;
+  // Cara a cara: solo delante de él, hacia donde mira; lo más de frente que se pueda.
+  const front = his.figure.rotation.y;
+  const body = bodyParts(his);
+  const aiming = standsAiming({ path, target, center, minDistance });
+  const libre = (stand) => horses.every((horse) => gap(stand.at, horse) >= minDistance / 2 && aroundPath(at, stand.at, center).every((p) => gap(p, horse) >= 0));
+  // Y si de frente el escudo tapa el hombro de su brazo (según cómo lo tenga en ese momento), el tajo se lleva brazo y
+  // escudo juntos: el escudo se va con ese brazo.
+  const conEscudo = spare.includes('L_arm') && body.some((part) => part.limb === 'shield') ? [spare, [...spare, 'shield']] : [spare];
+  const why = {}; // por qué no vale ningún sitio, si no vale ninguno
+  for (const libres of conEscudo) {
+    for (const spread of FRONT_SPREADS) {
+      const delante = (p) => {
+        const giro = Math.atan2(p.x - center.x, p.z - center.z) - front;
+        return Math.abs(Math.atan2(Math.sin(giro), Math.cos(giro))) <= spread + 1e-9;
+      };
+      const stands = [
+        ...standsAround({ center, bearing: front, distances, spread, step: STAND_ANGLE, yaws: STAND_YAWS }),
+        ...aiming.filter((stand) => delante(stand.at)),
+      ].filter(libre);
+      const plan = cutStand({
+        path, body, target, reach: reach * his.height, stands, facing, spare: libres, margin: CUT_MARGIN,
+        walk: (stand) => aroundLength(at, stand.at, center), why,
+      });
+      if (plan) return { stand: plan.at, facing: plan.facing, t: plan.t, planned: true };
+    }
+  }
+  // Con la espada ya arriba (`down`: el tajo sin la subida), a medio paso de donde está.
+  if (down?.length) {
+    const cerca = [
+      ...standsAround({ center, bearing: front, distances, spread: FRONT_SPREADS.at(-1), step: STAND_ANGLE / 2, yaws: STAND_YAWS }),
+      ...standsAiming({ path: down, target, center, minDistance }),
+    ].filter((stand) => Math.hypot(stand.at.x - at.x, stand.at.z - at.z) <= ARRIMA && libre(stand));
+    for (const libres of conEscudo) {
+      const plan = cutStand({
+        path: down, body, target, reach: reach * his.height, stands: cerca, facing, spare: libres, margin: CUT_MARGIN,
+        walk: (stand) => aroundLength(at, stand.at, center), why,
+      });
+      if (plan) return { stand: plan.at, facing: plan.facing, t: plan.t, planned: true, raiseFirst: true };
+    }
+  }
+  // A ojo: también con la espada levantada antes (donde está no barre a nadie), para que al subirla no le cruce el pecho.
+  return { ...guess, why, raiseFirst: Boolean(down?.length) };
+}
+
+// Como `aimCut`, y si el sitio para cortar de frente lo ocupa su propio caballo, el caballo se va (luego vuelve para
+// que lo monte): el brazo del escudo, de frente, solo se le corta por el lado del escudo, y cerca del borde del
+// tablero el caballo que espera junto al atacante se lo quitaba (y el corte salía a ojo).
+function aimCutClearing({ attacker, center, horses, ...rest }) {
+  const plan = aimCut({ ...rest, center, horses: horses() });
+  if (plan.planned) return plan;
+  if (!horses().some((horse) => horse.owner === attacker)) {
+    console.warn('[BChess] Corte sin sitio delante del otro: se apunta a ojo', rest.key, rest.spare.join('+'), JSON.stringify(plan.why));
+    return plan;
+  }
+  const sinElSuyo = aimCut({ ...rest, center, horses: horses().filter((horse) => horse.owner !== attacker) });
+  if (!sinElSuyo.planned) {
+    console.warn('[BChess] Corte sin sitio delante del otro: se apunta a ojo', rest.key, rest.spare.join('+'), JSON.stringify(sinElSuyo.why));
+    return plan;
+  }
+  attacker.mover.horseFlee?.({ avoid: center });
+  return sinElSuyo;
 }
 
 export const knightFightsKnight = {
@@ -196,16 +254,16 @@ export const knightFightsKnight = {
     // están ahora: lo que ocupan, { from, to, radius }, a lo largo del caballo (`room` da un círculo de su medio largo,
     // que de lado lo hincha el doble).
     const horses = () => [attacker, defender]
-      .map((entry) => entry.piece)
-      .filter((knight) => knight.horse?.object.visible && !knight.mounted)
-      .map((knight) => {
+      .filter((entry) => entry.piece.horse?.object.visible && !entry.piece.mounted)
+      .map((entry) => {
+        const knight = entry.piece;
         const figure = knight.horse.figure;
         const scale = figure.scale.x;
         const half = Math.max(0, knight.mount.halfLength - knight.mount.halfWidth) * scale;
         const ux = Math.sin(figure.rotation.y) * half;
         const uz = Math.cos(figure.rotation.y) * half;
         const { x, z } = figure.position;
-        return { from: { x: x - ux, z: z - uz }, to: { x: x + ux, z: z + uz }, radius: knight.mount.halfWidth * scale };
+        return { owner: entry, from: { x: x - ux, z: z - uz }, to: { x: x + ux, z: z + uz }, radius: knight.mount.halfWidth * scale };
       });
     const estorbos = () => [...obstacles, ...lanzas, ...horses().flatMap(({ from, to }) => [from, to])];
     const favor = rightOf(spots.attackerFacing);
@@ -281,8 +339,9 @@ export const knightFightsKnight = {
         his.update(0);
       }
       const target = cutTarget(his, bone, center);
-      const { stand, facing: toward, t: when } = aimCut({
-        mine, his, key, path: cut, target, center, minDistance, spare: spareFor(bone), reach: CUT_REACH, horses: horses(),
+      const down = key === slashes[0] && path ? path : rehearseBlade(mine, key, { from: STRIKE_FROM, fade: 0 });
+      const { stand, facing: toward, t: when, raiseFirst } = aimCutClearing({
+        attacker, mine, his, key, path: cut, down: n > 0 ? down : null, target, center, minDistance, spare: spareFor(bone), reach: CUT_REACH, horses,
       });
       if (away) {
         lean(his, 0);
@@ -291,13 +350,26 @@ export const knightFightsKnight = {
       stances.set(attacker, stanceOf(postOf(attacker, stand, toward, [{ action: 'attack', key }])));
       // Y la cámara, mientras se coloca, vuelve a ponerse de perfil, del lado de su espada: el paso cambia la línea
       // entre los dos.
-      await Promise.all([
-        circleTo(clock, mine, center, stand, toward),
-        cinema.frame(clock, stand, center, estorbos(), { favor: rightOf(toward) }),
-        away ? leanTo(clock, his, 0, away) : null,
-      ]);
-      const cutting = raise(mine, key);
-      await strike(clock, [cutting]);
+      let cutting;
+      if (raiseFirst) {
+        // La espada arriba donde está, y se arrima con ella en alto.
+        cutting = raise(mine, key);
+        await Promise.all([
+          clock.wait(RAISE_SECONDS).then(() => stepTo(clock, mine, stand, toward, { keepPose: true })),
+          cinema.frame(clock, stand, center, estorbos(), { favor: rightOf(toward) }),
+          away ? leanTo(clock, his, 0, away) : null,
+        ]);
+        await clock.wait(HOLD_SECONDS);
+        if (cutting) cutting.paused = false;
+      } else {
+        await Promise.all([
+          circleTo(clock, mine, center, stand, toward),
+          cinema.frame(clock, stand, center, estorbos(), { favor: rightOf(toward) }),
+          away ? leanTo(clock, his, 0, away) : null,
+        ]);
+        cutting = raise(mine, key);
+        await strike(clock, [cutting]);
+      }
       // A cámara lenta desde un poco antes, y el corte cuando la hoja toca de verdad. Ahí se para (como al chocar las
       // espadas) y vuelve arriba mientras el trozo sale volando: si el tajo siguiera, se metía en el tronco.
       await clock.wait(Math.max(0, when - STRIKE_FROM - SLOW_BEFORE));
@@ -341,6 +413,8 @@ export const knightFightsKnight = {
         await clock.wait(STUMP_SECONDS);
       }
       if (n === 1 && kick) {
+        // Cara a cara: se vuelve hacia el atacante y le da la patada de frente.
+        await stepTo(clock, his, { x: his.figure.position.x, z: his.figure.position.z }, facingTo(his.figure.position, mine.figure.position));
         const kicking = his.playOnce('attack', { clip: kick, fade: 0.15 });
         await slowToImpact(clock, his.strikes[kick].body.t);
         const toe = bonePosition(his, his.strikes[kick].body.bone);
@@ -383,8 +457,8 @@ export const knightFightsKnight = {
     his.hold(true);
     const yelmo = helmetTop(his);
     const toque = yelmo && rising
-      ? aimCut({
-        mine, his, key: slashes[0], path: rising, target: yelmo, center, minDistance, spare: ['head'], reach: TAP_REACH, horses: horses(),
+      ? aimCutClearing({
+        attacker, mine, his, key: slashes[0], path: rising, target: yelmo, center, minDistance, spare: ['head'], reach: TAP_REACH, horses,
       })
       : null;
     if (toque) await circleTo(clock, mine, center, toque.stand, toque.facing);
