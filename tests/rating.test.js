@@ -53,10 +53,10 @@ test('categorías: online por ritmo, la CPU aparte y el uno contra uno, local', 
   assert.equal(categoryOf({ mode: 'cpu', time: 'bala:1' }), 'cpu');
   assert.equal(categoryOf({ mode: 'pvp' }), 'local');
   assert.deepEqual(cpuRating(1), { r: 100, rd: 60 });
-  assert.deepEqual(cpuRating(100), { r: 2700, rd: 60 });
-  // Con los nombres de nivel: el «Gran maestro» (93-100) pasa de 2500, el «Maestro» (81-92) de 2200.
-  assert.ok(cpuRating(93).r >= 2500 && cpuRating(81).r >= 2200);
-  assert.ok(cpuRating(50).r > cpuRating(49).r);
+  // Hasta Stockfish a toda su fuerza (los niveles de 1320 a 3190 son los de su `UCI_Elo`).
+  assert.deepEqual(cpuRating(100), { r: 3200, rd: 60 });
+  assert.ok(cpuRating(99).r <= 3190 && cpuRating(40).r >= 1320 && cpuRating(39).r < 1320);
+  for (let nivel = 2; nivel <= 100; nivel++) assert.ok(cpuRating(nivel).r > cpuRating(nivel - 1).r);
 });
 
 function almacenFalso() {

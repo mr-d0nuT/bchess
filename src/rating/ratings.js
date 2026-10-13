@@ -36,14 +36,16 @@ const DAY = 24 * 60 * 60 * 1000;
 const KEY = 'bchess.ranking';
 const VERSION = 1;
 
-// La puntuación de la CPU en cada nivel (1-100): de 100 a 2700, como la escala de los nombres de nivel (el «Gran
-// maestro», de 2500 para arriba; el «Maestro», de 2200; lo pidió el usuario: ver el nivel como en el ranking, no
-// «30/100»). Nominal: es lo que pretende cada nivel. Bien conocida (`rd` baja): es siempre la
-// misma.
+// La puntuación de la CPU en cada nivel (1-100), de 100 a 3200 (lo pidió el usuario: ver el nivel como en el
+// ranking, no «30/100»). Desde 1320 juega Stockfish con su fuerza limitada a esa puntuación (`UCI_Elo`, que sus
+// autores calibran), y en el 100, a toda su fuerza; por debajo, el motor propio, que falla como una persona
+// (`chess/cpu-plan.js`). Antes llegaba a 2700 con el motor propio, que jugaba muy por debajo de eso. Bien conocida
+// (`rd` baja): es siempre la misma.
 export const CPU_RD = 60;
+export const CPU_TOP = 3200;
 export function cpuRating(level) {
   const nivel = Math.max(1, Math.min(100, Math.round(level)));
-  return { r: Math.round(100 + ((nivel - 1) * 2600) / 99), rd: CPU_RD };
+  return { r: Math.round(100 + ((nivel - 1) * (CPU_TOP - 100)) / 99), rd: CPU_RD };
 }
 
 // En qué categoría cuenta una partida: `mode` ('cpu', 'online', 'pvp') y el ritmo (`time`, «blitz:3+2»).

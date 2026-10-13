@@ -15,8 +15,10 @@ import { cpuRating } from '../rating/ratings.js';
 // se aleja hacia la cámara.
 
 const STORE = 'bchess.menu';
-const NIVELES = [10, 25, 45, 65, 80, 92, 100]; // hasta qué nivel llega cada nombre (nivel.1 … nivel.7)
-export const levelName = (level) => t(`nivel.${NIVELES.findIndex((hasta) => level <= hasta) + 1 || NIVELES.length}`);
+// El nombre de cada nivel, por su puntuación (`cpuRating`): hasta dónde llega cada uno (nivel.1 … nivel.9). Por encima
+// del gran maestro, el campeón del mundo y, más allá de cualquier persona, Stockfish a toda su fuerza.
+const NIVELES = [600, 1000, 1400, 1800, 2200, 2500, 2800, 3100, Infinity];
+export const levelName = (level) => t(`nivel.${NIVELES.findIndex((hasta) => cpuRating(level).r < hasta) + 1}`);
 
 // Cómo se lee un ritmo en el idioma de ahora: «3 min», «3 | 2», «1 día», «Sin reloj».
 export function timeLabel(option) {

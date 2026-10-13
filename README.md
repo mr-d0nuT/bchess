@@ -36,7 +36,7 @@ una estocada, se derrumba en rocas.
 - Quedarse solo con las animaciones de un GLB: `bash tools/optimize-anims.sh raw/tripo/<modelo>.glb <nombre>`
 - Dejar en un modelo con esqueleto solo algunas animaciones: `node tools/keep-anims.mjs <entrada.glb> <salida.glb> clave1,clave2`
 - Comparar las proporciones de dos imágenes de referencia: `node tools/silhouette.mjs imagen.jpeg`
-- Sin compilación: módulos ES con import map; Three.js r186 copiado en `vendor/three/`.
+- Sin compilación: módulos ES con import map; Three.js r186 copiado en `vendor/three/` y Stockfish 19 en `vendor/stockfish/`.
 - Diseño y plan: `docs/superpowers/`.
 
 ## Créditos y licencias
@@ -45,6 +45,11 @@ una estocada, se derrumba en rocas.
   [Tripo AI](https://www.tripo3d.ai), plan Pro con uso comercial, a partir de imágenes de
   referencia del autor hechas con Gemini. Las telas de los banderines también son de Gemini.
 - **[Three.js](https://threejs.org):** MIT.
+- **La CPU: [Stockfish](https://stockfishchess.org) 19,** por los desarrolladores de Stockfish, en la versión
+  para navegadores de [stockfish.js](https://github.com/nmrugg/stockfish.js) (Nathan Rugg), «lite» y de un
+  solo hilo: GPL v3. Va copiado en `vendor/stockfish/`, con su licencia (`Copying.txt`) y su código fuente
+  (`stockfish.js-19.0.1.tar.gz`); detalles en `vendor/stockfish/LEEME.md`. El juego habla con él como con un
+  programa aparte, por mensajes de texto (UCI), en su propio hilo.
 - **Efectos de sonido:** de [Pixabay](https://pixabay.com/sound-effects/) (licencia de Pixabay: uso
   libre, sin atribución obligatoria; los autores y los identificadores, en `src/audio/sfx.js`) y uno de
   [BigSoundBank](https://bigsoundbank.com), de Joseph Sardin, libre de derechos. Los originales se

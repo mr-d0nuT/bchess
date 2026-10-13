@@ -780,7 +780,7 @@ async function start() {
   // marca: la flecha dorada de la casilla de salida a la de llegada, y la pieza ya elegida, que solo falta
   // tocar adónde va. Tres por partida, contra la CPU o uno contra uno; online, ninguna (sería hacer trampa).
   const PISTAS = 3;
-  const PISTA_NIVEL = 85;
+  const PISTA_NIVEL = 100; // Stockfish a toda su fuerza: la mejor jugada
   const PISTA_MS = 1500;
   const pistaBoton = document.getElementById('pista');
   const pistaGlobo = pistaBoton?.querySelector('.boton-globo');
@@ -2875,6 +2875,7 @@ async function start() {
     game.mode = mode;
     game.level = level;
     game.color = color;
+    if (mode === 'cpu') cpu.prepare(); // Stockfish, arrancando ya: la primera jugada no lo espera
     // Contra la CPU, el jugador lleva las piezas que ha elegido (o las que le toquen a suertes).
     // Online, el que le ha tocado en el emparejamiento.
     // Mirando (CPU contra CPU), nadie: `human` null, y la CPU mueve por los dos.
