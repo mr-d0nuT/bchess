@@ -17,11 +17,11 @@ SR = 44100
 # clave: (original, desde s, hasta s, entrada s, salida s). Las claves con «-1», «-2»… son variantes de un
 # mismo sonido (el juego elige una cada vez). Las mezclas, en `MEZCLAS`.
 SONIDOS = {
-    'espadas':        ('WEAPSwrd_Sword (ID 0129)_BigSoundBank.com.wav', 0.126, 0.92, 0.004, 0.17),
+    'espadas':        ('WEAPSwrd_Sword (ID 0129)_BigSoundBank.com.wav', 0.2, 0.92, 0.004, 0.17),
     'escudo':         ('pixabay/escudo/6963-shield-guard.mp3', 0.04, 0.85, 0.003, 0.15),
     'embestida':      ('pixabay/escudo/143940-shield-block-shortsword.mp3', 0.0, 1.6, 0.003, 0.5),
     'casco':          ('pixabay/casco/7118-metal-hit-cartoon.mp3', 0.05, 1.1, 0.003, 0.25),
-    'corte':          ('pixabay/corte/393847-sword-slice.mp3', 0.19, 1.0, 0.01, 0.3),
+    'corte':          ('pixabay/corte/393847-sword-slice.mp3', 0.22, 1.0, 0.005, 0.3),
     'punetazo':       ('pixabay/punetazo/352711-classic-punch.mp3', 0.07, 0.6, 0.003, 0.15),
     'caida':          ('pixabay/caida/259680-body-fall-uf.mp3', 0.07, 0.8, 0.003, 0.2),
     'caida_armadura': ('pixabay/caida/352446-heavy-body-fall.mp3', 0.33, 1.9, 0.005, 0.4),

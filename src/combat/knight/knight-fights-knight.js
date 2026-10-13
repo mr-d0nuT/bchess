@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import { grita } from '../../audio/voces.js';
 import { t } from '../../i18n.js';
 import { sfx } from '../../audio/sfx.js';
-import { afterImpact, punchDistance, SLOW_BEFORE, SLOW_MOTION, slowToImpact, stanceOf } from '../fight.js';
+import { afterImpact, HIT_STOP, punchDistance, SLOW_AFTER, SLOW_BEFORE, SLOW_MOTION, slowToImpact, stanceOf } from '../fight.js';
 import { strikeSpot } from '../plan.js';
+import { aroundLength, aroundPath, clashSpot, cutStand, segmentDistance, standsAiming, standsAround } from '../sword-contact.js';
 import { cutLimb, longAxisOf } from '../../pieces/limbs.js';
 import {
-  bladeBody, bladeStrikes, BODY_GAP, boneOf, bonePosition, dismountMode, downswingAt, facingTo, fallDirection, kickOf,
-  knockOut, lyingBody, postOf, recordTip, rightOf, shout, standFor, stepTo, swordTip, tipBelow, toppleAt, victoryLap,
+  bladeBody, bladeIntoBody, bladesMeet, bladeStrikes, BODY_GAP, bodyParts, boneOf, bonePosition, circleTo, dismountMode,
+  downswingAt, facingTo, fallDirection, kickOf, knockOut, lyingBody, postOf, rehearseBlade, rightOf, shout, standFor, stepTo,
+  swordTip, toppleAt, untilTouch, victoryLap,
 } from './common.js';
 
 // Caballero come caballero: el Caballero Negro de los Monty Python (diseño, sección 7). Los dos desmontan y
@@ -26,7 +28,6 @@ const SCRATCH = () => t('burbuja.rasguno');
 const SCRATCH_SECONDS = 3.8;
 const READ_SECONDS = 2.4;
 const STUMP_SECONDS = 0.5; // lo que se mira el muñón
-const TAP_SECONDS = 0.35;
 const FALL_SPREAD = Math.PI / 4;
 const DUST_Y = 0.05;
 const TRUNK_SECONDS = 0.3; // lo que tarda en caer al suelo el tronco sin piernas
@@ -37,6 +38,34 @@ const PELVIS = 0.14; // en alturas del jinete: de la articulación de la cadera 
 // cintura (la articulación de la cadera, un poco hacia fuera).
 const WAIST_OUT = 0.07;
 const WAIST_UP = 0.12; // en alturas del jinete: el hueso `Waist` de su esqueleto está a la altura de la cadera
+const RECOIL_SECONDS = 0.35; // tras el golpe, lo que tarda la hoja en volver arriba
+const GUARD_SECONDS = 0.5; // y tras los golpes parados, en bajar la espada al reposo
+// Los tajos del duelo, en tres tiempos: levanta la espada (del reposo a la postura del tajo con la espada ya arriba,
+// en STRIKE_FROM, quieta), la tiene arriba un instante y la baja. El clip empezaba con un segundo de guardia, la
+// espada baja apuntando al otro, y al levantarla la barría por delante hacia su izquierda: cara a cara, una hoja
+// atravesaba la otra. Fundiendo del reposo a la espada arriba, sube por delante, sin barrer.
+const STRIKE_FROM = 1.95;
+const RAISE_SECONDS = 0.45;
+const HOLD_SECONDS = 0.2;
+// En alturas del jinete: lo lejos del blanco que puede entrar primero la hoja en un corte y en el toque al yelmo.
+const CUT_REACH = 0.1;
+const TAP_REACH = 0.12;
+// Dónde puede ponerse para cada corte: alrededor del otro, de cerca a STAND_FAR y por cualquier lado (lo rodea si
+// hace falta; la cámara se pone después del lado de su espada), mirándolo o algo desviado, y sin pisar ni atravesar
+// un caballo.
+const STAND_FAR = 1.3;
+const STAND_STEP = 0.05;
+const STAND_ANGLE = Math.PI / 18;
+const STAND_YAWS = [-0.2, 0, 0.2];
+// Lo que ha de librar la hoja, hasta tocar el blanco, de lo que no es el blanco (el otro se queda quieto mientras le
+// apuntan, `hold`, así que basta poco).
+const CUT_MARGIN = { head: 0.02, other: 0.01 };
+// Para las piernas, el otro se aparta: al ver venir la espada dobla el tronco hacia el otro lado. Tiene la cabeza justo
+// encima de la cintura, y el tajo, que baja desde lo alto, no llegaba a la cintura sin pasar antes por ella (salvo por
+// un pasillo de dos dedos); así se aparta un palmo y deja paso.
+const LEAN = 22; // grados
+const LEAN_BONE = 'Spine01';
+const LEAN_SECONDS = 0.4;
 
 // El blanco de cada corte, en el mundo: el hombro (donde empieza el brazo) o el costado de la cintura (del
 // lado de esa pierna, un poco hacia fuera, y a la altura de la cintura de verdad: algo por encima del
@@ -49,6 +78,81 @@ function cutTarget(fighter, bone, center) {
   at.z += ((at.z - center.z) / out) * WAIST_OUT;
   at.y = bonePosition(fighter, 'Waist').y + WAIST_UP * fighter.height;
   return at;
+}
+
+// Levanta la espada para el tajo `key` y la deja arriba, quieta; `strike` la baja. Devuelve la acción (para pararla
+// al chocar).
+function raise(fighter, key) {
+  const action = fighter.play('attack', { loop: false, fade: RAISE_SECONDS, clip: key });
+  if (action) {
+    action.time = STRIKE_FROM;
+    action.paused = true;
+  }
+  return action;
+}
+async function strike(clock, actions) {
+  await clock.wait(RAISE_SECONDS + HOLD_SECONDS);
+  for (const action of actions) if (action) action.paused = false;
+}
+
+// Tras el golpe, la hoja vuelve por donde ha venido hasta la espada en alto (el tajo, hacia atrás): si volviera al
+// reposo, con la espada baja apuntando al frente, se le metía al otro en el cuerpo o en el escudo.
+function recoil(clock, action) {
+  if (!action) return Promise.resolve();
+  const from = action.time;
+  action.paused = true;
+  return clock.tween(RECOIL_SECONDS, (k) => {
+    action.time = from + (STRIKE_FROM - from) * k * k * (3 - 2 * k);
+  });
+}
+
+// Las piezas del cuerpo que puede atravesar la hoja al cortar `bone` sin que cuente como meterse donde no toca: el
+// propio miembro; y, para las piernas, la cadera, que se cortan por el costado de la cintura.
+function spareFor(bone) {
+  const side = bone[0];
+  return bone.includes('Thigh') ? [`${side}_leg`, 'pelvis'] : [`${side}_arm`];
+}
+
+// Dobla el tronco de `fighter` `degrees` hacia su derecha (negativo, hacia su izquierda), desde la cintura; con 0, nada.
+function lean(fighter, degrees) {
+  fighter.turnBone(LEAN_BONE, degrees ? { z: degrees } : null);
+}
+function leanTo(clock, fighter, from, to) {
+  return clock.tween(LEAN_SECONDS, (k) => lean(fighter, from + (to - from) * k * k * (3 - 2 * k)));
+}
+
+// Lo alto del yelmo: el final de la pieza de la cabeza (`bodyParts`), más su grueso.
+function helmetTop(fighter) {
+  const head = bodyParts(fighter).find((part) => part.limb === 'head');
+  return head ? head.b.clone().add(new THREE.Vector3(0, head.r, 0)) : null;
+}
+
+// Dónde se pone el atacante, y hacia dónde mira, para que su tajo (`path`, ensayado; o, sin él, el medido del golpe
+// `key`) toque primero `target`, a menos de `reach` alturas del otro, y en qué instante del tajo lo toca: { stand,
+// facing, t }. Si no hay sitio que valga, donde la punta, al bajar, pasa por el blanco, mirando hacia donde mira.
+function aimCut({ mine, his, key, path, target, center, minDistance, spare, reach, horses = [] }) {
+  const at = mine.figure.position;
+  const facing = mine.figure.rotation.y;
+  const aim = path?.length
+    ? downswingAt(path, target.y - at.y)
+    : { t: mine.strikes[key].blade.t, x: mine.strikes[key].blade.side, z: mine.strikes[key].blade.reach };
+  const guess = { stand: standFor(target, aim, facing), facing, t: aim.t };
+  if (!path?.length) return guess;
+  const distances = [];
+  for (let d = minDistance; d <= STAND_FAR + 1e-9; d += STAND_STEP) distances.push(d);
+  // Alrededor, en una rejilla; y los sitios desde los que la hoja pasa justo por el blanco. Sin ponerse encima de un
+  // caballo (con su cuerpo, la mitad del hueco entre los dos luchadores) ni pasar por él para llegar.
+  const flat = (p) => ({ x: p.x, y: 0, z: p.z });
+  const gap = (p, horse) => segmentDistance(flat(p), flat(p), flat(horse.from), flat(horse.to)).distance - horse.radius;
+  const stands = [
+    ...standsAround({ center, bearing: Math.atan2(at.x - center.x, at.z - center.z), distances, spread: Math.PI, step: STAND_ANGLE, yaws: STAND_YAWS }),
+    ...standsAiming({ path, target, center, minDistance }),
+  ].filter((stand) => horses.every((horse) => gap(stand.at, horse) >= minDistance / 2 && aroundPath(at, stand.at, center).every((p) => gap(p, horse) >= 0)));
+  const plan = cutStand({
+    path, body: bodyParts(his), target, reach: reach * his.height, stands, facing, spare, margin: CUT_MARGIN,
+    walk: (stand) => aroundLength(at, stand.at, center),
+  });
+  return plan ? { stand: plan.at, facing: plan.facing, t: plan.t } : guess;
 }
 
 export const knightFightsKnight = {
@@ -77,10 +181,10 @@ export const knightFightsKnight = {
       attacker.mover.dismount({ at: spots.attacker, facing: spots.attackerFacing, mode: 'dismount' }),
       defender.mover.dismount({ at: center, facing, mode: dismountMode(random) }),
     ]);
-    // Ya a pie y en sus puestos, la cámara los vuelve a encuadrar: de lado, desde el de la espada del
-    // atacante, y sin las lanzas que han clavado (o que han salido volando) entre ella y el combate. Antes
-    // se quedaba con el encuadre de antes de desmontar, a veces desde detrás de uno y con las lanzas
-    // delante (lo vio el usuario).
+    // Ya a pie, la cámara los vuelve a encuadrar (al ponerse para los golpes parados, abajo): de lado, desde
+    // el de la espada del atacante, y sin las lanzas que han clavado (o que han salido volando) entre ella y
+    // el combate. Antes se quedaba con el encuadre de antes de desmontar, a veces desde detrás de uno y con
+    // las lanzas delante (lo vio el usuario).
     const lanzas = [mine, his]
       .map((fighter) => fighter.props.spear)
       .filter((spear) => spear?.visible)
@@ -88,57 +192,119 @@ export const knightFightsKnight = {
         const p = spear.getWorldPosition(new THREE.Vector3());
         return { x: p.x, z: p.z };
       });
-    const estorbos = [...obstacles, ...lanzas];
+    // Y los caballos, que esperan apartados: la cámara no ha de quedar tras ellos, ni el atacante ponerse encima. Cómo
+    // están ahora: lo que ocupan, { from, to, radius }, a lo largo del caballo (`room` da un círculo de su medio largo,
+    // que de lado lo hincha el doble).
+    const horses = () => [attacker, defender]
+      .map((entry) => entry.piece)
+      .filter((knight) => knight.horse?.object.visible && !knight.mounted)
+      .map((knight) => {
+        const figure = knight.horse.figure;
+        const scale = figure.scale.x;
+        const half = Math.max(0, knight.mount.halfLength - knight.mount.halfWidth) * scale;
+        const ux = Math.sin(figure.rotation.y) * half;
+        const uz = Math.cos(figure.rotation.y) * half;
+        const { x, z } = figure.position;
+        return { from: { x: x - ux, z: z - uz }, to: { x: x + ux, z: z + uz }, radius: knight.mount.halfWidth * scale };
+      });
+    const estorbos = () => [...obstacles, ...lanzas, ...horses().flatMap(({ from, to }) => [from, to])];
     const favor = rightOf(spots.attackerFacing);
-    await cinema.frame(clock, spots.attacker, center, estorbos, { favor });
 
-    // 2. Un par de golpes parados, con chispas donde se cruzan las hojas. Del primero se graba por dónde
-    //    pasa la punta, para apuntar luego los cortes.
-    let recording = null;
+    // 2. Un par de golpes parados. Cara a cara, cada tajo baja hacia la izquierda de quien lo da, por su lado, y las
+    //    hojas se cruzaban a un palmo sin tocarse, con el ¡CLANC! saliendo ya con las espadas bajadas (lo vio el
+    //    usuario). Se ensayan los tajos de los dos en las propias piezas, ya a pie, y el atacante se aparta lo justo
+    //    a su derecha y atrás para que las hojas se encuentren en el aire, por en medio; el golpe sale cuando se
+    //    tocan de verdad, y en vez de seguir (una atravesaría la otra) se quedan juntas el instante del golpe y
+    //    vuelven atrás por donde han venido.
+    const path = rehearseBlade(mine, slashes[0], { from: STRIKE_FROM, fade: 0 });
+    const hisPath = hisSlashes.length && his.props.sword ? rehearseBlade(his, hisSlashes[0], { from: STRIKE_FROM, fade: 0 }) : null;
+    // Y con la subida desde el reposo, para los cortes: muy cerca, al levantar la espada le pasaba por la cabeza.
+    const rising = rehearseBlade(mine, slashes[0], { from: STRIKE_FROM, raise: RAISE_SECONDS });
+    const minDistance = attacker.piece.body.torso + defender.piece.body.torso + BODY_GAP;
+    const clash = path && hisPath
+      ? clashSpot({ mine: path, his: hisPath, from: spots.attacker, facing: spots.attackerFacing, rival: center, rivalFacing: facing, minDistance })
+      : null;
+    const duelSpot = clash?.at ?? spots.attacker;
+    stances.set(attacker, stanceOf(postOf(attacker, duelSpot, spots.attackerFacing, [{ action: 'attack', key: slashes[0] }])));
+    await Promise.all([
+      stepTo(clock, mine, duelSpot, spots.attackerFacing),
+      cinema.frame(clock, duelSpot, center, estorbos(), { favor }),
+    ]);
+    // El caballo del otro, que esperaba a su lado, sale huyendo en cuanto suenan las espadas (si lo tiró, ya se ha
+    // ido): para cortarle por ese costado, el atacante tiene que poder ponerse allí.
+    defender.mover.horseFlee?.({ avoid: center });
     for (let i = 0; i < CLASHES; i++) {
-      const mio = mine.playOnce('attack', { clip: slashes[i % slashes.length], fade: 0.15 });
-      if (i === 0) recording = recordTip(clock, mine, mine.strikes[slashes[0]].duration);
-      const suyo = hisSlashes.length ? his.playOnce('attack', { clip: hisSlashes[i % hisSlashes.length], fade: 0.15 }) : null;
-      await slowToImpact(clock, mine.strikes[slashes[i % slashes.length]].blade.t);
-      const cruce = swordTip(mine).lerp(his.props.sword ? swordTip(his) : swordTip(mine), 0.5);
+      const key = slashes[i % slashes.length];
+      const mio = raise(mine, key);
+      const suyo = hisSlashes.length ? raise(his, hisSlashes[i % hisSlashes.length]) : null;
+      await strike(clock, [mio, suyo]);
+      await clock.wait(Math.max(0, (clash?.t ?? mine.strikes[key].blade.t) - STRIKE_FROM - SLOW_BEFORE));
+      clock.timeScale = SLOW_MOTION;
+      const cruce = his.props.sword
+        ? await untilTouch(clock, bladesMeet(mine, his), { seconds: SLOW_BEFORE * 2, after: SLOW_BEFORE })
+        : swordTip(mine);
+      if (mio) mio.paused = true;
+      if (suyo) suyo.paused = true;
       sfx.play('espadas'); // las hojas se cruzan y una resbala por la otra
       fx.burst(cruce, { size: 0.8, sparks: 18 });
       hud.flash();
       cinema.shake(0.1);
       shout(bubbles, '¡CLANC!', cruce);
-      await afterImpact(clock);
-      await Promise.all([mio, suyo]);
-      mine.play('idle', { fade: 0.2 });
-      his.play('idle', { fade: 0.2 });
+      await clock.hold(HIT_STOP);
+      recoil(clock, mio);
+      recoil(clock, suyo);
+      await clock.wait(SLOW_AFTER);
+      clock.timeScale = 1;
+      mine.play('idle', { fade: GUARD_SECONDS });
+      his.play('idle', { fade: GUARD_SECONDS });
     }
+    // Ya con las espadas bajadas: los cortes se apuntan con el otro quieto, y a media bajada aún movía el brazo.
+    await clock.wait(GUARD_SECONDS);
 
-    // 3. Corta brazos y piernas. Cada trozo sale volando de la propia malla y el hueso encoge; entre los
-    //    brazos y las piernas, el atacante recibe una patada del otro (si la tiene) y sigue.
+    // 3. Corta brazos y piernas. Para cada corte busca dónde ponerse para que la hoja, al bajar, entre primero por el
+    //    blanco (el hombro, o el costado de la cintura) y no por la cabeza o el pecho, y el ¡CHAS! sale cuando lo
+    //    toca de verdad: antes salía al pasar la punta por la altura del blanco, con la hoja ya dentro del cuerpo.
+    //    Cada trozo sale volando de la propia malla y el hueso encoge; entre los brazos y las piernas, el atacante
+    //    recibe una patada del otro (si la tiene) y sigue.
     const kick = kickOf(his);
-    const recorded = recording ? await recording : null;
     let trunkDrop = 0; // lo que ha bajado el tronco al quedarse sin piernas
     for (const [n, bone] of LIMBS.entries()) {
       const key = slashes[n % slashes.length];
-      // Se coloca para que la punta, al bajar, pase justo por el blanco.
+      const cut = key === slashes[0] && rising ? rising : rehearseBlade(mine, key, { from: STRIKE_FROM, raise: RAISE_SECONDS });
+      // Quieto mientras el otro se coloca y le pega: su reposo se cambia de pie y se va un palmo de lado, y el tajo,
+      // apuntado con la cabeza a dos dedos, le daría en ella. Para las piernas, además, se aparta (`LEAN`): el corte se
+      // apunta con el tronco ya doblado, y se dobla de verdad mientras el otro se coloca.
+      his.hold(true);
+      const away = bone.includes('Thigh') ? (bone[0] === 'R' ? -LEAN : LEAN) : 0;
+      if (away) {
+        lean(his, away);
+        his.update(0);
+      }
       const target = cutTarget(his, bone, center);
-      const baseY = mine.figure.position.y;
-      const path = key === slashes[0] && recorded?.length ? recorded : mine.strikes[key].blade.path;
-      const aim = path?.length
-        ? downswingAt(path, target.y - baseY)
-        : { t: mine.strikes[key].blade.t, x: mine.strikes[key].blade.side, z: mine.strikes[key].blade.reach };
-      const stand = standFor(target, aim, spots.attackerFacing);
-      stances.set(attacker, stanceOf(postOf(attacker, stand, spots.attackerFacing, [{ action: 'attack', key }])));
-      // Y la cámara, mientras se coloca, vuelve a ponerse de perfil: el paso cambia la línea entre los dos.
+      const { stand, facing: toward, t: when } = aimCut({
+        mine, his, key, path: cut, target, center, minDistance, spare: spareFor(bone), reach: CUT_REACH, horses: horses(),
+      });
+      if (away) {
+        lean(his, 0);
+        his.update(0);
+      }
+      stances.set(attacker, stanceOf(postOf(attacker, stand, toward, [{ action: 'attack', key }])));
+      // Y la cámara, mientras se coloca, vuelve a ponerse de perfil, del lado de su espada: el paso cambia la línea
+      // entre los dos.
       await Promise.all([
-        stepTo(clock, mine, stand, spots.attackerFacing),
-        cinema.frame(clock, stand, center, estorbos, { favor }),
+        circleTo(clock, mine, center, stand, toward),
+        cinema.frame(clock, stand, center, estorbos(), { favor: rightOf(toward) }),
+        away ? leanTo(clock, his, 0, away) : null,
       ]);
-      const cutting = mine.playOnce('attack', { clip: key, fade: 0.15 });
-      // A cámara lenta desde un poco antes, y el corte cuando la punta pasa de verdad por el blanco.
-      await clock.wait(Math.max(0, aim.t - SLOW_BEFORE));
+      const cutting = raise(mine, key);
+      await strike(clock, [cutting]);
+      // A cámara lenta desde un poco antes, y el corte cuando la hoja toca de verdad. Ahí se para (como al chocar las
+      // espadas) y vuelve arriba mientras el trozo sale volando: si el tajo siguiera, se metía en el tronco.
+      await clock.wait(Math.max(0, when - STRIKE_FROM - SLOW_BEFORE));
       clock.timeScale = SLOW_MOTION;
-      await tipBelow(clock, mine, target.y, SLOW_BEFORE * 2);
-      const at = target;
+      const at = await untilTouch(clock, bladeIntoBody(mine, his), { seconds: SLOW_BEFORE * 2, after: SLOW_BEFORE });
+      if (cutting) cutting.paused = true;
+      his.hold(false);
       fx.burst(at, { size: 1, sparks: 26 });
       hud.flash();
       cinema.shake(0.16);
@@ -158,7 +324,7 @@ export const knightFightsKnight = {
       }
       if (piece) {
         debris.throwPiece(piece, {
-          velocity: { x: Math.sin(spots.attackerFacing) * CUT_SPEED.x, y: CUT_SPEED.y, z: Math.cos(spots.attackerFacing) * CUT_SPEED.x },
+          velocity: { x: Math.sin(toward) * CUT_SPEED.x, y: CUT_SPEED.y, z: Math.cos(toward) * CUT_SPEED.x },
           obstacles: () => crowd.obstacles([attacker, defender]),
           lie,
         });
@@ -166,9 +332,10 @@ export const knightFightsKnight = {
       his.scaleBone(bone, SHRINK);
       if (n === 0 && his.props.sword && !espada) his.props.sword.visible = false;
       if (n === 1 && his.props.shield) his.props.shield.visible = false;
-      await afterImpact(clock);
-      await cutting;
-      mine.play('idle', { fade: 0.25 });
+      await clock.hold(HIT_STOP);
+      recoil(clock, cutting);
+      await Promise.all([clock.wait(SLOW_AFTER), away ? leanTo(clock, his, away, 0) : null]);
+      clock.timeScale = 1;
       if (n === 0) {
         his.play('idle', { fade: 0.2 }); // se mira el muñón
         await clock.wait(STUMP_SECONDS);
@@ -207,23 +374,45 @@ export const knightFightsKnight = {
       }
     }
 
-    // 4. El tronco aún le planta cara, con su bocadillo; un toquecito en el yelmo y cae.
+    // 4. El tronco aún le planta cara, con su bocadillo; un toquecito en lo alto del yelmo y cae. Se apunta como los
+    //    cortes, la espada se para al tocarlo y el tajo empieza a tiempo de que el toque llegue cuando ya se ha podido
+    //    leer el bocadillo. Antes el ¡TOC! salía con la espada aún abajo, sin haber empezado el tajo.
     const head = boneOf(his, 'Head');
     const bocadillo = bubbles.say(SCRATCH(), head, { seconds: SCRATCH_SECONDS });
-    await clock.wait(READ_SECONDS);
-    const tap = mine.playOnce('attack', { clip: slashes[0], fade: 0.15 });
-    await clock.wait(TAP_SECONDS);
-    fx.burst(bonePosition(his, 'Head'), { size: 0.7, sparks: 14 });
+    const shown = clock.now;
+    his.hold(true);
+    const yelmo = helmetTop(his);
+    const toque = yelmo && rising
+      ? aimCut({
+        mine, his, key: slashes[0], path: rising, target: yelmo, center, minDistance, spare: ['head'], reach: TAP_REACH, horses: horses(),
+      })
+      : null;
+    if (toque) await circleTo(clock, mine, center, toque.stand, toque.facing);
+    const down = toque ? toque.t - STRIKE_FROM : 0; // de soltar la espada al toque
+    await clock.wait(Math.max(0, READ_SECONDS - RAISE_SECONDS - HOLD_SECONDS - down - (clock.now - shown)));
+    const tap = raise(mine, slashes[0]);
+    await strike(clock, [tap]);
+    // A cámara lenta, como los cortes: a velocidad normal la hoja corre tanto que se paraba a un palmo del yelmo.
+    await clock.wait(Math.max(0, down - SLOW_BEFORE));
+    clock.timeScale = SLOW_MOTION;
+    const toc = await untilTouch(clock, bladeIntoBody(mine, his), { seconds: SLOW_BEFORE * 2, after: SLOW_BEFORE });
+    if (tap) tap.paused = true;
+    his.hold(false);
+    fx.burst(toc, { size: 0.7, sparks: 14 });
     hud.flash();
-    shout(bubbles, '¡TOC!', bonePosition(his, 'Head'));
+    shout(bubbles, '¡TOC!', toc);
     sfx.play('casco', { rate: 1.5, volume: 0.5 }); // un toquecito, no un mazazo
+    await clock.hold(HIT_STOP);
+    recoil(clock, tap); // y levanta la espada
+    await clock.wait(SLOW_AFTER);
+    clock.timeScale = 1;
     await bocadillo;
     const angle = fallDirection({
       at: center,
       around: facing + Math.PI,
       spread: FALL_SPREAD,
       length: his.height * 0.5,
-      rival: { x: spots.attacker.x, z: spots.attacker.z, radius: attacker.piece.body.torso },
+      rival: { x: mine.figure.position.x, z: mine.figure.position.z, radius: attacker.piece.body.torso },
       overlap: (body) => crowd.overlap({ owners: [attacker, defender], bodies: [body] }),
     });
     // Cae de espaldas girando por la cadera, que es donde se apoya el tronco.
@@ -232,8 +421,6 @@ export const knightFightsKnight = {
     const donde = bonePosition(his, 'Head');
     dust.puff(new THREE.Vector3(donde.x, DUST_Y, donde.z), { count: 14, radius: 0.7, duration: 0.5 });
     cinema.shake(0.12);
-    await tap;
-    mine.play('idle', { fade: 0.3 });
     await knockOut({ clock, fx, fighter: his });
 
     // 5. Desaparece en polvo con sus trozos; el ganador ocupa la casilla y monta.

@@ -1985,6 +1985,11 @@ export function spawnPiece(kit) {
     get frozen() {
       return frozen;
     },
+    // Deja la animación de ahora quieta en su fotograma (con false, sigue); la capa y lo demás siguen igual. Para que
+    // no se mueva mientras otro le apunta un golpe: el reposo del caballero se cambia de pie y se va un palmo de lado.
+    hold(on = true) {
+      if (current) current.paused = on;
+    },
     watchFeet,
     // En qué punto del ciclo va la animación que suena ahora, de 0 a 1: sirve para colgarle encima
     // movimientos propios (el contoneo de la reina) al compás de los pasos.

@@ -5,6 +5,7 @@ import { FRENA, twirl } from '../twirl.js';
 import { roomClearance } from '../../moves/room.js';
 import { findBone } from '../../pieces/bone-names.js';
 import { ORBIT } from '../../scene/cinema.js';
+import { BLADE_TOUCH, bodyGap, crossed, segmentDistance } from '../sword-contact.js';
 
 // Lo que comparten las batallas del caballero (diseño en docs/superpowers/specs/
 // 2026-09-15-bchess-caballero-design.md, sección 7).
@@ -271,26 +272,154 @@ export function downswingAt(path, y) {
   return { t: path[low].t, x: path[low].x, z: path[low].z };
 }
 
-// Por dónde pasa DE VERDAD la punta de la espada de `fighter` durante `seconds` ({ t, x, y, z }, en su
-// sistema: desde sus pies y mirando hacia +Z). La medida de `strikes.js` se hace con una pieza de prueba,
-// sin lo que se le hace al jinete en la partida (el torso erguido), y los cortes fallaban por un palmo.
-// Ojo: el reloj mueve sus transiciones ANTES de que las piezas pongan la postura del fotograma, así que
-// lo que se ve en cada paso es la postura del momento anterior.
-export function recordTip(clock, fighter, seconds) {
-  const path = [];
-  const figure = fighter.figure;
-  const at = new THREE.Vector3();
-  let before = 0;
-  return clock.tween(seconds, (k) => {
-    const tip = swordTip(fighter);
-    figure.getWorldPosition(at);
-    const dx = tip.x - at.x;
-    const dz = tip.z - at.z;
-    const c = Math.cos(figure.rotation.y);
-    const sn = Math.sin(figure.rotation.y);
-    path.push({ t: before, x: dx * c - dz * sn, y: tip.y - at.y, z: dx * sn + dz * c });
-    before = k * seconds;
-  }).then(() => path);
+// La hoja de la espada de un luchador, ahora, en el mundo: [guarda, punta]. La guarda, a BLADE_FROM de lo que mide
+// del puño a la punta (la cruz).
+export function bladeOf(fighter) {
+  const sword = fighter.props.sword;
+  const top = fighter.swordEnds.top;
+  return [sword.localToWorld(new THREE.Vector3(0, top * BLADE_FROM, 0)), sword.localToWorld(new THREE.Vector3(0, top, 0))];
+}
+const BLADE_FROM = 0.15;
+
+// EL CUERPO, EN PIEZAS (para que la espada lo toque donde debe, `sword-contact.js`): la cabeza, el tronco, la cadera,
+// los hombros, los brazos y las piernas, en cápsulas que van de hueso a hueso con su grueso (en alturas del
+// luchador); y el escudo, si lo lleva a la vista, como una placa. Cada una dice de qué miembro es (`limb`). Un
+// miembro cortado (su hueso encogido) se queda en una bola en el muñón.
+const BODY = {
+  head: { from: 0.05, to: 0.13, r: 0.075 }, // del hueso de la cabeza hacia arriba, el yelmo
+  torso: 0.065,
+  pelvis: { up: 0.07, r: 0.07 }, // de cadera a cadera, algo por encima de las articulaciones
+  shoulder: 0.055,
+  upperarm: 0.04,
+  forearm: 0.035,
+  thigh: 0.055,
+  calf: 0.045,
+  stump: 0.025, // lo que queda de un miembro cortado: su hueso encoge y la malla del brazo o la pierna se va con él
+};
+export function bodyParts(fighter) {
+  const h = fighter.height;
+  const parts = [];
+  const at = (name) => boneOf(fighter, name)?.getWorldPosition(new THREE.Vector3()) ?? null;
+  const cut = (name) => (boneOf(fighter, name)?.scale.x ?? 1) < 0.01;
+  const capsule = (limb, a, b, r) => {
+    if (a && b) parts.push({ limb, a, b, r: r * h });
+  };
+  const head = at('Head');
+  const neck = at('Neck');
+  const hips = at('Hips');
+  if (head) {
+    const up = neck ? head.clone().sub(neck).normalize() : new THREE.Vector3(0, 1, 0);
+    if (up.y < 0.5) up.set(0, 1, 0);
+    capsule('head', head.clone().addScaledVector(up, BODY.head.from * h), head.clone().addScaledVector(up, BODY.head.to * h), BODY.head.r);
+  }
+  capsule('torso', hips, neck ?? head, BODY.torso);
+  const thighs = ['L', 'R'].map((side) => at(`${side}_Thigh`));
+  if (thighs[0] && thighs[1]) {
+    const up = new THREE.Vector3(0, BODY.pelvis.up * h, 0);
+    capsule('pelvis', thighs[0].clone().add(up), thighs[1].clone().add(up), BODY.pelvis.r);
+  }
+  for (const side of ['L', 'R']) {
+    const arm = `${side}_arm`;
+    const shoulder = at(`${side}_Upperarm`);
+    if (cut(`${side}_Upperarm`)) capsule(arm, shoulder, shoulder, BODY.stump);
+    else {
+      capsule(arm, shoulder, shoulder, BODY.shoulder);
+      capsule(arm, shoulder, at(`${side}_Forearm`), BODY.upperarm);
+      capsule(arm, at(`${side}_Forearm`), at(`${side}_Hand`), BODY.forearm);
+    }
+    const leg = `${side}_leg`;
+    const hip = at(`${side}_Thigh`);
+    if (cut(`${side}_Thigh`)) capsule(leg, hip, hip, BODY.stump);
+    else {
+      capsule(leg, hip, at(`${side}_Calf`), BODY.thigh);
+      capsule(leg, at(`${side}_Calf`), at(`${side}_Foot`), BODY.calf);
+    }
+  }
+  const shield = fighter.props?.shield;
+  if (shield?.visible && shield.parent) parts.push(shieldPlate(shield));
+  return parts;
+}
+
+// El escudo como una placa: su caja (en su propio sistema), con el lado más fino de grueso.
+function shieldPlate(shield) {
+  shield.updateWorldMatrix(true, true);
+  const inverse = shield.matrixWorld.clone().invert();
+  const box = new THREE.Box3();
+  const local = new THREE.Matrix4();
+  shield.traverse((o) => {
+    if (!o.isMesh) return;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    local.multiplyMatrices(inverse, o.matrixWorld);
+    box.union(o.geometry.boundingBox.clone().applyMatrix4(local));
+  });
+  const size = box.getSize(new THREE.Vector3());
+  const e = shield.matrixWorld.elements;
+  const axes = [new THREE.Vector3(e[0], e[1], e[2]), new THREE.Vector3(e[4], e[5], e[6]), new THREE.Vector3(e[8], e[9], e[10])];
+  const half = [size.x, size.y, size.z].map((x, k) => (x * axes[k].length()) / 2);
+  const [n, u, v] = [0, 1, 2].sort((a, b) => half[a] - half[b]);
+  return {
+    limb: 'shield',
+    c: box.getCenter(new THREE.Vector3()).applyMatrix4(shield.matrixWorld),
+    u: axes[u].clone().normalize(),
+    v: axes[v].clone().normalize(),
+    hu: half[u],
+    hv: half[v],
+    r: half[n],
+  };
+}
+
+// Espera a que la hoja toque y dice dónde. Cada fotograma mide `measure()` → { gap, point, crossed }: lo que le
+// falta para tocar (negativo, ya dentro), dónde, y si se ha cruzado con otra hoja desde el anterior. El reloj corre
+// ANTES de que las piezas pongan la postura del fotograma, así que lo que se mide es el anterior, y lo que se haga al
+// resolverse se ve uno después: sale ya si, a lo que se acerca por fotograma, le falta menos de AHEAD fotogramas (al
+// bajar, la hoja acelera; esperando a uno, la congelación del golpe la pillaba ya pasada al otro lado). Si, pasado
+// `after`, la hoja pasa de largo sin llegar a tocar, sale en lo más cerca; y como mucho espera `seconds`.
+const NEAR = 0.15;
+const AHEAD = 1.5;
+export function untilTouch(clock, measure, { seconds, after = 0 }) {
+  const start = clock.now;
+  return new Promise((resolve) => {
+    let done = false;
+    let before = null;
+    clock.tween(seconds, (k) => {
+      if (done) return;
+      const now = measure();
+      const closing = before ? before.gap - now.gap : 0; // lo que se ha acercado en un fotograma
+      let point = null;
+      if (now.gap <= 0 || now.crossed) point = now.point;
+      else if (closing > 0 && now.gap <= closing * AHEAD) point = now.point.clone().lerp(before.point, -now.gap / closing);
+      else if (before && clock.now - start >= after && closing < 0 && before.gap < NEAR) point = before.point;
+      else if (k >= 1) point = now.point;
+      before = now;
+      if (!point) return;
+      done = true;
+      resolve(point);
+    });
+  });
+}
+
+// Lo que mide `untilTouch` cuando chocan dos espadas: lo que les falta a las hojas para tocarse y el punto de en
+// medio; y si se han cruzado entre dos fotogramas (cambia el lado por el que pasa una de la otra).
+export function bladesMeet(mine, his) {
+  let before = null;
+  return () => {
+    const [g1, p1] = bladeOf(mine);
+    const [g2, p2] = bladeOf(his);
+    const d = segmentDistance(g1, p1, g2, p2);
+    const through = crossed(before, d);
+    before = d;
+    return { gap: d.distance - BLADE_TOUCH, crossed: through, point: new THREE.Vector3((d.a.x + d.b.x) / 2, (d.a.y + d.b.y) / 2, (d.a.z + d.b.z) / 2) };
+  };
+}
+
+// Lo que mide `untilTouch` cuando la espada de `mine` va a por el cuerpo de `his`: lo que le falta a la hoja para
+// tocar la pieza más cercana y el punto de la hoja que la toca.
+export function bladeIntoBody(mine, his) {
+  return () => {
+    const [g, p] = bladeOf(mine);
+    const touch = bodyGap(g, p, bodyParts(his));
+    return { gap: touch.gap, crossed: false, point: new THREE.Vector3(touch.point.x, touch.point.y, touch.point.z) };
+  };
 }
 
 // Espera a que la punta de la espada, bajando, pase por la altura `y` (del mundo), y como mucho `seconds`.
@@ -323,42 +452,91 @@ export async function stepTo(clock, fighter, to, facing) {
   const figure = fighter.figure;
   const from = { x: figure.position.x, z: figure.position.z };
   const d = Math.hypot(to.x - from.x, to.z - from.z);
-  if (d < 0.02) return;
+  // Y se va girando por el camino (por el lado corto) hasta mirar hacia `facing`, en vez de girarse de golpe al llegar.
+  const start = figure.rotation.y;
+  const turn = Math.atan2(Math.sin(facing - start), Math.cos(facing - start));
+  if (d < 0.02 && Math.abs(turn) < 0.02) {
+    figure.rotation.y = facing;
+    return;
+  }
   const walking = d > WALK_FROM;
   if (walking) fighter.play('walk', { fade: 0.12 });
   await clock.tween(STEP_SECONDS + (walking ? d * 0.6 : 0), (k) => {
     const e = k * k * (3 - 2 * k);
     figure.position.x = from.x + (to.x - from.x) * e;
     figure.position.z = from.z + (to.z - from.z) * e;
+    figure.rotation.y = start + turn * e;
   });
   figure.rotation.y = facing;
   if (walking) fighter.play('idle', { fade: 0.15 });
 }
 
+// Un paso hasta `to` ({x, z}) rodeando a quien está en `center`: en línea recta, para pasar a su otro costado lo
+// atravesaría. La distancia y el ángulo alrededor de él van a la vez de lo que eran a lo que tienen que ser; por el
+// camino se va girando hacia donde anda, y al llegar mira hacia `facing`. Si es poco, un paso normal (`stepTo`).
+const CIRCLE_FROM = 0.4; // a partir de este rodeo (en arco), se rodea
+export async function circleTo(clock, fighter, center, to, facing) {
+  const figure = fighter.figure;
+  const r0 = Math.hypot(figure.position.x - center.x, figure.position.z - center.z);
+  const r1 = Math.hypot(to.x - center.x, to.z - center.z);
+  const b0 = Math.atan2(figure.position.x - center.x, figure.position.z - center.z);
+  const wrap = (x) => Math.atan2(Math.sin(x), Math.cos(x));
+  const turnAround = wrap(Math.atan2(to.x - center.x, to.z - center.z) - b0); // lo que lo rodea, por el lado corto
+  const length = Math.abs(turnAround) * ((r0 + r1) / 2) + Math.abs(r1 - r0);
+  if (length < CIRCLE_FROM) return stepTo(clock, fighter, to, facing);
+  const yaw0 = wrap(figure.rotation.y - (b0 + Math.PI)); // lo que no mira al centro, al salir…
+  const yaw1 = wrap(facing - (b0 + turnAround + Math.PI)); // …y al llegar
+  const ahead = -Math.sign(turnAround) * (Math.PI / 2); // hacia donde anda, respecto a mirar al centro
+  fighter.play('walk', { fade: 0.12 });
+  await clock.tween(STEP_SECONDS + length * 0.6, (k) => {
+    const e = k * k * (3 - 2 * k);
+    const b = b0 + turnAround * e;
+    const r = r0 + (r1 - r0) * e;
+    figure.position.x = center.x + Math.sin(b) * r;
+    figure.position.z = center.z + Math.cos(b) * r;
+    const walking = Math.min(1, k / 0.25, (1 - k) / 0.25);
+    figure.rotation.y = b + Math.PI + yaw0 + (yaw1 - yaw0) * e + ahead * walking;
+  });
+  figure.rotation.y = facing;
+  fighter.play('idle', { fade: 0.15 });
+}
+
 // EL TAJO, ENSAYADO. Por dónde pasa de verdad la punta de la espada de `fighter` en el golpe `clip` ({ t, x,
-// y, z }, en su sistema: desde sus pies y mirando hacia +Z), ensayado sin que se vea ni se oiga: se juega
-// entero en la pieza de verdad entre dos fotogramas (sin pintar y sin su voz), se apunta la punta en cada
-// paso y se vuelve a como estaba. La medida de `strikes.js` es con una pieza de prueba y no coincide del
-// todo con la de la partida: en el casco del peón, el tajo caía un palmo corto.
-export function rehearseBlade(fighter, clip, { fade = 0.15, fps = 60 } = {}) {
+// y, z }, en su sistema: desde sus pies y mirando hacia +Z; y su guarda, { gx, gy, gz }, para tener la hoja
+// entera), ensayado sin que se vea ni se oiga: se juega entero en la pieza de verdad entre dos fotogramas
+// (sin pintar y sin su voz), se apunta la hoja en cada paso y se vuelve a como estaba. La medida de
+// `strikes.js` es con una pieza de prueba y no coincide del todo con la de la partida: en el casco del peón,
+// el tajo caía un palmo corto.
+// `from`: desde qué segundo del clip (como `playOnce`), para ensayarlo como se jugará. `raise`: antes, lo que tarda en
+// levantar el arma desde el reposo, fundiendo a la postura de `from` quieta (los tajos del duelo de caballeros); esas
+// muestras van con su tiempo antes de `from`.
+export function rehearseBlade(fighter, clip, { fade = 0.15, fps = 60, from = 0, raise = 0 } = {}) {
   const voz = fighter.onPlay;
   fighter.onPlay = null;
   try {
-    const action = fighter.play('attack', { loop: false, fade, clip });
+    const action = fighter.play('attack', { loop: false, fade: raise || fade, clip });
     if (!action) return null;
+    if (from > 0) action.time = from;
+    action.paused = raise > 0;
     const at = fighter.figure.getWorldPosition(new THREE.Vector3());
     const f = fighter.figure.rotation.y;
     const c = Math.cos(f);
     const sn = Math.sin(f);
-    const frames = Math.ceil(action.getClip().duration * fps);
+    const frames = Math.ceil((raise + action.getClip().duration - from) * fps);
     const path = [];
     for (let i = 0; i <= frames; i++) {
+      if (action.paused && i / fps >= raise) action.paused = false;
       fighter.update(i ? 1 / fps : 0);
       fighter.object.updateMatrixWorld(true);
-      const tip = swordTip(fighter);
+      const [guard, tip] = bladeOf(fighter);
       const dx = tip.x - at.x;
       const dz = tip.z - at.z;
-      path.push({ t: action.time, x: dx * c - dz * sn, y: tip.y - at.y, z: dx * sn + dz * c });
+      const gx = guard.x - at.x;
+      const gz = guard.z - at.z;
+      path.push({
+        t: action.paused ? from - raise + i / fps : action.time, x: dx * c - dz * sn, y: tip.y - at.y, z: dx * sn + dz * c,
+        gx: gx * c - gz * sn, gy: guard.y - at.y, gz: gx * sn + gz * c,
+      });
     }
     return path;
   } finally {
